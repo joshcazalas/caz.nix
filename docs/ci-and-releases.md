@@ -24,8 +24,10 @@ scan staged changes with the same pinned Gitleaks package. This is the fast
 local guardrail; CI's full-history scan remains the authoritative backstop.
 
 GitHub Actions are pinned to full commit hashes. Dependabot updates those pins
-in a dedicated weekly PR. The Nix cache stays inside GitHub Actions; diagnostic
-reporting and FlakeHub integration are disabled.
+in a dedicated weekly PR. Jobs use the runner-local Nix store but deliberately
+do not export it through a persistent Actions cache: complete builds take only
+about four minutes, while cache finalization proved capable of wedging an
+otherwise successful job until its timeout.
 
 The complete server closure exceeds the standard private runner's 14 GB disk.
 Before installing Nix, CI conservatively reserves the runner's otherwise-unused
