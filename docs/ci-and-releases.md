@@ -73,7 +73,11 @@ and traceable if several changes land on one day. A release contains:
 - full closure metadata for the server and WSL profile;
 - server SBOMs in CycloneDX and SPDX JSON, plus a readable CSV inventory;
 - Nix-derived SLSA provenance for the server closure;
-- SHA-256 checksums and release notes.
+- SHA-256 checksums and downloadable release notes.
+
+The publisher verifies `SHA256SUMS` before creating the draft release. Every
+listed file, including `RELEASE_NOTES.md`, is uploaded and covered by GitHub's
+keyless artifact attestation.
 
 Nix store paths are content-addressed, immutable build identities. The release
 records them but does not upload the entire server closure. GitHub also provides
