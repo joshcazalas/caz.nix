@@ -25,15 +25,18 @@ cleanup() {
 }
 
 on_error() {
-  local exit_code=$?
-  local line_number=$1
-  printf '\nBootstrap stopped at line %s (exit %s). Fix the reported problem and rerun; completed steps are safe to repeat.\n' \
-    "$line_number" "$exit_code" >&2
+  local exit_code=$1
+  local line_number=$2
+  local command=$3
+
+  trap - ERR
+  printf '\nBootstrap stopped at line %s (exit %s) while running:\n  %s\nFix the reported problem and rerun; completed steps are safe to repeat.\n' \
+    "$line_number" "$exit_code" "$command" >&2
   exit "$exit_code"
 }
 
 trap cleanup EXIT
-trap 'on_error "$LINENO"' ERR
+trap 'on_error "$?" "$LINENO" "$BASH_COMMAND"' ERR
 
 say() {
   printf '\n==> %s\n' "$*"
@@ -128,7 +131,7 @@ ensure_systemd() {
   local init_name
   init_name="$(ps -p 1 -o comm= | tr -d '[:space:]')"
   if [[ "$init_name" == "systemd" ]]; then
-    return
+    return 0
   fi
 
   say "WSL systemd setup is required"
@@ -181,7 +184,7 @@ install_prerequisites() {
   dpkg-query -W -f='${Status}' ca-certificates 2>/dev/null | grep -q 'install ok installed' ||
     packages+=(ca-certificates)
 
-  ((${#packages[@]} > 0)) || return
+  ((${#packages[@]} > 0)) || return 0
 
   say "Ubuntu prerequisites"
   note "Missing apt packages: ${packages[*]}"
@@ -206,7 +209,7 @@ find_public_key() {
 
   if [[ -f "$HOME/.ssh/id_ed25519.pub" ]]; then
     printf '%s\n' "$HOME/.ssh/id_ed25519.pub"
-    return
+    return 0
   fi
 
   shopt -s nullglob
@@ -215,7 +218,7 @@ find_public_key() {
   for key in "${public_keys[@]}"; do
     if grep -q '^ssh-ed25519 ' "$key"; then
       printf '%s\n' "$key"
-      return
+      return 0
     fi
   done
 
@@ -258,7 +261,7 @@ ensure_github_ssh_access() {
   fi
   if git ls-remote "$REPO_URL" HEAD >/dev/null; then
     note "GitHub accepted the existing SSH identity."
-    return
+    return 0
   fi
 
   public_key="$(find_public_key || true)"
@@ -290,7 +293,7 @@ EOF
   for attempt in 1 2 3; do
     if git ls-remote "$REPO_URL" HEAD >/dev/null; then
       note "GitHub SSH authentication succeeded."
-      return
+      return 0
     fi
     ((attempt == 3)) && break
     warn "GitHub still rejected the key. Check the uploaded key and try again."
@@ -310,7 +313,7 @@ ensure_repository() {
     [[ "$remote_url" == "$REPO_URL" ]] ||
       warn "The existing checkout uses origin '$remote_url' rather than '$REPO_URL'."
     note "Using existing checkout: $REPO_DIR"
-    return
+    return 0
   fi
 
   say "Cloning caz.nix"
@@ -338,7 +341,7 @@ install_nix() {
   load_nix_environment
   if command -v nix >/dev/null 2>&1; then
     note "Nix is already installed: $(nix --version)"
-    return
+    return 0
   fi
 
   say "Install the Nix package manager"
@@ -371,7 +374,7 @@ install_docker() {
 
   if [[ "$SKIP_DOCKER" == true ]]; then
     note "Docker installation skipped by request."
-    return
+    return 0
   fi
 
   if dpkg-query -W -f='${Status}' docker-ce 2>/dev/null | grep -q 'install ok installed'; then
@@ -381,7 +384,7 @@ install_docker() {
     note "This uses Docker's official Ubuntu apt repository, not Docker Desktop."
     confirm "Install Docker Engine, Buildx, and the Compose plugin?" || {
       note "Docker installation skipped. Rerun without --skip-docker when ready."
-      return
+      return 0
     }
 
     # shellcheck disable=SC1091
