@@ -34,7 +34,6 @@
     btop
     eza
     fd
-    fzf
     gh
     jq
     ripgrep

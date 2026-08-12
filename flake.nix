@@ -36,9 +36,20 @@
       specialArgs = {
         inherit inputs settings unstablePkgs;
       };
+      wslHome = home-manager.lib.homeManagerConfiguration {
+        inherit pkgs;
+        extraSpecialArgs = specialArgs;
+        modules = [ ./hosts/cazpc/home.nix ];
+      };
     in
     {
       formatter.${system} = pkgs.nixfmt-tree;
+
+      packages.${system}.home-manager = home-manager.packages.${system}.home-manager;
+      apps.${system}.home-manager = {
+        type = "app";
+        program = "${home-manager.packages.${system}.home-manager}/bin/home-manager";
+      };
 
       devShells.${system}.default = pkgs.mkShell {
         packages = with pkgs; [
@@ -52,10 +63,11 @@
         ];
       };
 
-      homeConfigurations."${settings.user.name}@cazpc" = home-manager.lib.homeManagerConfiguration {
-        inherit pkgs;
-        extraSpecialArgs = specialArgs;
-        modules = [ ./hosts/cazpc/home.nix ];
+      homeConfigurations = {
+        # `@wsl` is the portable profile name. Keep `@cazpc` as a compatible
+        # alias for commands already documented or used on this laptop.
+        "${settings.user.name}@wsl" = wslHome;
+        "${settings.user.name}@cazpc" = wslHome;
       };
 
       nixosConfigurations.${settings.server.hostName} = nixpkgs.lib.nixosSystem {
@@ -69,7 +81,7 @@
 
       checks.${system} = {
         homeserver = self.nixosConfigurations.${settings.server.hostName}.config.system.build.toplevel;
-        cazpc-home = self.homeConfigurations."${settings.user.name}@cazpc".activationPackage;
+        wsl-home = self.homeConfigurations."${settings.user.name}@wsl".activationPackage;
       };
     };
 }

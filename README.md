@@ -3,7 +3,8 @@
 One repository, one flake, and separate machine outputs:
 
 - `nixosConfigurations.homeserver` owns the complete NixOS server.
-- `homeConfigurations."joshcaz@cazpc"` owns the Ubuntu/WSL user environment.
+- `homeConfigurations."joshcaz@wsl"` owns the portable Ubuntu/WSL user environment.
+- `homeConfigurations."joshcaz@cazpc"` remains an alias for the same profile.
 - Project-specific versions still belong in each project's `devShell`; the
   Home Manager profile is only the useful baseline.
 
@@ -21,6 +22,22 @@ The stable NixOS and Home Manager branches are pinned in `flake.lock` once Nix
 first evaluates the repo. Developer toolchains come from a separately pinned
 `nixos-unstable` input so the baseline can track current Node, Go, Rust, uv, and
 OpenTofu without moving the server onto unstable.
+
+## Development shell experience
+
+The WSL profile keeps Bash as the actual shell while adding modern interactive
+behavior:
+
+- ble.sh supplies syntax highlighting and Right-Arrow ghost suggestions;
+- Atuin supplies local full-screen history on Up Arrow and Ctrl-R;
+- fzf supplies fuzzy file, directory, and completion selection;
+- Starship supplies a restrained cross-shell prompt;
+- zoxide learns frequently used directories without replacing `cd`.
+
+Atuin sync, its update network check, and its AI features are explicitly off.
+The ble.sh integration is the only experimental component and can be disabled
+with one option in `hosts/cazpc/home.nix`; the other tools then fall back to
+their standard Bash integrations.
 
 ## Initial service set
 
@@ -75,25 +92,26 @@ settings.nix                      user, host, domain, exposure toggle
 hosts/cazpc/                      Ubuntu/WSL Home Manager profile
 hosts/homeserver/                 NixOS host and disk-label contract
 modules/home/                     shared CLI and developer packages
+bootstrap/README.md               manual prerequisites and recovery notes
+bootstrap/wsl.sh                  interactive new-WSL bootstrap
 modules/nixos/                    storage, network, and service modules
 secrets/                          sops-nix workflow; encrypted files only
-docs/bootstrap-wsl.md             set up this laptop's WSL environment
+docs/bootstrap-wsl.md             short WSL command reference
 docs/install-server.md            safe installation-day checklist
 docs/remote-access.md             DNS, HTTPS, Jellyfin, and WireGuard plan
 ```
 
 ## What can be done now
 
-1. Install Nix in WSL using [`docs/bootstrap-wsl.md`](docs/bootstrap-wsl.md).
-2. Run `nix flake lock` and `nix flake check --no-build` from this directory.
-3. Apply the development profile with:
+1. Follow [`bootstrap/README.md`](bootstrap/README.md) on a new WSL device.
+2. Run the guided bootstrap from this directory:
 
    ```bash
-   nix run home-manager/release-26.05 -- switch --flake .#joshcaz@cazpc
+   ./bootstrap/wsl.sh
    ```
 
-4. Create an empty private GitHub repository and add it as this directory's
-   `origin`, or provide its SSH URL so that step can be completed here.
+3. Open a new Ubuntu terminal and rate the Bash experience. If ble.sh is not a
+   net improvement, disable only `caz.shell.blesh.enable` and switch again.
 
 Do not enable public Jellyfin until the domain is replaced in `settings.nix`,
 DNS is configured, and the deployment checklist has been completed.
@@ -103,7 +121,7 @@ DNS is configured, and the deployment checklist has been completed.
 ```bash
 nix fmt
 nix flake check --no-build
-home-manager switch --flake .#joshcaz@cazpc
+home-manager switch --flake .#joshcaz@wsl
 sudo nixos-rebuild switch --flake .#homeserver
 nix flake update
 ```
