@@ -12,6 +12,10 @@ in
     ble.sh's Fish-like autosuggestions and syntax-aware line editor
   '';
 
+  options.caz.shell.fonts.enable = lib.mkEnableOption ''
+    Meslo LG Nerd Font for graphical applications running inside Linux
+  '';
+
   config = {
     programs.bash = {
       enable = true;
@@ -60,25 +64,7 @@ in
     programs.starship = {
       enable = true;
       enableBashIntegration = true;
-      settings = {
-        add_newline = false;
-        command_timeout = 1000;
-        format = "$directory$git_branch$git_status$nix_shell$nodejs$golang$rust$python$line_break$character";
-        character = {
-          success_symbol = "[>](bold green)";
-          error_symbol = "[>](bold red)";
-        };
-        directory = {
-          truncation_length = 4;
-          truncate_to_repo = false;
-        };
-        git_branch.symbol = "git:";
-        golang.symbol = "go ";
-        nix_shell.symbol = "nix ";
-        nodejs.symbol = "node ";
-        python.symbol = "py ";
-        rust.symbol = "rust ";
-      };
+      settings = builtins.fromTOML (builtins.readFile ./starship-gruvbox-rainbow.toml);
     };
 
     programs.zoxide = {
@@ -86,7 +72,11 @@ in
       enableBashIntegration = true;
     };
 
-    home.packages = lib.optionals cfg.blesh.enable [ pkgs.blesh ];
+    fonts.fontconfig.enable = cfg.fonts.enable;
+
+    home.packages =
+      lib.optionals cfg.blesh.enable [ pkgs.blesh ]
+      ++ lib.optionals cfg.fonts.enable [ pkgs.nerd-fonts.meslo-lg ];
 
     xdg.configFile."nix/nix.conf".text = ''
       experimental-features = nix-command flakes

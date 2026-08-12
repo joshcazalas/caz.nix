@@ -31,10 +31,14 @@ behavior:
 - ble.sh supplies syntax highlighting and Right-Arrow ghost suggestions;
 - Atuin supplies local full-screen history on Up Arrow and Ctrl-R;
 - fzf supplies fuzzy file, directory, and completion selection;
-- Starship supplies a restrained cross-shell prompt;
+- Starship supplies the Gruvbox Rainbow cross-shell prompt;
 - zoxide learns frequently used directories without replacing `cd`.
 
 Atuin sync, its update network check, and its AI features are explicitly off.
+WSL installs Meslo LG Nerd Font for Linux applications through Nix; the guided
+bootstrap separately installs MesloLGL on Windows because Windows Terminal is
+the process that renders WSL text. The same interactive shell and prompt are
+used on the NixOS server, while the connecting client supplies its font.
 The ble.sh integration is the only experimental component and can be disabled
 with one option in `hosts/cazpc/home.nix`; the other tools then fall back to
 their standard Bash integrations.
@@ -92,8 +96,11 @@ settings.nix                      user, host, domain, exposure toggle
 hosts/cazpc/                      Ubuntu/WSL Home Manager profile
 hosts/homeserver/                 NixOS host and disk-label contract
 modules/home/                     shared CLI and developer packages
+modules/home/starship-gruvbox-rainbow.toml
+                                  pinned shared prompt preset
 bootstrap/README.md               manual prerequisites and recovery notes
 bootstrap/wsl.sh                  interactive new-WSL bootstrap
+bootstrap/windows-font.ps1        pinned Windows Meslo font installer
 modules/nixos/                    storage, network, and service modules
 secrets/                          sops-nix workflow; encrypted files only
 docs/bootstrap-wsl.md             short WSL command reference

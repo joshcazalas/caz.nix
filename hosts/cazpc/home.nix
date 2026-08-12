@@ -22,4 +22,5 @@
   # Home Manager again to return to ordinary Bash/Readline without removing
   # Atuin, fzf, Starship, or zoxide.
   caz.shell.blesh.enable = true;
+  caz.shell.fonts.enable = true;
 }

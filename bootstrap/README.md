@@ -9,6 +9,8 @@ The intended result is:
 - the official multi-user Nix installation and `nix-daemon`;
 - this private repository cloned over SSH;
 - Docker Engine running inside Ubuntu, with Buildx and Compose;
+- MesloLGL Nerd Font installed for the current Windows user and selected as
+  the Windows Terminal default;
 - the complete Home Manager development and Bash profile;
 - no Python installation outside uv;
 - local-only Atuin history with its network and AI features disabled.
@@ -108,6 +110,10 @@ The script clearly asks before each system-level change. It may:
 - run Nix's official installer from <https://nixos.org/nix/install>;
 - add Docker's official Ubuntu apt signing key and repository;
 - install Docker Engine packages and add `joshcaz` to the `docker` group;
+- run [`windows-font.ps1`](windows-font.ps1) through WSL interoperability to
+  install MesloLGL Nerd Font for the current Windows user;
+- back up and update existing Windows Terminal settings so MesloLGL is the
+  default font;
 - clone this repository when it is not already available;
 - run `nix flake check --no-build` and the pinned Home Manager CLI;
 - preserve any colliding unmanaged dotfiles with a timestamped
@@ -117,22 +123,47 @@ Membership in the `docker` group is effectively root-level access inside the
 WSL distribution. This is a deliberate convenience for this single-user
 development environment, not a security boundary.
 
-It does not install or configure Windows software, upload private keys, create
-a GitHub token, enable Atuin sync, or overwrite an unrelated repository
-directory. The guided SSH step may copy a public key to the Windows clipboard
-and open GitHub in the default Windows browser.
+The font archive is pinned to Nerd Fonts 3.4.0, downloaded directly from its
+official GitHub release, and verified against the SHA-256 checksum recorded in
+the PowerShell script. Font installation is per-user and does not require an
+administrator account. Existing Windows Terminal settings are preserved beside
+the original file with a timestamped `.pre-caz-nix-*` suffix before any change.
 
-Use a different checkout path or omit Docker when needed:
+It does not upload private keys, create a GitHub token, enable Atuin sync, or
+overwrite an unrelated repository directory. The guided SSH step may copy a
+public key to the Windows clipboard and open GitHub in the default Windows
+browser.
+
+Use a different checkout path or omit an optional host integration when needed:
 
 ```bash
 ./bootstrap/wsl.sh --repo-dir ~/src/caz.nix
 ./bootstrap/wsl.sh --skip-docker
+./bootstrap/wsl.sh --skip-windows-font
 ```
+
+### Rerunning safely
+
+The bootstrap is intended to reconcile an existing machine as well as create a
+new one. On a configured machine it skips apt, SSH clone authentication, Nix,
+Docker, and Windows font installation when their expected state is already
+present. It always reevaluates the flake and runs Home Manager so repository
+changes are applied; that may download newly declared Nix packages and create a
+new Home Manager generation, but it does not reinstall the system components.
+
+The Windows helper also checks both parts independently. If MesloLGL is already
+installed manually, it skips the 107 MB font download and only offers to update
+Windows Terminal if needed. Once both are configured, that step is a complete
+no-op on later runs.
 
 ## After bootstrap
 
 Open a fresh Ubuntu terminal so Bash loads the new generation. If Docker group
 membership was added, first run `wsl.exe --shutdown` from PowerShell.
+
+The Gruvbox Rainbow prompt expects `MesloLGL Nerd Font`. If Windows Terminal was
+open while its defaults changed, open a new tab or restart Terminal before
+judging the result.
 
 Useful checks:
 

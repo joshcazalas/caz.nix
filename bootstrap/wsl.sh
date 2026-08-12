@@ -15,6 +15,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT_REPO_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 REPO_DIR=""
 SKIP_DOCKER=false
+SKIP_WINDOWS_FONT=false
 NIX_INSTALLER=""
 DOCKER_GROUP_CHANGED=false
 
@@ -81,6 +82,8 @@ Options:
   --repo-dir PATH  Use or clone the repository at PATH.
                    Default: $DEFAULT_REPO_DIR
   --skip-docker    Do not install or configure Docker Engine.
+  --skip-windows-font
+                   Do not install MesloLGL Nerd Font or configure Windows Terminal.
   -h, --help       Show this help.
 
 The script is idempotent: rerunning it skips completed installation steps and
@@ -97,6 +100,10 @@ while (($# > 0)); do
       ;;
     --skip-docker)
       SKIP_DOCKER=true
+      shift
+      ;;
+    --skip-windows-font)
+      SKIP_WINDOWS_FONT=true
       shift
       ;;
     -h | --help)
@@ -255,6 +262,10 @@ ensure_github_ssh_access() {
   local attempt
 
   say "Checking GitHub SSH access"
+  if [[ -d "$REPO_DIR/.git" ]]; then
+    note "An existing checkout is available; skipping the clone authentication check."
+    return 0
+  fi
   if ! ssh-keygen -F github.com >/dev/null 2>&1; then
     note "If SSH asks to trust GitHub, compare the fingerprint with:"
     note "$GITHUB_FINGERPRINTS_URL"
@@ -377,6 +388,14 @@ install_docker() {
     return 0
   fi
 
+  if dpkg-query -W -f='${Status}' docker-ce 2>/dev/null | grep -q 'install ok installed' \
+    && systemctl is-enabled --quiet docker \
+    && systemctl is-active --quiet docker \
+    && id -nG "$USER" | tr ' ' '\n' | grep -qx docker; then
+    note "Docker Engine is already installed, enabled, running, and available to $USER."
+    return 0
+  fi
+
   if dpkg-query -W -f='${Status}' docker-ce 2>/dev/null | grep -q 'install ok installed'; then
     note "Docker Engine is already installed."
   else
@@ -428,6 +447,42 @@ EOF
   note "Docker daemon is running."
 }
 
+setup_windows_font() {
+  local windows_script
+  local check_status
+
+  if [[ "$SKIP_WINDOWS_FONT" == true ]]; then
+    note "Windows font setup skipped by request."
+    return 0
+  fi
+  if ! command -v powershell.exe >/dev/null 2>&1; then
+    warn "powershell.exe is unavailable; skipping Windows Meslo font setup."
+    return 0
+  fi
+
+  windows_script="$(wslpath -w "$REPO_DIR/bootstrap/windows-font.ps1")"
+  if powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass \
+    -File "$windows_script" -Check -ConfigureWindowsTerminal; then
+    note "MesloLGL Nerd Font and Windows Terminal are already configured."
+    return 0
+  else
+    check_status=$?
+  fi
+  [[ "$check_status" -eq 10 ]] ||
+    die "The Windows font prerequisite check failed with exit $check_status."
+
+  say "Windows terminal font"
+  note "This installs the checksum-pinned MesloLGL Nerd Font for the current Windows user."
+  note "Windows Terminal settings are backed up before its default font is changed."
+  confirm "Install or configure the Windows terminal font now?" || {
+    note "Windows font setup skipped. Use --skip-windows-font to suppress this prompt."
+    return 0
+  }
+
+  powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass \
+    -File "$windows_script" -ConfigureWindowsTerminal
+}
+
 activate_home_manager() {
   local flake_ref="$REPO_DIR#$HOME_PROFILE"
   local backup_extension
@@ -455,6 +510,7 @@ Bootstrap complete.
 
 Repository:   $REPO_DIR
 Home profile: $HOME_PROFILE
+Prompt:       Gruvbox Rainbow with MesloLGL Nerd Font
 
 Open a fresh Ubuntu terminal to load the new Bash environment. Useful first
 checks in that new terminal:
@@ -493,6 +549,7 @@ main() {
   select_repo_dir
   ensure_github_ssh_access
   ensure_repository
+  setup_windows_font
   install_nix
   install_docker
   activate_home_manager
