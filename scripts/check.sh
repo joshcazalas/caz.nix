@@ -21,4 +21,7 @@ mapfile -d '' shell_files < <(
 shellcheck "${shell_files[@]}"
 
 echo "==> Linting GitHub Actions workflows"
-actionlint
+# GitHub supports `concurrency.queue`, but actionlint 1.7.12 does not know
+# about it yet. Ignore only that specific schema false positive; all other
+# workflow diagnostics remain fatal.
+actionlint -ignore 'unexpected key "queue" for "concurrency" section'
