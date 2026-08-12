@@ -36,9 +36,7 @@ in
     (lib.mkIf cfg.enable {
       networking.wg-quick.interfaces.wg0 = {
         address = [ cfg.address ];
-        listenPort = cfg.listenPort;
-        privateKeyFile = cfg.privateKeyFile;
-        peers = cfg.peers;
+        inherit (cfg) listenPort privateKeyFile peers;
       };
       networking.firewall.allowedUDPPorts = [ cfg.listenPort ];
     })

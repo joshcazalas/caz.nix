@@ -1,0 +1,84 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build and publish
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      attestations: write
+      contents: write
+      id-token: write
+
+    steps:
+      - name: Check out the complete history
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@8aa03977d8d733052d78f4e008a241fd1dbf36b3 # v31.10.6
+
+      - name: Restore the Nix build cache
+        uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+        with:
+          diagnostic-endpoint: ""
+          use-flakehub: false
+
+      - name: Check formatting, source, and workflows
+        run: nix develop --command ./scripts/check.sh
+
+      - name: Scan the complete Git history for secrets
+        run: nix develop --command ./scripts/secret-scan.sh
+
+      - name: Evaluate and build every declared output
+        run: nix flake check --print-build-logs
+
+      - name: Choose the immutable release identity
+        id: release
+        env:
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          short_sha="${COMMIT_SHA:0:12}"
+          tag="caz.nix-$(date -u +%Y.%m.%d)-g${short_sha}"
+          directory=".release/${tag}"
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+          echo "directory=${directory}" >> "${GITHUB_OUTPUT}"
+
+      - name: Build SBOMs and traceability artifacts
+        env:
+          RELEASE_DIRECTORY: ${{ steps.release.outputs.directory }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: >-
+          nix develop .#release --command ./scripts/build-release-artifacts.sh
+          "${RELEASE_TAG}" "${RELEASE_DIRECTORY}"
+
+      # Artifact attestations are included on public repositories with GitHub
+      # Free. The release still works while the repository remains private.
+      - name: Attest the release artifacts
+        if: github.event.repository.private == false
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
+        with:
+          subject-path: ${{ steps.release.outputs.directory }}/*
+
+      - name: Publish the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_DIRECTORY: ${{ steps.release.outputs.directory }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: ./scripts/publish-release.sh "${RELEASE_TAG}" "${RELEASE_DIRECTORY}"

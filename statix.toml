@@ -1,0 +1,3 @@
+# Dotted module-option assignments are intentional and idiomatic in this repo.
+disabled = ["repeated_keys"]
+ignore = [".direnv", ".release"]

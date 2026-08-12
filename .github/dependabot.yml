@@ -1,0 +1,36 @@
+version: 2
+
+updates:
+  # Dependabot's Nix updater currently supports public repositories. This entry
+  # becomes active when caz.nix is made public; see docs/ci-and-releases.md.
+  - package-ecosystem: nix
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:17"
+      timezone: America/Chicago
+    groups:
+      flake-inputs:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 1
+    commit-message:
+      prefix: "deps(nix)"
+
+  # Action updates work for both private and public repositories. Keep them in
+  # a separate PR so changes to CI's trusted code are especially easy to audit.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:47"
+      timezone: America/Chicago
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 1
+    commit-message:
+      prefix: "deps(actions)"

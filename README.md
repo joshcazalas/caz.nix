@@ -106,6 +106,9 @@ secrets/                          sops-nix workflow; encrypted files only
 docs/bootstrap-wsl.md             short WSL command reference
 docs/install-server.md            safe installation-day checklist
 docs/remote-access.md             DNS, HTTPS, Jellyfin, and WireGuard plan
+docs/ci-and-releases.md           update, validation, SBOM, and release design
+docs/publication-checklist.md     safe path from private to public
+scripts/                          local CI, secret scan, and release tooling
 ```
 
 ## What can be done now
@@ -135,6 +138,13 @@ nix flake update
 
 Run `nix flake update` intentionally and review changes before switching the
 server. The lock file, once generated, belongs in Git.
+
+Dependabot will propose grouped weekly lock-file updates after the repository
+becomes public. Each reviewed merge to `main` produces a dated `caz.nix-*`
+release with SBOMs, provenance, closure metadata, and checksums. See
+[`docs/ci-and-releases.md`](docs/ci-and-releases.md) for the complete model and
+[`docs/publication-checklist.md`](docs/publication-checklist.md) before changing
+repository visibility.
 
 Omit `--no-build` when you intentionally want to build both the full NixOS
 system closure and Home Manager generation, not merely evaluate them.

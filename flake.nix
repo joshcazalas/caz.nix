@@ -36,6 +36,16 @@
       specialArgs = {
         inherit inputs settings unstablePkgs;
       };
+      qualityPackages = with pkgs; [
+        actionlint
+        deadnix
+        gitleaks
+        jq
+        nil
+        nixfmt
+        shellcheck
+        statix
+      ];
       wslHome = home-manager.lib.homeManagerConfiguration {
         inherit pkgs;
         extraSpecialArgs = specialArgs;
@@ -51,16 +61,19 @@
         program = "${home-manager.packages.${system}.home-manager}/bin/home-manager";
       };
 
-      devShells.${system}.default = pkgs.mkShell {
-        packages = with pkgs; [
-          age
-          deadnix
-          nil
-          nixfmt
-          shellcheck
-          sops
-          statix
-        ];
+      devShells.${system} = {
+        default = pkgs.mkShell {
+          packages =
+            qualityPackages
+            ++ (with pkgs; [
+              age
+              sops
+            ]);
+        };
+
+        release = pkgs.mkShell {
+          packages = qualityPackages ++ [ pkgs.sbomnix ];
+        };
       };
 
       homeConfigurations = {

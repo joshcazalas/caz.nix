@@ -4,3 +4,4 @@ result
 secrets/*.plain.yaml
 secrets/*.decrypted.yaml
 secrets/*.key
+.release/
