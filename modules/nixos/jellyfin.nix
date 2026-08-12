@@ -35,7 +35,6 @@ in
   # in Jellyfin so native TV and mobile clients work without an Access gateway.
   services.caddy = lib.mkIf publicCfg.jellyfin {
     enable = true;
-    email = settings.user.email;
     virtualHosts."jellyfin.${publicCfg.domain}".extraConfig = ''
       reverse_proxy 127.0.0.1:8096
     '';

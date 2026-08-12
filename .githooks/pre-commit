@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "${repo_root}"
+
+echo "==> Scanning staged changes with Gitleaks"
+
+if command -v gitleaks >/dev/null 2>&1; then
+  exec gitleaks git --staged --no-banner --redact=100 "${repo_root}"
+fi
+
+if ! command -v nix >/dev/null 2>&1; then
+  echo "Gitleaks and Nix are both unavailable; refusing to skip the secret scan." >&2
+  exit 1
+fi
+
+exec nix develop --command \
+  gitleaks git --staged --no-banner --redact=100 "${repo_root}"

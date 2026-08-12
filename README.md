@@ -109,6 +109,7 @@ docs/remote-access.md             DNS, HTTPS, Jellyfin, and WireGuard plan
 docs/ci-and-releases.md           update, validation, SBOM, and release design
 docs/publication-checklist.md     safe path from private to public
 scripts/                          local CI, secret scan, and release tooling
+.githooks/                        tracked local secret-scanning hook
 ```
 
 ## What can be done now

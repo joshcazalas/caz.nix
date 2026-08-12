@@ -19,6 +19,10 @@ Every pull request and every non-main branch push runs one `Validate` job. It:
 3. scans every reachable Git commit with Gitleaks and redacts any match;
 4. builds both the NixOS homeserver closure and WSL Home Manager activation.
 
+Each bootstrapped checkout also uses the tracked `.githooks/pre-commit` hook to
+scan staged changes with the same pinned Gitleaks package. This is the fast
+local guardrail; CI's full-history scan remains the authoritative backstop.
+
 GitHub Actions are pinned to full commit hashes. Dependabot updates those pins
 in a dedicated weekly PR. The Nix cache stays inside GitHub Actions; diagnostic
 reporting and FlakeHub integration are disabled.

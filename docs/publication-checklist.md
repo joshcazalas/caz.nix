@@ -8,7 +8,8 @@ the privacy task generically preserves the purpose of doing it.
 - [ ] Choose a GitHub noreply address for commit authorship.
 - [ ] Optionally create a personal-domain forwarding alias for public contact.
 - [ ] Set the new address in local Git configuration for future commits.
-- [ ] Replace the email metadata and SSH public-key comment in `settings.nix`.
+- [ ] Confirm `settings.nix` uses the GitHub noreply identity and contains no
+      personal SSH public-key comment.
 - [ ] Create a local backup ref pointing to the original private history.
 - [ ] Rewrite every commit author and committer address on a separate branch.
 - [ ] Re-run Gitleaks against all rewritten history.

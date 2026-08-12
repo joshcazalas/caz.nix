@@ -15,7 +15,9 @@ echo "==> Linting Nix"
 statix check .
 
 echo "==> Linting shell scripts"
-mapfile -d '' shell_files < <(find bootstrap scripts -type f -name '*.sh' -print0)
+mapfile -d '' shell_files < <(
+  find bootstrap scripts .githooks -type f \( -name '*.sh' -o -perm -u+x \) -print0
+)
 shellcheck "${shell_files[@]}"
 
 echo "==> Linting GitHub Actions workflows"

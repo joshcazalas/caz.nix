@@ -12,6 +12,7 @@ The intended result is:
 - MesloLGL Nerd Font installed for the current Windows user and selected as
   the Windows Terminal default;
 - the complete Home Manager development and Bash profile;
+- a repository-local pre-commit Gitleaks scan;
 - no Python installation outside uv;
 - local-only Atuin history with its network and AI features disabled.
 
@@ -58,7 +59,7 @@ sudo apt-get update
 sudo apt-get install -y ca-certificates curl git openssh-client xz-utils
 
 install -d -m 0700 ~/.ssh
-ssh-keygen -t ed25519 -a 100 -C "73436834+joshcazalas@users.noreply.github.com" -f ~/.ssh/id_ed25519
+ssh-keygen -t ed25519 -a 100 -C "$(whoami)@$(hostname)" -f ~/.ssh/id_ed25519
 cat ~/.ssh/id_ed25519.pub | clip.exe
 ```
 
@@ -115,6 +116,7 @@ The script clearly asks before each system-level change. It may:
 - back up and update existing Windows Terminal settings so MesloLGL is the
   default font;
 - clone this repository when it is not already available;
+- configure this checkout to use the tracked `.githooks` directory;
 - run `nix flake check --no-build` and the pinned Home Manager CLI;
 - preserve any colliding unmanaged dotfiles with a timestamped
   `.pre-caz-nix-*` suffix before Home Manager creates its managed links.

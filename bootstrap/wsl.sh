@@ -243,7 +243,7 @@ create_ssh_key() {
   elif [[ ! -e "$key_path" ]]; then
     say "Creating an Ed25519 SSH key"
     note "ssh-keygen will ask for an optional passphrase; using one protects the key if the file is copied."
-    ssh-keygen -t ed25519 -a 100 -C "73436834+joshcazalas@users.noreply.github.com" -f "$key_path"
+    ssh-keygen -t ed25519 -a 100 -C "${USER}@$(hostname)" -f "$key_path"
   else
     die "$key_path exists but its public key could not be prepared safely."
   fi
@@ -330,6 +330,12 @@ ensure_repository() {
   say "Cloning caz.nix"
   mkdir -p -- "$(dirname -- "$REPO_DIR")"
   git clone "$REPO_URL" "$REPO_DIR"
+}
+
+configure_repository_hooks() {
+  say "Configure repository Git hooks"
+  git -C "$REPO_DIR" config core.hooksPath .githooks
+  note "Commits in this checkout will scan staged changes with Gitleaks."
 }
 
 load_nix_environment() {
@@ -549,6 +555,7 @@ main() {
   select_repo_dir
   ensure_github_ssh_access
   ensure_repository
+  configure_repository_hooks
   setup_windows_font
   install_nix
   install_docker

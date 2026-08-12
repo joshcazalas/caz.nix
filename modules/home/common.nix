@@ -16,7 +16,7 @@
     settings = {
       user = {
         name = settings.user.name;
-        email = settings.user.email;
+        email = settings.user.gitEmail;
       };
       init.defaultBranch = "main";
       pull.rebase = false;

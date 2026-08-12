@@ -1,8 +1,8 @@
 {
   user = {
     name = "joshcaz";
-    email = "73436834+joshcazalas@users.noreply.github.com";
-    sshPublicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJPPR7VdBolKryex6C9qgqq6XQU5snK1Z3HcEkqRkK/a 73436834+joshcazalas@users.noreply.github.com";
+    gitEmail = "73436834+joshcazalas@users.noreply.github.com";
+    sshPublicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJPPR7VdBolKryex6C9qgqq6XQU5snK1Z3HcEkqRkK/a";
   };
 
   server = {
