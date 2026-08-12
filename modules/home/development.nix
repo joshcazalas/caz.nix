@@ -8,7 +8,9 @@
   # workstation-wide baseline.
   home.packages = with unstablePkgs; [
     cargo
+    claude-code
     clippy
+    codex
     docker-client
     docker-compose
     go
@@ -19,6 +21,7 @@
     rustfmt
     typescript
     uv
+    vscode
   ];
 
   # Never let uv silently select a Python installation managed outside uv.
