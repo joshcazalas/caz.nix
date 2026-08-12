@@ -10,16 +10,17 @@ the privacy task generically preserves the purpose of doing it.
 - [x] Set the new address in local Git configuration for future commits.
 - [x] Confirm `settings.nix` uses the GitHub noreply identity and contains no
       personal SSH public-key comment.
-- [ ] Create a local backup ref pointing to the original private history.
-- [ ] Rewrite every commit author and committer address on a separate branch.
-- [ ] Re-run Gitleaks against all rewritten history.
-- [ ] Compare the rewritten tree with the intended source tree.
-- [ ] Replace remote `main` with the reviewed history only when ready.
+- [x] Create a local backup ref pointing to the original private history.
+- [x] Rewrite every commit author and committer address on a separate branch.
+- [x] Re-run Gitleaks against all rewritten history.
+- [x] Compare the rewritten tree with the intended source tree.
+- [x] Prepare only the reviewed lineage for `main` in a fresh private repository.
 
 Do not merge a rewritten-history branch into the old `main`: a merge retains
-both histories and therefore retains the old metadata. Publication day requires
-replacing `main` with the reviewed rewritten lineage. Keep the backup ref local;
-do not push it to the repository that will become public.
+both histories and therefore retains the old metadata. The original repository
+and its pull-request references remain in a separately named private archive.
+Keep the backup ref and old branches out of the repository that will become
+public.
 
 ## Content review
 
