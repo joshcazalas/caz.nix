@@ -13,7 +13,12 @@
     ../../modules/nixos/jellyfin.nix
     ../../modules/nixos/monitoring.nix
     ../../modules/nixos/optional-services.nix
+    ../../modules/nixos/release-updater.nix
   ];
+
+  # The verified updater is ready to opt into after the physical server has
+  # been installed and its first known-good generation has been tested.
+  homelab.releaseUpdater.enable = false;
 
   home-manager = {
     useGlobalPkgs = true;

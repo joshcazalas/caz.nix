@@ -7,8 +7,9 @@ weekly dependency PR -> CI builds real outputs -> human review and merge
                      -> dated release -> SBOMs, provenance, checksums
 ```
 
-Nothing in this pipeline deploys to the homeserver. Pulling and activating a
-release is a separate concern that can be added after the machine exists.
+Nothing in the GitHub pipeline deploys to the homeserver. The opt-in server
+updater independently verifies a release and stages it for the next boot; it
+does not activate or reboot. See [`server-updates.md`](server-updates.md).
 
 ## Continuous integration
 
