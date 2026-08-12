@@ -23,6 +23,11 @@ GitHub Actions are pinned to full commit hashes. Dependabot updates those pins
 in a dedicated weekly PR. The Nix cache stays inside GitHub Actions; diagnostic
 reporting and FlakeHub integration are disabled.
 
+The complete server closure exceeds the standard private runner's 14 GB disk.
+Before installing Nix, CI conservatively reserves the runner's otherwise-unused
+`/mnt` space as a compressed `/nix` volume. It does not purge preinstalled
+runner tools, and Nix build temporaries are kept on that larger volume as well.
+
 Run the same checks locally with:
 
 ```bash

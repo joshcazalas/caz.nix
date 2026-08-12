@@ -31,8 +31,16 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Reserve runner space for the Nix store
+        uses: wimpysworld/nothing-but-nix@687c797a730352432950c707ab493fcc951818d7 # v10
+        with:
+          hatchet-protocol: holster
+
       - name: Install Nix
         uses: cachix/install-nix-action@8aa03977d8d733052d78f4e008a241fd1dbf36b3 # v31.10.6
+        with:
+          extra_nix_config: |
+            build-dir = /nix/build
 
       - name: Restore the Nix build cache
         uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
