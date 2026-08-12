@@ -12,7 +12,7 @@ release is a separate concern that can be added after the machine exists.
 
 ## Continuous integration
 
-Every pull request and every non-main branch push runs one `Validate` job. It:
+Every pull request and manual dispatch runs one `Validate` job. It:
 
 1. enforces Nix formatting;
 2. runs Deadnix, Statix, ShellCheck, and Actionlint;
