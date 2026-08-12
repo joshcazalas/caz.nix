@@ -98,7 +98,7 @@ in
         ble-face -s auto_complete fg=242
 
         # Prefer a quiet terminal over an audible bell.
-        bleopt edit_bell=
+        bleopt edit_abell=
       '';
     };
 
