@@ -15,9 +15,22 @@ if [[ ! -d "${artifact_directory}" ]]; then
   exit 1
 fi
 
+if [[ ! -f "${artifact_directory}/SHA256SUMS" ]]; then
+  echo "Release checksum manifest is missing: ${artifact_directory}/SHA256SUMS" >&2
+  exit 1
+fi
+
+echo "==> Verifying the release bundle before publication"
+(
+  cd "${artifact_directory}"
+  sha256sum --check SHA256SUMS
+)
+
+# RELEASE_NOTES.md is both the rendered GitHub release body and a downloadable
+# asset. Keeping it in the asset set makes SHA256SUMS a complete, independently
+# verifiable description of the published bundle.
 mapfile -d '' assets < <(
-  find "${artifact_directory}" -maxdepth 1 -type f ! -name RELEASE_NOTES.md -print0 \
-    | sort -z
+  find "${artifact_directory}" -maxdepth 1 -type f -print0 | sort -z
 )
 
 if [[ ${#assets[@]} -eq 0 ]]; then
