@@ -1,0 +1,10 @@
+keys:
+  - &admin age1REPLACE_WITH_ADMIN_RECIPIENT
+  - &homeserver age1REPLACE_WITH_SERVER_RECIPIENT
+
+creation_rules:
+  - path_regex: secrets/homeserver\.yaml$
+    key_groups:
+      - age:
+          - *admin
+          - *homeserver

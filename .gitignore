@@ -1,0 +1,6 @@
+result
+.direnv/
+.envrc.local
+secrets/*.plain.yaml
+secrets/*.decrypted.yaml
+secrets/*.key
