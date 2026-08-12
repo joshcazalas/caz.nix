@@ -143,9 +143,10 @@ server. The lock file, once generated, belongs in Git.
 Dependabot will propose grouped weekly lock-file updates after the repository
 becomes public. Each reviewed merge to `main` produces a dated `caz.nix-*`
 release with SBOMs, provenance, closure metadata, and checksums. See
-[`docs/ci-and-releases.md`](docs/ci-and-releases.md) for the complete model and
-[`docs/publication-checklist.md`](docs/publication-checklist.md) before changing
-repository visibility.
+[`docs/ci-and-releases.md`](docs/ci-and-releases.md) for the complete model,
+[`docs/server-updates.md`](docs/server-updates.md) for the disabled-by-default
+verified updater, and [`docs/publication-checklist.md`](docs/publication-checklist.md)
+before changing repository visibility.
 
 Omit `--no-build` when you intentionally want to build both the full NixOS
 system closure and Home Manager generation, not merely evaluate them.
