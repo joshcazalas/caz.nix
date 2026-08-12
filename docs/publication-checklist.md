@@ -5,10 +5,10 @@ the privacy task generically preserves the purpose of doing it.
 
 ## Identity and history
 
-- [ ] Choose a GitHub noreply address for commit authorship.
+- [x] Choose a GitHub noreply address for commit authorship.
 - [ ] Optionally create a personal-domain forwarding alias for public contact.
-- [ ] Set the new address in local Git configuration for future commits.
-- [ ] Confirm `settings.nix` uses the GitHub noreply identity and contains no
+- [x] Set the new address in local Git configuration for future commits.
+- [x] Confirm `settings.nix` uses the GitHub noreply identity and contains no
       personal SSH public-key comment.
 - [ ] Create a local backup ref pointing to the original private history.
 - [ ] Rewrite every commit author and committer address on a separate branch.
@@ -23,13 +23,13 @@ do not push it to the repository that will become public.
 
 ## Content review
 
-- [ ] Confirm no plaintext sops files or private keys are tracked.
-- [ ] Review domains, IP addresses, usernames, and service topology.
-- [ ] Confirm every value in `settings.nix` is suitable for publication.
-- [ ] Run `nix develop --command ./scripts/secret-scan.sh`.
-- [ ] Run `nix develop --command ./scripts/check.sh`.
-- [ ] Run `nix flake check --print-build-logs`.
-- [ ] Decide on and add an open-source license, if desired.
+- [x] Confirm no plaintext sops files or private keys are tracked.
+- [x] Review domains, IP addresses, usernames, and service topology.
+- [x] Confirm every value in `settings.nix` is suitable for publication.
+- [x] Run `nix develop --command ./scripts/secret-scan.sh`.
+- [x] Run `nix develop --command ./scripts/check.sh`.
+- [x] Run `nix flake check --print-build-logs`.
+- [x] Add the MIT open-source license.
 
 ## GitHub configuration
 

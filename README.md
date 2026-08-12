@@ -149,3 +149,7 @@ repository visibility.
 
 Omit `--no-build` when you intentionally want to build both the full NixOS
 system closure and Home Manager generation, not merely evaluate them.
+
+## License
+
+This project is available under the [MIT License](LICENSE).
