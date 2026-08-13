@@ -13,10 +13,10 @@
     dataRoot = "/var/lib/homelab";
   };
 
-  # Public publishing is intentionally two-step. Replace the placeholder and
-  # then opt in, so an evaluation can never expose a service by accident.
+  # Public application publishing remains opt-in even though the DNS zone is
+  # declared. A domain name alone never opens a firewall port or service.
   public = {
-    domain = "example.invalid";
+    domain = "joshcaz.com";
     jellyfin = false;
   };
 }

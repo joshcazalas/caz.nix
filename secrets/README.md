@@ -1,7 +1,7 @@
 # Secrets
 
-The repository retains a sops-nix recipient policy for future runtime secrets.
-No active service currently consumes a repository-managed secret.
+The repository retains a sops-nix recipient policy for runtime secrets. The
+first active consumer is the optional Cloudflare DDNS service.
 Never put private keys, API tokens, passwords, hostnames intended to remain
 private, or plaintext secret values in a Nix expression: evaluated Nix values
 can end up in the world-readable Nix store.
@@ -44,8 +44,8 @@ Keep an encrypted backup of the administrator private key somewhere other than
 the server. Losing both private keys makes the ciphertext unrecoverable.
 
 Minecraft membership is mutable server state under `/var/lib/minecraft`, not a
-repository secret. A future Cloudflare DDNS token—and its hostname if the
-hostname should stay out of Git—belong here. Jellyfin and Samba manage user
-password hashes in their own state and do not belong in this repository.
+repository secret. The Cloudflare DDNS API token belongs here; public DNS
+hostnames do not. Jellyfin and Samba manage user password hashes in their own
+state and do not belong in this repository.
 
 Reference: <https://github.com/Mic92/sops-nix>
