@@ -22,6 +22,7 @@ in
     ../../modules/nixos/storage.nix
     ../../modules/nixos/networking.nix
     ../../modules/nixos/network-policy.nix
+    ../../modules/nixos/cloudflare-ddns.nix
     ../../modules/nixos/filesharing.nix
     ../../modules/nixos/adguard-home.nix
     ../../modules/nixos/jellyfin.nix
@@ -35,6 +36,11 @@ in
   # Kernel/initrd changes wait for a normal reboot; unattended reboot remains
   # disabled until boot-success rollback has been tested on this hardware.
   homelab.releaseUpdater.enable = true;
+
+  # Keep the public Minecraft A record synchronized when the residential
+  # public IPv4 address changes. The scoped Cloudflare token is decrypted only
+  # at activation time and never enters the Nix store.
+  homelab.cloudflareDdns.enable = true;
 
   homelab.minecraft = {
     enable = true;

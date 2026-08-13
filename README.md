@@ -52,6 +52,7 @@ their standard Bash integrations.
 | Jellyfin | on | LAN; public is opt-in | Media streaming and per-person accounts |
 | AdGuard Home | on | LAN/WireGuard | Network DNS filtering; simpler NixOS fit than Pi-hole |
 | Beszel hub | on | LAN/WireGuard | Lightweight monitoring before committing to Prometheus/Grafana |
+| Cloudflare DDNS | on | Outbound HTTPS only | Keep reviewed public IPv4 records synchronized |
 | WireGuard | off | UDP 51820 when enabled | Private remote administration |
 | Home Assistant | off | LAN/WireGuard | Enable when the first devices arrive |
 | Immich | off | LAN/WireGuard initially | Photo library, not a backup by itself |
@@ -114,6 +115,7 @@ bootstrap/README.md               manual prerequisites and recovery notes
 bootstrap/wsl.sh                  interactive new-WSL bootstrap
 bootstrap/windows-font.ps1        pinned Windows Meslo font installer
 modules/nixos/                    storage, network, and service modules
+modules/nixos/cloudflare-ddns.nix scoped IPv4-only Cloudflare DNS updater
 secrets/                          sops-nix workflow for future runtime secrets
 docs/bootstrap-wsl.md             short WSL command reference
 docs/install-server.md            safe installation-day checklist
