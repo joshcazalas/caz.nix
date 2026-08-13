@@ -56,6 +56,7 @@ their standard Bash integrations.
 | Home Assistant | off | LAN/WireGuard | Enable when the first devices arrive |
 | Immich | off | LAN/WireGuard initially | Photo library, not a backup by itself |
 | Minecraft | on | LAN TCP 25565; Internet after manual DNS/router setup | Pinned Paper server with a locally managed whitelist and daily backups |
+| Release updater | on | outbound HTTPS only | Verified maintenance-window deployment, health checks, and rollback |
 
 The host firewall accepts management, storage, monitoring, discovery, and DNS
 traffic only from RFC 1918 private IPv4 sources. Minecraft TCP 25565 is the
@@ -89,6 +90,8 @@ Jellyfin provides separate, non-admin usernames and passwords.
   `/var/lib/homelab` on that root NVMe. `/srv` is intentionally unconfigured.
 - Minecraft state and its local backup set live separately at
   `/var/lib/minecraft` and `/var/backup/minecraft`.
+- Three pre-deployment archives of mutable application state are retained under
+  `/var/backup/caz-release-updater`.
 - The unreliable HDD is not mounted, scrubbed, or referenced by this flake.
 - zram handles incidental swap; there is no disk swap partition.
 
@@ -150,12 +153,14 @@ nix flake update
 Run `nix flake update` intentionally and review changes before switching the
 server. The lock file, once generated, belongs in Git.
 
-Dependabot will propose grouped weekly lock-file updates after the repository
-becomes public. Each reviewed merge to `main` produces a dated `caz.nix-*`
-release with SBOMs, provenance, closure metadata, and checksums. See
+Dependabot proposes grouped weekly lock-file updates. Each reviewed merge to
+`main` produces a dated `caz.nix-*` release with SBOMs, provenance, closure
+metadata, checksums, and attestations. The homeserver verifies and deploys new
+releases during its maintenance window, with pre-deployment backups, health
+checks, and live-generation rollback. See
 [`docs/ci-and-releases.md`](docs/ci-and-releases.md) for the complete model,
-[`docs/server-updates.md`](docs/server-updates.md) for the disabled-by-default
-verified updater, and [`docs/publication-checklist.md`](docs/publication-checklist.md)
+[`docs/server-updates.md`](docs/server-updates.md) for deployment operations,
+and [`docs/publication-checklist.md`](docs/publication-checklist.md)
 before changing repository visibility.
 
 Omit `--no-build` when you intentionally want to build both the full NixOS

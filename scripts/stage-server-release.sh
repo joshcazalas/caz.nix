@@ -8,31 +8,69 @@ readonly expected_installable=".#nixosConfigurations.homeserver.config.system.bu
 
 usage() {
   cat <<'EOF'
-usage: caz-stage-server-release [--check-only]
+usage: caz-deploy-server-release [--check-only | --deploy-now] [--force]
+       caz-deploy-server-release --status
 
 Verify the latest immutable caz.nix release, reproduce its homeserver build,
-and stage it as the next NixOS boot generation. The command never activates a
-new configuration or reboots the machine.
+create application-consistent local backups, activate it, require service
+health to stabilize, and roll back automatically if activation is unhealthy.
+The command never reboots the machine.
 
-  --check-only  verify and build, but do not stage or record the release
+  --check-only  verify and build without changing or recording system state
+  --deploy-now  deploy immediately (this is the default when run manually)
+  --force       manually retry a quarantined or already-recorded latest release
+  --status      show local deployment, quarantine, and reboot state
 EOF
 }
 
+mode=deploy
 check_only=false
-case "${1:-}" in
-  "") ;;
-  --check-only) check_only=true ;;
-  --help|-h)
-    usage
-    exit 0
-    ;;
-  *)
-    usage >&2
-    exit 2
-    ;;
-esac
+force=false
+action_selected=false
 
-if [[ $# -gt 1 ]]; then
+while (( $# > 0 )); do
+  case "$1" in
+    --check-only)
+      if [[ "$action_selected" == true ]]; then
+        usage >&2
+        exit 2
+      fi
+      mode=check
+      check_only=true
+      action_selected=true
+      ;;
+    --deploy-now)
+      if [[ "$action_selected" == true ]]; then
+        usage >&2
+        exit 2
+      fi
+      mode=deploy
+      action_selected=true
+      ;;
+    --force)
+      force=true
+      ;;
+    --status)
+      if [[ "$action_selected" == true ]]; then
+        usage >&2
+        exit 2
+      fi
+      mode=status
+      action_selected=true
+      ;;
+    --help|-h)
+      usage
+      exit 0
+      ;;
+    *)
+      usage >&2
+      exit 2
+      ;;
+  esac
+  shift
+done
+
+if [[ "$mode" != deploy && "$force" == true ]]; then
   usage >&2
   exit 2
 fi
@@ -43,13 +81,35 @@ if [[ ! "${repository}" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
   exit 1
 fi
 
-if [[ "${check_only}" == false && ${EUID} -ne 0 ]]; then
-  echo "Staging a NixOS release requires root; use sudo or --check-only." >&2
+if [[ "$mode" != check && ${EUID} -ne 0 ]]; then
+  echo "Deployment state and activation require root; use sudo or --check-only." >&2
   exit 1
 fi
 
 state_directory="${CAZ_RELEASE_STATE_DIRECTORY:-${STATE_DIRECTORY:-/var/lib/caz-release-updater}}"
 runtime_parent="${RUNTIME_DIRECTORY:-/tmp}"
+accepted_state="${state_directory}/accepted-release.json"
+failed_state="${state_directory}/failed-release.json"
+
+if [[ "$mode" == status ]]; then
+  echo "Running system:  $(readlink --canonicalize /run/current-system 2>/dev/null || echo unknown)"
+  echo "Next boot:      $(readlink --canonicalize /nix/var/nix/profiles/system 2>/dev/null || echo unknown)"
+  echo
+
+  if [[ -e "$accepted_state" ]]; then
+    echo "Latest accepted deployment:"
+    jq . "$accepted_state"
+  else
+    echo "No release has been accepted by the automatic deployer yet."
+  fi
+
+  if [[ -e "$failed_state" ]]; then
+    echo
+    echo "Quarantined deployment:"
+    jq . "$failed_state"
+  fi
+  exit 0
+fi
 
 if [[ "${check_only}" == false ]]; then
   mkdir -p "${state_directory}"
@@ -171,21 +231,45 @@ if [[ ! "${commit_sha}" =~ ^[0-9a-f]{40}$ || "${commit_sha:0:12}" != "${tag_comm
   exit 1
 fi
 
-accepted_state="${state_directory}/accepted-release.json"
 if [[ "${check_only}" == false && -e "${accepted_state}" ]]; then
   if ! previous_release_id="$(jq --exit-status --raw-output '.releaseId | select(type == "number")' "${accepted_state}")"; then
     echo "Refusing to use malformed state: ${accepted_state}" >&2
     exit 1
   fi
 
-  if ((release_id == previous_release_id)); then
-    echo "Release ${release_tag} is already accepted; nothing to do."
-    exit 0
-  fi
-
   if ((release_id < previous_release_id)); then
     echo "Refusing release ${release_tag}: its ID predates the accepted release." >&2
     exit 1
+  fi
+
+  if ((release_id == previous_release_id)) && [[ "$force" == false ]]; then
+    accepted_store_path="$(jq --exit-status --raw-output '.storePath | select(type == "string")' \
+      "$accepted_state")" || {
+      echo "Refusing to use malformed state: ${accepted_state}" >&2
+      exit 1
+    }
+    running_store_path="$(readlink --canonicalize /run/current-system)"
+    if [[ "$running_store_path" == "$accepted_store_path" ]]; then
+      echo "Release ${release_tag} is already deployed and accepted; nothing to do."
+    else
+      echo "Release ${release_tag} is accepted but is not currently running."
+      echo "A manual rollback is being preserved; use --force to deploy it again."
+    fi
+    exit 0
+  fi
+fi
+
+if [[ "${check_only}" == false && -e "$failed_state" && "$force" == false ]]; then
+  failed_release_id="$(jq --exit-status --raw-output '.releaseId | select(type == "number")' \
+    "$failed_state")" || {
+    echo "Refusing to use malformed state: ${failed_state}" >&2
+    exit 1
+  }
+
+  if ((release_id == failed_release_id)); then
+    echo "Release ${release_tag} is quarantined after a failed deployment; skipping it."
+    echo "Inspect ${failed_state}, then use --force to retry it deliberately."
+    exit 0
   fi
 fi
 
@@ -331,47 +415,219 @@ if [[ "${check_only}" == true ]]; then
   exit 0
 fi
 
-boot_profile="$(readlink --canonicalize /nix/var/nix/profiles/system 2>/dev/null || true)"
-if [[ "${boot_profile}" == "${built_store_path}" ]]; then
-  deployment_status="already-staged"
-  echo "==> ${release_tag} is already the next boot generation"
-else
-  echo "==> Staging ${release_tag} for the next boot"
-  nixos-rebuild boot --flake "${flake_reference}#homeserver"
-
-  boot_profile="$(readlink --canonicalize /nix/var/nix/profiles/system)"
-  if [[ "${boot_profile}" != "${built_store_path}" ]]; then
-    echo "The NixOS boot profile does not match the verified build after staging." >&2
+health_wait_seconds="${CAZ_RELEASE_HEALTH_WAIT_SECONDS:-300}"
+stabilization_seconds="${CAZ_RELEASE_STABILIZATION_SECONDS:-60}"
+for value in "$health_wait_seconds" "$stabilization_seconds"; do
+  if [[ ! "$value" =~ ^[1-9][0-9]*$ ]]; then
+    echo "Deployment health durations must be positive integer seconds." >&2
     exit 1
   fi
-  deployment_status="staged-for-next-boot"
+done
+
+write_accepted_state() {
+  local status="$1"
+  local previous_store_path="$2"
+  local reboot_required="$3"
+  local state_tmp
+
+  state_tmp="$(mktemp "${state_directory}/.accepted-release.XXXXXX")"
+  jq --null-input \
+    --argjson releaseId "${release_id}" \
+    --arg release "${release_tag}" \
+    --arg commit "${commit_sha}" \
+    --arg publishedAt "${published_at}" \
+    --arg storePath "${built_store_path}" \
+    --arg derivation "${built_derivation}" \
+    --arg previousStorePath "$previous_store_path" \
+    --arg status "$status" \
+    --argjson rebootRequired "$reboot_required" \
+    --arg deployedAt "$(date --utc +%Y-%m-%dT%H:%M:%SZ)" '
+      {
+        schemaVersion: 2,
+        releaseId: $releaseId,
+        release: $release,
+        commit: $commit,
+        publishedAt: $publishedAt,
+        storePath: $storePath,
+        derivation: $derivation,
+        previousStorePath: $previousStorePath,
+        status: $status,
+        rebootRequired: $rebootRequired,
+        deployedAt: $deployedAt
+      }
+    ' >"$state_tmp"
+  chmod 0600 "$state_tmp"
+  mv "$state_tmp" "$accepted_state"
+
+  # A newer successful release supersedes any older quarantine record, and a
+  # forced successful retry clears its own quarantine.
+  rm -f -- "$failed_state"
+}
+
+write_failed_state() {
+  local reason="$1"
+  local rollback_status="$2"
+  local previous_store_path="$3"
+  local state_tmp
+
+  state_tmp="$(mktemp "${state_directory}/.failed-release.XXXXXX")"
+  jq --null-input \
+    --argjson releaseId "${release_id}" \
+    --arg release "${release_tag}" \
+    --arg commit "${commit_sha}" \
+    --arg attemptedStorePath "${built_store_path}" \
+    --arg previousStorePath "$previous_store_path" \
+    --arg reason "$reason" \
+    --arg rollbackStatus "$rollback_status" \
+    --arg failedAt "$(date --utc +%Y-%m-%dT%H:%M:%SZ)" '
+      {
+        schemaVersion: 1,
+        releaseId: $releaseId,
+        release: $release,
+        commit: $commit,
+        attemptedStorePath: $attemptedStorePath,
+        previousStorePath: $previousStorePath,
+        reason: $reason,
+        rollbackStatus: $rollbackStatus,
+        failedAt: $failedAt
+      }
+    ' >"$state_tmp"
+  chmod 0600 "$state_tmp"
+  mv "$state_tmp" "$failed_state"
+}
+
+reboot_is_required() {
+  local booted_components deployed_components
+
+  booted_components="$(readlink \
+    /run/booted-system/initrd \
+    /run/booted-system/kernel \
+    /run/booted-system/kernel-modules 2>/dev/null || true)"
+  deployed_components="$(readlink \
+    "${built_store_path}/initrd" \
+    "${built_store_path}/kernel" \
+    "${built_store_path}/kernel-modules" 2>/dev/null || true)"
+
+  [[ -z "$booted_components" || "$booted_components" != "$deployed_components" ]]
+}
+
+current_store_path="$(readlink --canonicalize /run/current-system)"
+if [[ "$current_store_path" == "$built_store_path" ]]; then
+  echo "==> ${release_tag} is already the running system; adopting it as verified"
+  nix-env --profile /nix/var/nix/profiles/system --set "$built_store_path"
+  "${built_store_path}/bin/switch-to-configuration" boot
+  caz-server-health \
+    --wait "$health_wait_seconds" \
+    --stabilize "$stabilization_seconds"
+
+  reboot_required=false
+  if reboot_is_required; then
+    reboot_required=true
+  fi
+  write_accepted_state already-running "$current_store_path" "$reboot_required"
+  echo "Release ${release_tag} is verified, healthy, and recorded."
+  exit 0
 fi
 
-state_tmp="$(mktemp "${state_directory}/.accepted-release.XXXXXX")"
-trap 'rm -rf "${work_directory}"; rm -f "${state_tmp:-}"' EXIT
-jq --null-input \
-  --argjson releaseId "${release_id}" \
-  --arg release "${release_tag}" \
-  --arg commit "${commit_sha}" \
-  --arg publishedAt "${published_at}" \
-  --arg storePath "${built_store_path}" \
-  --arg derivation "${built_derivation}" \
-  --arg status "${deployment_status}" \
-  --arg stagedAt "$(date --utc +%Y-%m-%dT%H:%M:%SZ)" '
-    {
-      schemaVersion: 1,
-      releaseId: $releaseId,
-      release: $release,
-      commit: $commit,
-      publishedAt: $publishedAt,
-      storePath: $storePath,
-      derivation: $derivation,
-      status: $status,
-      stagedAt: $stagedAt
-    }
-  ' >"${state_tmp}"
-chmod 0600 "${state_tmp}"
-mv "${state_tmp}" "${accepted_state}"
-trap 'rm -rf "${work_directory}"' EXIT
+echo "==> Verifying the current generation before changing it"
+caz-server-health --wait 60
 
-echo "Release ${release_tag} is verified and staged. Reboot manually when ready."
+echo "==> Protecting mutable application state before activation"
+caz-pre-deployment-backup
+
+previous_store_path="$current_store_path"
+# Keep the rollback closure alive even after the system profile moves forward.
+nix-store \
+  --realise "$previous_store_path" \
+  --add-root "${work_directory}/rollback-system" >/dev/null
+
+rollback_required=false
+
+rollback_deployment() {
+  local reason="$1"
+  local rollback_status=failed
+
+  echo "Deployment failed: ${reason}" >&2
+  echo "==> Rolling back to ${previous_store_path}" >&2
+  write_failed_state "$reason" in-progress "$previous_store_path"
+
+  if ! nix-env --profile /nix/var/nix/profiles/system --set "$previous_store_path"; then
+    rollback_status=profile-restore-failed
+  elif ! "${previous_store_path}/bin/switch-to-configuration" switch; then
+    rollback_status=activation-failed
+  elif [[ "$(readlink --canonicalize /run/current-system)" != "$previous_store_path" ]]; then
+    rollback_status=store-path-mismatch
+  elif ! caz-server-health \
+    --wait "$health_wait_seconds" \
+    --stabilize "$stabilization_seconds"; then
+    rollback_status=health-check-failed
+  else
+    rollback_status=succeeded
+  fi
+
+  write_failed_state "$reason" "$rollback_status" "$previous_store_path"
+  [[ "$rollback_status" == succeeded ]]
+}
+
+cleanup_after_activation() {
+  local exit_status=$?
+  trap - EXIT INT TERM
+
+  if [[ "$rollback_required" == true ]]; then
+    rollback_deployment "the deployment supervisor exited unexpectedly" || true
+  fi
+  rm -rf -- "$work_directory"
+  exit "$exit_status"
+}
+
+fail_and_rollback() {
+  local reason="$1"
+
+  if rollback_deployment "$reason"; then
+    echo "The previous generation is healthy again; ${release_tag} is quarantined." >&2
+  else
+    echo "CRITICAL: automatic rollback did not restore a healthy server." >&2
+  fi
+  rollback_required=false
+  trap - EXIT INT TERM
+  rm -rf -- "$work_directory"
+  exit 1
+}
+
+trap - EXIT
+trap cleanup_after_activation EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+rollback_required=true
+
+echo "==> Activating verified release ${release_tag}"
+nix-env --profile /nix/var/nix/profiles/system --set "$built_store_path"
+if ! "${built_store_path}/bin/switch-to-configuration" switch; then
+  fail_and_rollback "switch-to-configuration returned an error"
+fi
+
+if [[ "$(readlink --canonicalize /run/current-system)" != "$built_store_path" ]]; then
+  fail_and_rollback "the running system path does not match the verified release"
+fi
+
+echo "==> Waiting for the deployed services to stabilize"
+if ! caz-server-health \
+  --wait "$health_wait_seconds" \
+  --stabilize "$stabilization_seconds"; then
+  fail_and_rollback "post-deployment health checks failed"
+fi
+
+reboot_required=false
+if reboot_is_required; then
+  reboot_required=true
+fi
+write_accepted_state deployed "$previous_store_path" "$reboot_required"
+
+rollback_required=false
+trap - EXIT INT TERM
+rm -rf -- "$work_directory"
+
+echo "Release ${release_tag} is verified, deployed, and healthy."
+if [[ "$reboot_required" == true ]]; then
+  echo "A kernel/initrd change is installed for the next ordinary reboot; no automatic reboot was requested."
+fi
