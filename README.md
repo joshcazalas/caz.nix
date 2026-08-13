@@ -55,7 +55,7 @@ their standard Bash integrations.
 | WireGuard | off | UDP 51820 when enabled | Private remote administration |
 | Home Assistant | off | LAN/WireGuard | Enable when the first devices arrive |
 | Immich | off | LAN/WireGuard initially | Photo library, not a backup by itself |
-| Minecraft | off | LAN/public TCP 25565 by explicit opt-in | Pinned, whitelisted Paper server with daily backups |
+| Minecraft | on | LAN TCP 25565; Internet after manual DNS/router setup | Pinned, encrypted-whitelist Paper server with daily backups |
 
 Only Jellyfin is intended to be directly public at first. Its design is:
 

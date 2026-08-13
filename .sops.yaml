@@ -1,0 +1,10 @@
+keys:
+  - &admin "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJPPR7VdBolKryex6C9qgqq6XQU5snK1Z3HcEkqRkK/a"
+  - &homeserver "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICspqO/MCq49e/WlXUuIfg5JhA7fok5cahjQb5/3tOek"
+
+creation_rules:
+  - path_regex: secrets/homeserver\.yaml$
+    key_groups:
+      - age:
+          - *admin
+          - *homeserver

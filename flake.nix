@@ -59,19 +59,6 @@
           ./hosts/homeserver
         ];
       };
-      homeserverMinecraftTest = homeserver.extendModules {
-        modules = [
-          {
-            homelab.minecraft = {
-              enable = true;
-              acceptEula = true;
-              openFirewall = true;
-              whitelist = [ "CiValidation" ];
-              operators = [ "CiValidation" ];
-            };
-          }
-        ];
-      };
     in
     {
       formatter.${system} = pkgs.nixfmt-tree;
@@ -108,7 +95,6 @@
 
       checks.${system} = {
         homeserver = self.nixosConfigurations.${settings.server.hostName}.config.system.build.toplevel;
-        homeserver-minecraft = homeserverMinecraftTest.config.system.build.toplevel;
         wsl-home = self.homeConfigurations."${settings.user.name}@wsl".activationPackage;
       };
     };

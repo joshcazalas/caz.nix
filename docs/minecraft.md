@@ -1,7 +1,7 @@
 # Minecraft server
 
-The homeserver has an opt-in, declarative Paper server designed for a small
-trusted group. It currently pins all three moving parts:
+The homeserver has a declarative Paper server designed for a small trusted
+group. It currently pins all three moving parts:
 
 - Minecraft Java Edition `26.2`;
 - stable Paper build `87`;
@@ -31,40 +31,32 @@ only inside the container network so the backup job can quiesce the world.
 
 ## First activation
 
-Add the real Java Edition usernames to `hosts/homeserver/default.nix`. Names in
-this public repository are public information, so get friends' permission or
-use `whitelistFile` and `operatorsFile` with encrypted sops-nix secrets before
-committing them.
+Production points only at sops-nix runtime paths, so neither player names nor a
+decryption key enters the Nix store:
 
 ```nix
 homelab.minecraft = {
   enable = true;
   acceptEula = true;
   openFirewall = true;
-  whitelist = [
-    "your_minecraft_name"
-    "friend_name"
-  ];
-  operators = [ "your_minecraft_name" ];
-};
-```
-
-The private equivalent points only at runtime paths, so neither the names nor a
-decryption key enter the Nix store:
-
-```nix
-homelab.minecraft = {
-  enable = true;
-  acceptEula = true;
-  openFirewall = true;
+  gameMode = "survival";
+  difficulty = "hard";
+  seed = "...";
   whitelistFile = "/run/secrets/minecraft-whitelist";
   operatorsFile = "/run/secrets/minecraft-operators";
 };
 ```
 
-Review the EULA yourself before setting `acceptEula`. Then open a pull request,
-let CI build it, merge it, and stage the resulting signed caz.nix release using
-the normal server update flow.
+The selected seed is applied only when `/var/lib/minecraft` has no existing
+world. Changing it later does not regenerate the world. Paper is running with
+no plugins, so normal unmodified Minecraft Java clients can connect even though
+the server implementation is Paper rather than Mojang's server JAR.
+
+The encrypted whitelist preserves the players' known-working names verbatim.
+One entry follows the Bedrock/Xbox gamertag format rather than the Java profile
+format. Before public exposure, confirm whether the former server used Bedrock,
+Geyser/Floodgate, or a different authentication mode so that player retains a
+compatible and authenticated connection path.
 
 After activation:
 
@@ -106,10 +98,17 @@ copy before the world becomes irreplaceable.
 ## Cloudflare DNS and router forwarding
 
 For the default port, create a DNS-only `A` record such as
-`play.example.com` pointing to the current public IPv4 address. The orange-cloud
+`play.example.com` pointing to the current public IPv4 address. Keep the real
+hostname out of Git if desired: neither Minecraft nor this NixOS module needs
+it. The orange-cloud
 HTTP proxy cannot carry ordinary Minecraft Java TCP traffic; Cloudflare
 Spectrum is a separate paid product. Forward only external TCP 25565 to TCP
 25565 on the homeserver's reserved LAN address.
+
+A hostname cannot remain genuinely private after it is published in public
+DNS, and public TLS certificates can also make hostnames discoverable through
+certificate-transparency logs. Encryption can keep it out of this repository;
+it cannot hide a public Internet endpoint.
 
 A domain is routing convenience, not authentication. The Microsoft/Mojang
 login and enforced whitelist are what authorize players. If the public address
@@ -132,6 +131,5 @@ sudo systemctl start docker-minecraft.service
 
 Do not change `VERSION`, `PAPER_BUILD`, or the image digest directly on the
 server. Propose all three through Git, require CI, and create a fresh backup
-before activating the release. CI builds a second, non-deployable homeserver
-variant with Minecraft and the public listener enabled, so changes to this
-otherwise opt-in module cannot quietly rot while the production toggle is off.
+before activating the release. CI builds the real homeserver closure, including
+Minecraft and its encrypted-secret wiring.

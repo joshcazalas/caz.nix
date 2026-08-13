@@ -43,6 +43,34 @@ in
       description = "Exact stable Paper build for the selected Minecraft version.";
     };
 
+    gameMode = lib.mkOption {
+      type = lib.types.enum [
+        "adventure"
+        "creative"
+        "spectator"
+        "survival"
+      ];
+      default = "survival";
+      description = "Default game mode for the Minecraft world.";
+    };
+
+    difficulty = lib.mkOption {
+      type = lib.types.enum [
+        "peaceful"
+        "easy"
+        "normal"
+        "hard"
+      ];
+      default = "normal";
+      description = "Minecraft world difficulty.";
+    };
+
+    seed = lib.mkOption {
+      type = lib.types.nullOr (lib.types.strMatching "-?[0-9]+");
+      default = null;
+      description = "Numeric world seed used only when creating a new world.";
+    };
+
     whitelist = lib.mkOption {
       type = lib.types.listOf playerNameType;
       default = [ ];
@@ -212,8 +240,8 @@ in
           EXISTING_OPS_FILE = "SYNCHRONIZE";
 
           OVERRIDE_SERVER_PROPERTIES = "TRUE";
-          MODE = "survival";
-          DIFFICULTY = "normal";
+          MODE = cfg.gameMode;
+          DIFFICULTY = cfg.difficulty;
           PVP = "TRUE";
           MAX_PLAYERS = toString cfg.maxPlayers;
           VIEW_DISTANCE = "12";
@@ -244,6 +272,9 @@ in
         }
         // lib.optionalAttrs (cfg.operatorsFile != null) {
           OPS_FILE = operatorsContainerPath;
+        }
+        // lib.optionalAttrs (cfg.seed != null) {
+          SEED = cfg.seed;
         };
         extraOptions = [
           "--init"
