@@ -5,8 +5,8 @@ Use two different trust paths rather than treating every web app the same.
 ## Public media path
 
 1. Choose the domain and set it in `settings.nix`.
-2. Add `jellyfin.<domain>` in Cloudflare DNS as a **DNS-only** A record. Add a
-   DNS-only AAAA record only if IPv6 exposure has also been tested and secured.
+2. Add `jellyfin.<domain>` in Cloudflare DNS as a **DNS-only** A record. Do not
+   add an AAAA record while IPv6 remains disabled on the server.
 3. If the public address changes, add a Cloudflare DNS updater later using a
    narrowly scoped API token stored with sops-nix.
 4. Forward router TCP 80 and 443 to the server's reserved LAN address.
@@ -46,6 +46,11 @@ Before enabling `homelab.wireguard`:
 WireGuard initially reaches the server itself, which is enough for nearly full
 administrative control. Routing the rest of the home LAN through it can be added
 later once the LAN subnet and server interface name are known.
+
+The server firewall admits private services only from RFC 1918 IPv4 sources,
+which includes the default WireGuard subnet without publishing the home's exact
+LAN. IPv6 is disabled on this host for now; enable it only alongside an explicit
+IPv6 firewall review and an external exposure test.
 
 Before deployment, verify that the router's WAN address matches the public
 address seen externally; a mismatch would indicate another NAT layer.

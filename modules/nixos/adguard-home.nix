@@ -16,13 +16,6 @@
     };
   };
 
-  # These ports are for LAN and WireGuard clients. Do not forward them at the
-  # router; especially never expose an open DNS resolver to the Internet.
-  networking.firewall = {
-    allowedTCPPorts = [
-      53
-      3000
-    ];
-    allowedUDPPorts = [ 53 ];
-  };
+  # DNS and the administration UI are admitted only from private addresses by
+  # network-policy.nix. Never expose an open DNS resolver to the Internet.
 }

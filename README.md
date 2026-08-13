@@ -57,7 +57,14 @@ their standard Bash integrations.
 | Immich | off | LAN/WireGuard initially | Photo library, not a backup by itself |
 | Minecraft | on | LAN TCP 25565; Internet after manual DNS/router setup | Pinned, encrypted-whitelist Paper server with daily backups |
 
-Only Jellyfin is intended to be directly public at first. Its design is:
+The host firewall accepts management, storage, monitoring, discovery, and DNS
+traffic only from RFC 1918 private IPv4 sources. Minecraft TCP 25565 is the
+only globally allowed port in the default configuration. IPv6 is temporarily
+disabled on the host until its firewall and external reachability are reviewed
+and tested deliberately.
+
+Minecraft and the optional public Jellyfin endpoint have separate, explicitly
+reviewed exposure paths. Jellyfin's design is:
 
 ```text
 friends/family -> jellyfin.your-domain -> router TCP 80/443

@@ -9,7 +9,7 @@ in
 {
   services.jellyfin = {
     enable = true;
-    openFirewall = true;
+    openFirewall = false;
 
     # The Coffee Lake UHD 630 exposes the required codecs through the iHD
     # VA-API driver. QSV fails to create an MFX session with the current

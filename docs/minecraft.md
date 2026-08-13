@@ -25,6 +25,10 @@ Docker publishes the game only on host loopback at TCP 25566. When
 and the NixOS firewall opens that one port. This avoids Docker's published-port
 rules bypassing the host firewall.
 
+The host currently serves Minecraft over IPv4 only. IPv6 is disabled until a
+separate IPv6 exposure policy has been reviewed and externally tested; do not
+create an AAAA record for the server yet.
+
 Internet access still requires a separate router TCP port forward. Do not
 publish RCON, SSH, Docker, or a management dashboard. RCON remains reachable
 only inside the container network so the backup job can quiesce the world.
