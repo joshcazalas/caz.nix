@@ -7,9 +7,11 @@ weekly dependency PR -> CI builds real outputs -> human review and merge
                      -> dated release -> SBOMs, provenance, checksums
 ```
 
-Nothing in the GitHub pipeline deploys to the homeserver. The opt-in server
-updater independently verifies a release and stages it for the next boot; it
-does not activate or reboot. See [`server-updates.md`](server-updates.md).
+Nothing in GitHub Actions has credentials or network access to the homeserver.
+The server independently polls releases, verifies and reproduces them, creates
+local backups, activates them during its maintenance window, and rolls back an
+unhealthy live generation. It does not reboot automatically. See
+[`server-updates.md`](server-updates.md).
 
 ## Continuous integration
 

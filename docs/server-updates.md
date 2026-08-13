@@ -1,23 +1,26 @@
-# Verified server updates
+# Verified automatic server deployments
 
-The homeserver includes an opt-in updater that automatically discovers and
-verifies releases, but stops before activation:
+The homeserver polls the public immutable releases from this repository during
+a daily maintenance window and deploys a new release without a Git credential:
 
 ```text
 public immutable release
   -> tokenless provenance and checksum verification
-  -> exact commit build
-  -> store path and derivation comparison
-  -> next-boot generation
-  -> manual reboot
+  -> exact commit build and signed store-path comparison
+  -> current-generation health gate
+  -> application-consistent local backups
+  -> live NixOS activation
+  -> service health wait and stabilization window
+  -> accept release, or restore and health-check the previous generation
 ```
 
-This separates routine supply-chain work from the operational decision to
-restart a machine that may be serving storage or stateful applications.
+The scheduled run begins at 04:00 local time with a stable delay of up to two
+hours. A missed run is performed after the next boot. The timer does nothing
+when the latest release is already accepted.
 
 ## Trust and verification model
 
-`caz-stage-server-release` uses outbound HTTPS only. It does not accept inbound
+`caz-deploy-server-release` uses outbound HTTPS only. It does not accept inbound
 connections and does not store a GitHub token, deploy key, or signing key.
 
 For the latest release, it:
@@ -34,61 +37,111 @@ For the latest release, it:
 7. builds the homeserver from the exact 40-character commit;
 8. requires the resulting Nix store path and derivation to equal the signed
    release manifest; and
-9. runs `nixos-rebuild boot`, which changes the next boot generation without
-   activating it or rebooting.
-
-Accepted GitHub release IDs are recorded in
-`/var/lib/caz-release-updater/accepted-release.json`. An older ID is rejected,
-which prevents an ordinary release-selection rollback. The root-owned state and
-systemd journal form the local deployment record.
+9. only then begins the local deployment transaction.
 
 The updater deliberately trusts changes merged to protected `main` and the
 GitHub-hosted release workflow. Attestations prove origin and integrity; they do
 not prove that a change is bug-free. Pull-request review and CI remain the
 policy gate.
 
-## Enabling it later
+## Local deployment transaction
 
-The module is imported but disabled. First install the physical server, deploy
-and test a known-good generation manually, and confirm that the corresponding
-release has completed successfully. Then change the host configuration to:
+Before changing the NixOS profile, the updater requires the currently running
+server to be healthy. It creates a normal Minecraft world backup, briefly
+pauses the other mutable applications, and archives their state. Three archives
+are retained under `/var/backup/caz-release-updater`; Minecraft retains its
+separate daily archives under `/var/backup/minecraft`.
 
-```nix
-homelab.releaseUpdater.enable = true;
-```
+After activation it waits up to five minutes for these checks, then requires
+them to remain healthy for another minute:
 
-After that change itself passes CI, is merged, released, and deployed manually,
-the timer checks every day at 04:00 local time with up to two hours of stable
-random delay. A missed run is performed after the next boot.
+- SSH and Samba systemd services;
+- Jellyfin, AdGuard Home, and Beszel HTTP responses;
+- an actual DNS lookup through the local AdGuard Home resolver;
+- the Minecraft container, its RCON console, and public-listener socket.
 
-Useful commands on the server:
+If activation or a health check fails, the updater restores the previous NixOS
+profile, activates it, and runs the same health gate. The failed release is
+quarantined locally so the daily timer does not retry it forever. A newer
+release can deploy normally; retrying the same release requires an explicit
+`--force` after investigation.
+
+Deployment state is stored under `/var/lib/caz-release-updater`. The root-owned
+state and systemd journal form the local audit record. Public releases remain
+build records and do not reveal which release is actually running.
+
+## Run it now
+
+The maintenance window is only the unattended default. An administrator can
+accelerate it at any time:
 
 ```bash
-# Verify and reproduce the latest build without changing boot state.
-caz-stage-server-release --check-only
+# Run the same verified deployment transaction directly and watch its output.
+sudo caz-deploy-server-release
 
-# Trigger the normal updater immediately.
+# Or trigger the systemd service used by the timer.
 sudo systemctl start caz-release-updater.service
 
-# Inspect its result and schedule.
-systemctl status caz-release-updater.service
-systemctl list-timers caz-release-updater.timer
-journalctl -u caz-release-updater.service
+# Verify and reproduce the latest release without changing the server.
+caz-deploy-server-release --check-only
 
-# Compare the running system with the staged boot generation.
-readlink -f /run/current-system
-readlink -f /nix/var/nix/profiles/system
+# Run the same service health gate independently.
+sudo caz-server-health --wait 30 --stabilize 60
+
+# Create the same consistent backups without deploying a release.
+sudo caz-pre-deployment-backup
+
+# Inspect accepted/quarantined state and running versus next-boot generations.
+sudo caz-deploy-server-release --status
+
+# Inspect schedule and complete logs.
+systemctl list-timers caz-release-updater.timer
+systemctl status caz-release-updater.service
+journalctl -u caz-release-updater.service
 ```
 
-No automatic reboot or live `switch` occurs in this first version. Reboot only
-after reviewing the release and choosing an appropriate maintenance window.
-The boot menu retains older NixOS generations for manual rollback.
+Only retry a quarantined or deliberately rolled-back latest release after
+understanding the failure:
+
+```bash
+sudo caz-deploy-server-release --force
+```
+
+## Reboots and remaining boundary
+
+Live service and userspace changes deploy automatically. The new generation is
+also installed as the next boot generation. If its kernel, initrd, or kernel
+modules differ from the booted system, deployment state records
+`rebootRequired: true`, but this version deliberately does not reboot.
+
+This follows the normal NixOS distinction between live switching and automatic
+reboot policy. An unattended reboot can fail before the userspace rollback
+supervisor exists, so enabling it safely requires boot-attempt counting,
+boot-success marking, and a deliberately tested bad-boot recovery path on the
+physical server. Until that work is complete, reboot at a convenient time and
+use the systemd-boot menu to select an older generation if early boot fails.
+
+Automatic local rollback also cannot reverse an application database migration
+that modified persistent data incompatibly. The pre-deployment archives provide
+the recovery material, but restoration remains an explicit administrator
+operation. Add application-native backup handling before enabling future
+stateful services such as Immich or Home Assistant.
+
+References: [NixOS automatic upgrades](https://nixos.org/manual/nixos/stable/#sec-upgrading-automatic),
+[systemd boot counting](https://uapi-group.org/specifications/specs/boot_loader_specification/#boot-counting).
+
+## First deployment
+
+Automation cannot install itself onto a server that does not have it yet. The
+release containing this feature therefore requires one final manual verified
+deployment. After that generation is active, the timer and all commands above
+are declarative parts of the server and future releases deploy themselves.
 
 ## Public metadata
 
 The release manifest, SBOMs, closure metadata, and deployment mechanism are
 public by design. They reveal software versions but contain no credentials,
-private addresses, or proof that a particular release is active on the server.
-That visibility is useful for review and does not create network reachability.
-Secrets must continue to live outside Git, and exposed services still require
-independent authentication, patching, and network controls.
+private addresses, player names, or proof that a particular release is active
+on the server. That visibility is useful for review and does not create network
+reachability. Secrets must continue to live outside Git, and exposed services
+still require independent authentication, patching, and network controls.

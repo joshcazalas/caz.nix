@@ -31,9 +31,10 @@ in
     ../../modules/nixos/release-updater.nix
   ];
 
-  # The verified updater is ready to opt into after the physical server has
-  # been installed and its first known-good generation has been tested.
-  homelab.releaseUpdater.enable = false;
+  # Releases deploy automatically during the configured maintenance window.
+  # Kernel/initrd changes wait for a normal reboot; unattended reboot remains
+  # disabled until boot-success rollback has been tested on this hardware.
+  homelab.releaseUpdater.enable = true;
 
   homelab.minecraft = {
     enable = true;
@@ -45,6 +46,10 @@ in
   };
 
   assertions = [
+    {
+      assertion = config.homelab.releaseUpdater.enable;
+      message = "The homeserver policy requires verified automatic release deployment.";
+    }
     {
       assertion = lib.elem "multi-user.target" config.systemd.services.docker-minecraft.wantedBy;
       message = "Minecraft must remain enabled for automatic startup.";
