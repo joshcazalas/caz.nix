@@ -9,6 +9,7 @@
     ../../modules/nixos/base.nix
     ../../modules/nixos/storage.nix
     ../../modules/nixos/networking.nix
+    ../../modules/nixos/network-policy.nix
     ../../modules/nixos/filesharing.nix
     ../../modules/nixos/adguard-home.nix
     ../../modules/nixos/jellyfin.nix

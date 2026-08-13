@@ -107,8 +107,8 @@ in
       type = lib.types.bool;
       default = false;
       description = ''
-        Expose TCP 25565 to the LAN through a firewall-controlled systemd
-        proxy. Internet access still requires a router port forward.
+        Globally allow TCP 25565 through a firewall-controlled systemd proxy.
+        Internet access still requires a router port forward.
       '';
     };
 

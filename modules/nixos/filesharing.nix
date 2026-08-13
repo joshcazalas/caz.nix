@@ -8,7 +8,7 @@ in
 {
   services.samba = {
     enable = true;
-    openFirewall = true;
+    openFirewall = false;
     settings = {
       global = {
         workgroup = "WORKGROUP";
@@ -43,11 +43,12 @@ in
 
   services.samba-wsdd = {
     enable = true;
-    openFirewall = true;
+    openFirewall = false;
   };
 
   services.avahi = {
     enable = true;
+    openFirewall = false;
     nssmdns4 = true;
     publish = {
       enable = true;

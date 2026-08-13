@@ -19,7 +19,7 @@ in
     (lib.mkIf cfg.homeAssistant.enable {
       services.home-assistant = {
         enable = true;
-        openFirewall = true;
+        openFirewall = false;
         extraComponents = [ "default_config" ];
         config.default_config = { };
       };
@@ -30,7 +30,7 @@ in
         enable = true;
         host = "0.0.0.0";
         port = 2283;
-        openFirewall = true;
+        openFirewall = false;
         mediaLocation = "${dataMount}/photos/immich";
         accelerationDevices = [ "/dev/dri/renderD128" ];
       };

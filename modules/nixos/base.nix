@@ -67,6 +67,7 @@
 
   services.openssh = {
     enable = true;
+    openFirewall = false;
     settings = {
       KbdInteractiveAuthentication = false;
       PasswordAuthentication = false;
@@ -94,11 +95,6 @@
       };
     };
     oci-containers.backend = "docker";
-  };
-
-  networking.firewall = {
-    enable = true;
-    allowedTCPPorts = [ 22 ];
   };
 
   environment.systemPackages = with pkgs; [
