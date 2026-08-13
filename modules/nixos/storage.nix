@@ -1,47 +1,32 @@
 {
-  pkgs,
+  config,
+  lib,
   settings,
   ...
 }:
 let
-  dataMount = settings.server.dataMount;
+  dataRoot = settings.server.dataRoot;
 in
 {
-  # A single Btrfs disk gives checksums, compression, and snapshots, but it is
-  # not redundancy and cannot repair corrupted data without another copy.
-  fileSystems.${dataMount} = {
-    device = "/dev/disk/by-label/HOMELAB_DATA";
-    fsType = "btrfs";
-    options = [
-      "compress=zstd:3"
-      "noatime"
-      "nofail"
-      "x-systemd.device-timeout=10s"
-    ];
-  };
+  # Shared service state intentionally stays on the root NVMe until a reliable
+  # second SSD is installed. Declaring it through tmpfiles preserves ownership
+  # and permissions without pretending an external /srv mount exists.
+  systemd.tmpfiles.rules = [
+    "d ${dataRoot} 0750 root media -"
+    "d ${dataRoot}/backups 2775 root media -"
+    "d ${dataRoot}/media 2775 root media -"
+    "d ${dataRoot}/photos 2775 root media -"
+    "d ${dataRoot}/shares 2775 root media -"
+  ];
 
-  services.btrfs.autoScrub = {
-    enable = true;
-    fileSystems = [ dataMount ];
-    interval = "monthly";
-  };
-
-  # Do not create these directories on the SSD when the data disk is missing.
-  systemd.services.homelab-data-directories = {
-    description = "Create homelab data directories on the mounted data disk";
-    wantedBy = [ "multi-user.target" ];
-    unitConfig.RequiresMountsFor = dataMount;
-    path = [ pkgs.coreutils ];
-    script = ''
-      install -d -m 2775 -o root -g media \
-        ${dataMount}/backups \
-        ${dataMount}/media \
-        ${dataMount}/photos \
-        ${dataMount}/shares
-    '';
-    serviceConfig = {
-      Type = "oneshot";
-      RemainAfterExit = true;
-    };
-  };
+  assertions = [
+    {
+      assertion = lib.hasPrefix "/var/lib/" dataRoot;
+      message = "settings.server.dataRoot must explicitly reside under /var/lib on the root SSD.";
+    }
+    {
+      assertion = !builtins.hasAttr "/srv" config.fileSystems;
+      message = "/srv must remain unconfigured until reliable secondary storage is installed.";
+    }
+  ];
 }

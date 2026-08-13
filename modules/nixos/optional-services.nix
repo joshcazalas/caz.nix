@@ -6,7 +6,7 @@
 }:
 let
   cfg = config.homelab;
-  dataMount = settings.server.dataMount;
+  dataRoot = settings.server.dataRoot;
 in
 {
   options.homelab = {
@@ -31,7 +31,7 @@ in
         host = "0.0.0.0";
         port = 2283;
         openFirewall = false;
-        mediaLocation = "${dataMount}/photos/immich";
+        mediaLocation = "${dataRoot}/photos/immich";
         accelerationDevices = [ "/dev/dri/renderD128" ];
       };
       users.users.immich.extraGroups = [
@@ -39,10 +39,6 @@ in
         "render"
         "video"
       ];
-      systemd.services.immich-server = {
-        requires = [ "homelab-data-directories.service" ];
-        after = [ "homelab-data-directories.service" ];
-      };
     })
 
   ];

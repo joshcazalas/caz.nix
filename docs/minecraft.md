@@ -16,9 +16,10 @@ before deployment.
 The server starts only after all of these are set deliberately:
 
 - the Minecraft EULA is accepted;
-- at least one valid Java username is in the whitelist;
 - the whitelist is enforced while Mojang account authentication and secure
-  profiles remain enabled.
+  profiles remain enabled;
+- membership and operator state persist locally and are changed only through
+  the authenticated server console.
 
 Docker publishes the game only on host loopback at TCP 25566. When
 `openFirewall` is enabled, a sandboxed systemd socket proxy listens on TCP 25565
@@ -35,8 +36,7 @@ only inside the container network so the backup job can quiesce the world.
 
 ## First activation
 
-Production points only at sops-nix runtime paths, so neither player names nor a
-decryption key enters the Nix store:
+Nix declares the server policy but deliberately does not declare player names:
 
 ```nix
 homelab.minecraft = {
@@ -46,8 +46,6 @@ homelab.minecraft = {
   gameMode = "survival";
   difficulty = "hard";
   seed = "...";
-  whitelistFile = "/run/secrets/minecraft-whitelist";
-  operatorsFile = "/run/secrets/minecraft-operators";
 };
 ```
 
@@ -56,14 +54,19 @@ world. Changing it later does not regenerate the world. Paper is running with
 no plugins, so normal unmodified Minecraft Java clients can connect even though
 the server implementation is Paper rather than Mojang's server JAR.
 
-The container is enabled by default and starts with `multi-user.target` after
-sops-nix installs its runtime whitelist and operator files. Changing either
-encrypted secret restarts an already-running server so the new authorization
-policy takes effect.
+The container is enabled by default and starts with `multi-user.target`.
+`whitelist.json` and `ops.json` live inside the persistent Minecraft data
+directory. Releases never synchronize or overwrite them. A new installation
+therefore starts fail-closed with nobody admitted until an administrator adds
+the first account locally:
 
-The encrypted whitelist contains the confirmed Java profile names for the
-initial group. All players connect with normal, unmodified Java clients; no
-Bedrock protocol translation or Floodgate authentication is enabled.
+```bash
+sudo minecraft-access whitelist add YOUR_JAVA_USERNAME
+sudo minecraft-access operator add YOUR_JAVA_USERNAME
+```
+
+All players connect with normal, unmodified Java clients; no Bedrock protocol
+translation or Floodgate authentication is enabled.
 
 After activation:
 
@@ -76,6 +79,42 @@ systemctl list-timers minecraft-backup.timer --no-pager
 
 Test from another LAN device with the server's reserved LAN address before
 creating any public DNS record or router rule.
+
+## Player access
+
+Whitelist membership is operational state, not a release artifact. Manage it
+immediately on the server without a Git commit, CI run, container restart, or
+NixOS activation:
+
+```bash
+sudo minecraft-access whitelist add USERNAME
+sudo minecraft-access whitelist remove USERNAME
+sudo minecraft-access whitelist list
+
+sudo minecraft-access operator add USERNAME
+sudo minecraft-access operator remove USERNAME
+sudo minecraft-access operator list
+```
+
+The wrapper validates Java usernames, requires root, sends changes over RCON
+inside the container, persists Minecraft's standard JSON files, and records
+successful mutations in the local system journal:
+
+```bash
+journalctl -t caz-minecraft-access
+```
+
+An operator must already be whitelisted, and the wrapper requires operator
+privileges to be removed before that player can be removed from the whitelist.
+This keeps the two local authorization lists consistent. Usernames appear only
+in the server's state, backups, Minecraft logs, and local system journal—not in
+the public repository or Nix store.
+
+The underlying image also supports release-driven `WHITELIST_FILE`
+synchronization, but that makes every small membership change a deployment and
+can overwrite console changes at restart. This server intentionally uses
+Minecraft's native mutable list instead. See the upstream image's
+[whitelist documentation](https://docker-minecraft-server.readthedocs.io/en/latest/configuration/server-properties/#whitelist-players).
 
 ## Backups
 
@@ -97,10 +136,11 @@ systemctl status minecraft-backup.service --no-pager
 sudo ls -lh /var/backup/minecraft
 ```
 
-These backups protect against a bad update or accidental world damage, but they
-are on the same NVMe and therefore are not a disaster-recovery copy. Copy them
-to the replacement mirrored storage once it exists, then add an off-machine
-copy before the world becomes irreplaceable.
+The archive includes `whitelist.json` and `ops.json`. These backups protect
+against a bad update or accidental world damage, but they are on the same NVMe
+and therefore are not a disaster-recovery copy. Copy them to the second SSD
+after it is connected and tested, then add an off-machine copy before the world
+becomes irreplaceable.
 
 ## Cloudflare DNS and router forwarding
 
@@ -139,4 +179,4 @@ sudo systemctl start docker-minecraft.service
 Do not change `VERSION`, `PAPER_BUILD`, or the image digest directly on the
 server. Propose all three through Git, require CI, and create a fresh backup
 before activating the release. CI builds the real homeserver closure, including
-Minecraft and its encrypted-secret wiring.
+Minecraft and its root-only access-management tool.

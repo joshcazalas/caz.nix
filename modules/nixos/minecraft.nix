@@ -11,9 +11,112 @@ let
   # 30001-30032 build-user range.
   minecraftUid = 20000;
   minecraftGid = 20000;
-  playerNameType = lib.types.strMatching "[A-Za-z0-9_]{3,16}";
-  whitelistContainerPath = "/run/caz-nix/minecraft-whitelist";
-  operatorsContainerPath = "/run/caz-nix/minecraft-operators";
+  minecraftAccess = pkgs.writeShellApplication {
+    name = "minecraft-access";
+    runtimeInputs = [
+      pkgs.coreutils
+      pkgs.docker
+      pkgs.jq
+      pkgs.util-linux
+    ];
+    text = ''
+            usage() {
+              cat >&2 <<'EOF'
+      usage:
+        sudo minecraft-access whitelist add USERNAME
+        sudo minecraft-access whitelist remove USERNAME
+        sudo minecraft-access whitelist list
+        sudo minecraft-access operator add USERNAME
+        sudo minecraft-access operator remove USERNAME
+        sudo minecraft-access operator list
+      EOF
+            }
+
+            if (( EUID != 0 )); then
+              echo "Minecraft access changes require root; rerun with sudo." >&2
+              exit 1
+            fi
+
+            scope="''${1:-}"
+            action="''${2:-}"
+
+            player_in_file() {
+              local player="$1"
+              local state_file="$2"
+
+              [[ -e "$state_file" ]] \
+                && jq --exit-status --arg player "$player" \
+                  'any(.[]; (.name | ascii_downcase) == ($player | ascii_downcase))' \
+                  "$state_file" >/dev/null
+            }
+
+            case "$scope:$action" in
+              whitelist:list|operator:list)
+                if (( $# != 2 )); then
+                  usage
+                  exit 2
+                fi
+
+                if [[ "$scope" == whitelist ]]; then
+                  state_file=${lib.escapeShellArg "${cfg.dataDir}/whitelist.json"}
+                else
+                  state_file=${lib.escapeShellArg "${cfg.dataDir}/ops.json"}
+                fi
+
+                if [[ ! -e "$state_file" ]]; then
+                  echo "No persisted $scope list exists yet."
+                  exit 0
+                fi
+
+                jq --raw-output '.[].name' "$state_file" | sort --ignore-case
+                ;;
+
+              whitelist:add|whitelist:remove|operator:add|operator:remove)
+                if (( $# != 3 )); then
+                  usage
+                  exit 2
+                fi
+
+                player="$3"
+                if [[ ! "$player" =~ ^[A-Za-z0-9_]{3,16}$ ]]; then
+                  echo "Invalid Java username: use 3-16 letters, numbers, or underscores." >&2
+                  exit 2
+                fi
+
+                if [[ "$(docker inspect --format '{{.State.Running}}' minecraft 2>/dev/null || true)" != true ]]; then
+                  echo "The Minecraft container is not running." >&2
+                  exit 1
+                fi
+
+                if [[ "$scope:$action" == whitelist:add ]]; then
+                  docker exec minecraft rcon-cli whitelist add "$player"
+                elif [[ "$scope:$action" == whitelist:remove ]]; then
+                  if player_in_file "$player" ${lib.escapeShellArg "${cfg.dataDir}/ops.json"}; then
+                    echo "Remove operator privileges before removing $player from the whitelist." >&2
+                    exit 1
+                  fi
+                  docker exec minecraft rcon-cli whitelist remove "$player"
+                elif [[ "$scope:$action" == operator:add ]]; then
+                  if ! player_in_file "$player" ${lib.escapeShellArg "${cfg.dataDir}/whitelist.json"}; then
+                    echo "Add $player to the whitelist before granting operator privileges." >&2
+                    exit 1
+                  fi
+                  docker exec minecraft rcon-cli op "$player"
+                else
+                  docker exec minecraft rcon-cli deop "$player"
+                fi
+
+                actor="''${SUDO_USER:-root}"
+                logger --tag caz-minecraft-access -- "$actor changed $scope membership: $action $player"
+                ;;
+
+              *)
+                usage
+                exit 2
+                ;;
+            esac
+    '';
+  };
 in
 {
   options.homelab.minecraft = {
@@ -69,38 +172,6 @@ in
       type = lib.types.nullOr (lib.types.strMatching "-?[0-9]+");
       default = null;
       description = "Numeric world seed used only when creating a new world.";
-    };
-
-    whitelist = lib.mkOption {
-      type = lib.types.listOf playerNameType;
-      default = [ ];
-      description = "Minecraft usernames allowed to join. Values committed here are public.";
-    };
-
-    whitelistFile = lib.mkOption {
-      type = lib.types.nullOr lib.types.str;
-      default = null;
-      example = "/run/secrets/minecraft-whitelist";
-      description = ''
-        Runtime path to a newline-separated whitelist, normally decrypted by
-        sops-nix. Use this instead of whitelist to keep player names private.
-      '';
-    };
-
-    operators = lib.mkOption {
-      type = lib.types.listOf playerNameType;
-      default = [ ];
-      description = "Whitelisted Minecraft usernames granted operator privileges.";
-    };
-
-    operatorsFile = lib.mkOption {
-      type = lib.types.nullOr lib.types.str;
-      default = null;
-      example = "/run/secrets/minecraft-operators";
-      description = ''
-        Runtime path to a newline-separated operator list, normally decrypted
-        by sops-nix. Use this instead of operators to keep names private.
-      '';
     };
 
     openFirewall = lib.mkOption {
@@ -163,33 +234,6 @@ in
           message = "Minecraft requires homelab.minecraft.acceptEula = true.";
         }
         {
-          assertion = !cfg.enable || cfg.whitelist != [ ] || cfg.whitelistFile != null;
-          message = "Minecraft requires a whitelist or whitelistFile.";
-        }
-        {
-          assertion = cfg.whitelist == [ ] || cfg.whitelistFile == null;
-          message = "Set either Minecraft whitelist or whitelistFile, not both.";
-        }
-        {
-          assertion = cfg.operators == [ ] || cfg.operatorsFile == null;
-          message = "Set either Minecraft operators or operatorsFile, not both.";
-        }
-        {
-          assertion = lib.length cfg.whitelist == lib.length (lib.unique cfg.whitelist);
-          message = "homelab.minecraft.whitelist must not contain duplicates.";
-        }
-        {
-          assertion = lib.length cfg.operators == lib.length (lib.unique cfg.operators);
-          message = "homelab.minecraft.operators must not contain duplicates.";
-        }
-        {
-          assertion =
-            cfg.whitelistFile != null
-            || cfg.operatorsFile != null
-            || lib.all (player: lib.elem player cfg.whitelist) cfg.operators;
-          message = "Every Minecraft operator must also be in the whitelist.";
-        }
-        {
           assertion = cfg.port != 25566;
           message = "Minecraft host port 25566 is reserved for the loopback container mapping.";
         }
@@ -210,15 +254,13 @@ in
         "d ${cfg.backupDir} 0700 root root -"
       ];
 
+      environment.systemPackages = [ minecraftAccess ];
+
       virtualisation.oci-containers.containers.minecraft = {
         inherit (cfg) image;
         autoStart = true;
         ports = [ "127.0.0.1:25566:25565/tcp" ];
-        volumes = [
-          "${cfg.dataDir}:/data:rw"
-        ]
-        ++ lib.optional (cfg.whitelistFile != null) "${cfg.whitelistFile}:${whitelistContainerPath}:ro"
-        ++ lib.optional (cfg.operatorsFile != null) "${cfg.operatorsFile}:${operatorsContainerPath}:ro";
+        volumes = [ "${cfg.dataDir}:/data:rw" ];
         environment = {
           EULA = "TRUE";
           TYPE = "PAPER";
@@ -236,8 +278,6 @@ in
           ENFORCE_SECURE_PROFILE = "TRUE";
           ENABLE_WHITELIST = "TRUE";
           ENFORCE_WHITELIST = "TRUE";
-          EXISTING_WHITELIST_FILE = "SYNCHRONIZE";
-          EXISTING_OPS_FILE = "SYNCHRONIZE";
 
           OVERRIDE_SERVER_PROPERTIES = "TRUE";
           MODE = cfg.gameMode;
@@ -260,18 +300,6 @@ in
           GENERATE_LOG4J2_CONFIG = "TRUE";
           ROLLING_LOG_MAX_FILES = "30";
           STOP_DURATION = "120";
-        }
-        // lib.optionalAttrs (cfg.whitelist != [ ]) {
-          WHITELIST = lib.concatStringsSep "," cfg.whitelist;
-        }
-        // lib.optionalAttrs (cfg.whitelistFile != null) {
-          WHITELIST_FILE = whitelistContainerPath;
-        }
-        // lib.optionalAttrs (cfg.operators != [ ]) {
-          OPS = lib.concatStringsSep "," cfg.operators;
-        }
-        // lib.optionalAttrs (cfg.operatorsFile != null) {
-          OPS_FILE = operatorsContainerPath;
         }
         // lib.optionalAttrs (cfg.seed != null) {
           SEED = cfg.seed;

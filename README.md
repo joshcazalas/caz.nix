@@ -55,7 +55,7 @@ their standard Bash integrations.
 | WireGuard | off | UDP 51820 when enabled | Private remote administration |
 | Home Assistant | off | LAN/WireGuard | Enable when the first devices arrive |
 | Immich | off | LAN/WireGuard initially | Photo library, not a backup by itself |
-| Minecraft | on | LAN TCP 25565; Internet after manual DNS/router setup | Pinned, encrypted-whitelist Paper server with daily backups |
+| Minecraft | on | LAN TCP 25565; Internet after manual DNS/router setup | Pinned Paper server with a locally managed whitelist and daily backups |
 
 The host firewall accepts management, storage, monitoring, discovery, and DNS
 traffic only from RFC 1918 private IPv4 sources. Minecraft TCP 25565 is the
@@ -83,20 +83,19 @@ Jellyfin provides separate, non-admin usernames and passwords.
 
 ## Storage plan
 
-- SSD: 1 GiB EFI partition labeled `NIXOS_BOOT`; remaining space ext4 labeled
-  `NIXOS_ROOT`.
-- 2 TB HDD: single Btrfs filesystem labeled `HOMELAB_DATA`, mounted at `/srv`.
-- `/srv/media`, `/srv/photos`, `/srv/shares`, and `/srv/backups` are created
-  only after the data disk is mounted.
-- Minecraft state and its first local backup set stay on the healthy NVMe at
-  `/var/lib/minecraft` and `/var/backup/minecraft` until reliable replacement
-  storage is installed.
-- zram handles incidental swap; there is no disk swap partition initially.
+- The healthy NVMe contains a 1 GiB EFI partition labeled `NIXOS_BOOT`; the
+  remaining ext4 filesystem is labeled `NIXOS_ROOT`.
+- Shared media, photo, file, and application storage currently lives under
+  `/var/lib/homelab` on that root NVMe. `/srv` is intentionally unconfigured.
+- Minecraft state and its local backup set live separately at
+  `/var/lib/minecraft` and `/var/backup/minecraft`.
+- The unreliable HDD is not mounted, scrubbed, or referenced by this flake.
+- zram handles incidental swap; there is no disk swap partition.
 
-Btrfs gives checksums, compression, and snapshots. One disk is still one copy:
-neither Btrfs nor snapshots protect against losing the drive. That is acceptable
-for this disposable first phase, but anything that becomes emotionally valuable
-needs a second independent copy.
+This SSD-only phase has no disk redundancy: local Minecraft archives protect
+against bad edits and upgrades, but not NVMe failure. A second SSD can become a
+separate data or backup target after it is connected and tested. Anything that
+becomes emotionally valuable still needs an independent off-machine copy.
 
 ## Repository map
 
@@ -112,7 +111,7 @@ bootstrap/README.md               manual prerequisites and recovery notes
 bootstrap/wsl.sh                  interactive new-WSL bootstrap
 bootstrap/windows-font.ps1        pinned Windows Meslo font installer
 modules/nixos/                    storage, network, and service modules
-secrets/                          sops-nix workflow; encrypted files only
+secrets/                          sops-nix workflow for future runtime secrets
 docs/bootstrap-wsl.md             short WSL command reference
 docs/install-server.md            safe installation-day checklist
 docs/remote-access.md             DNS, HTTPS, Jellyfin, and WireGuard plan
