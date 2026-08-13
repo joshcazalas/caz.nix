@@ -5,10 +5,14 @@ Never put private keys, API tokens, passwords, hostnames intended to remain
 private, or plaintext secret values in a Nix expression: evaluated Nix values
 can end up in the world-readable Nix store.
 
-`secrets/homeserver.yaml` is encrypted to two existing Ed25519 SSH keys:
+`secrets/homeserver.yaml` is encrypted for two identities derived from existing
+Ed25519 SSH keys:
 
-- the administrator key, so the repository owner can edit and recover it;
-- the homeserver SSH host key, so sops-nix can decrypt it during activation.
+- the administrator's raw SSH public key, so the repository owner can edit and
+  recover it with the normal SSH private key;
+- the native age recipient produced from the homeserver SSH host public key by
+  `ssh-to-age`, matching how sops-nix imports `sops.age.sshKeyPaths` during
+  activation.
 
 The public recipients in `.sops.yaml` and ciphertext in
 `secrets/homeserver.yaml` are safe and expected to be committed. Neither
@@ -22,8 +26,14 @@ SOPS_AGE_SSH_PRIVATE_KEY_FILE="$HOME/.ssh/id_ed25519" \
   sops secrets/homeserver.yaml
 ```
 
-To add or replace a recipient, put the relevant Ed25519 public key in
-`.sops.yaml`, and then rewrap the data keys:
+To replace the homeserver recipient, convert its public host key first:
+
+```bash
+nix shell nixpkgs#ssh-to-age --command sh -c \
+  'ssh-to-age < /path/to/ssh_host_ed25519_key.pub'
+```
+
+Put that `age1...` value in `.sops.yaml`, then rewrap the data keys:
 
 ```bash
 SOPS_AGE_SSH_PRIVATE_KEY_FILE="$HOME/.ssh/id_ed25519" \

@@ -56,6 +56,11 @@ world. Changing it later does not regenerate the world. Paper is running with
 no plugins, so normal unmodified Minecraft Java clients can connect even though
 the server implementation is Paper rather than Mojang's server JAR.
 
+The container is enabled by default and starts with `multi-user.target` after
+sops-nix installs its runtime whitelist and operator files. Changing either
+encrypted secret restarts an already-running server so the new authorization
+policy takes effect.
+
 The encrypted whitelist contains the confirmed Java profile names for the
 initial group. All players connect with normal, unmodified Java clients; no
 Bedrock protocol translation or Floodgate authentication is enabled.
