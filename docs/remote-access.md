@@ -7,8 +7,8 @@ Use two different trust paths rather than treating every web app the same.
 1. Choose the domain and set it in `settings.nix`.
 2. Add `jellyfin.<domain>` in Cloudflare DNS as a **DNS-only** A record. Add a
    DNS-only AAAA record only if IPv6 exposure has also been tested and secured.
-3. If the Google Fiber public address changes, add a Cloudflare DNS updater
-   later using a narrowly scoped API token stored with sops-nix.
+3. If the public address changes, add a Cloudflare DNS updater later using a
+   narrowly scoped API token stored with sops-nix.
 4. Forward router TCP 80 and 443 to the server's reserved LAN address.
 5. Set `settings.public.jellyfin = true`, evaluate, and deploy. Caddy will obtain
    and renew HTTPS certificates and proxy only to Jellyfin on port 8096.
@@ -47,6 +47,5 @@ WireGuard initially reaches the server itself, which is enough for nearly full
 administrative control. Routing the rest of the home LAN through it can be added
 later once the LAN subnet and server interface name are known.
 
-Google Fiber allows personal, non-commercial servers and supports port
-forwarding. Before deployment, verify that the router's WAN address matches the
-public address seen externally; a mismatch would indicate another NAT layer.
+Before deployment, verify that the router's WAN address matches the public
+address seen externally; a mismatch would indicate another NAT layer.

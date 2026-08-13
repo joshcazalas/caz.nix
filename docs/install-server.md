@@ -32,9 +32,13 @@ application databases live on the SSD; bulky media and shares live on the HDD.
    ```bash
    sudo smartctl --scan-open
    sudo smartctl -a /dev/DEVICE
+   sudo smartctl -t long /dev/DEVICE
    ```
 
-6. Record `/dev/disk/by-id/` names in the installation notes.
+6. After the reported test duration, confirm the extended test completed
+   without error. Do not use a disk for server data if the test reports a read
+   failure.
+7. Record `/dev/disk/by-id/` names in the installation notes.
 
 The exact destructive partitioning commands are intentionally deferred until
 those identifiers are available. At that point the declarative label contract
@@ -54,13 +58,15 @@ in `hosts/homeserver/hardware.nix` can be verified before formatting.
    sudo nixos-install --flake .#homeserver
    ```
 
-5. Reboot, then make a DHCP reservation for the server in the Google Fiber
-   router so its LAN address stays stable.
+5. Reboot, then make a DHCP reservation in the router so the server's LAN
+   address stays stable.
 
-The i7-9700K's Intel UHD 630 is configured for Jellyfin Quick Sync through the
-`iHD` driver. Start without the RTX 2080 if practical: it saves idle power and a
-PCIe slot, avoids proprietary driver state, and the iGPU is well suited to media
-transcoding. Keep the card available if later workloads genuinely need CUDA.
+The i7-9700K's Intel UHD 630 is configured for Jellyfin VA-API transcoding
+through the `iHD` driver. When an RTX 2080 remains installed, configure the ASUS
+firmware under `Advanced > System Agent (SA) Configuration > Graphics
+Configuration` with `Primary Display` set to `PCIE` and `iGPU Multi-Monitor`
+enabled. Jellyfin selects the Intel render device by its stable PCI path, leaving
+the RTX available for later CUDA workloads.
 
 ## First local setup
 
