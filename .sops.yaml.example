@@ -1,6 +1,6 @@
 keys:
-  - &admin age1REPLACE_WITH_ADMIN_RECIPIENT
-  - &homeserver age1REPLACE_WITH_SERVER_RECIPIENT
+  - &admin "ssh-ed25519 REPLACE_WITH_ADMIN_PUBLIC_KEY"
+  - &homeserver "ssh-ed25519 REPLACE_WITH_SERVER_HOST_PUBLIC_KEY"
 
 creation_rules:
   - path_regex: secrets/homeserver\.yaml$
