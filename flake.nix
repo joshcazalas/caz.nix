@@ -51,6 +51,27 @@
         extraSpecialArgs = specialArgs;
         modules = [ ./hosts/cazpc/home.nix ];
       };
+      homeserver = nixpkgs.lib.nixosSystem {
+        inherit system specialArgs;
+        modules = [
+          sops-nix.nixosModules.sops
+          home-manager.nixosModules.home-manager
+          ./hosts/homeserver
+        ];
+      };
+      homeserverMinecraftTest = homeserver.extendModules {
+        modules = [
+          {
+            homelab.minecraft = {
+              enable = true;
+              acceptEula = true;
+              openFirewall = true;
+              whitelist = [ "CiValidation" ];
+              operators = [ "CiValidation" ];
+            };
+          }
+        ];
+      };
     in
     {
       formatter.${system} = pkgs.nixfmt-tree;
@@ -83,17 +104,11 @@
         "${settings.user.name}@cazpc" = wslHome;
       };
 
-      nixosConfigurations.${settings.server.hostName} = nixpkgs.lib.nixosSystem {
-        inherit system specialArgs;
-        modules = [
-          sops-nix.nixosModules.sops
-          home-manager.nixosModules.home-manager
-          ./hosts/homeserver
-        ];
-      };
+      nixosConfigurations.${settings.server.hostName} = homeserver;
 
       checks.${system} = {
         homeserver = self.nixosConfigurations.${settings.server.hostName}.config.system.build.toplevel;
+        homeserver-minecraft = homeserverMinecraftTest.config.system.build.toplevel;
         wsl-home = self.homeConfigurations."${settings.user.name}@wsl".activationPackage;
       };
     };

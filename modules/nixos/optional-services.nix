@@ -13,44 +13,9 @@ in
     homeAssistant.enable = lib.mkEnableOption "Home Assistant";
 
     immich.enable = lib.mkEnableOption "Immich photo management";
-
-    minecraft = {
-      enable = lib.mkEnableOption "a containerized Paper Minecraft server";
-      acceptEula = lib.mkOption {
-        type = lib.types.bool;
-        default = false;
-        description = "Confirm acceptance of the Minecraft EULA.";
-      };
-      memory = lib.mkOption {
-        type = lib.types.str;
-        default = "6G";
-      };
-      openFirewall = lib.mkOption {
-        type = lib.types.bool;
-        default = false;
-        description = "Allow TCP 25565 through the host firewall.";
-      };
-    };
   };
 
   config = lib.mkMerge [
-    {
-      # Enable these deliberately in hosts/homeserver/default.nix when wanted.
-      homelab = {
-        homeAssistant.enable = false;
-        immich.enable = false;
-        minecraft.enable = false;
-        wireguard.enable = false;
-      };
-
-      assertions = [
-        {
-          assertion = !cfg.minecraft.enable || cfg.minecraft.acceptEula;
-          message = "Minecraft requires homelab.minecraft.acceptEula = true.";
-        }
-      ];
-    }
-
     (lib.mkIf cfg.homeAssistant.enable {
       services.home-assistant = {
         enable = true;
@@ -80,24 +45,5 @@ in
       };
     })
 
-    (lib.mkIf cfg.minecraft.enable {
-      virtualisation.oci-containers.containers.minecraft = {
-        image = "itzg/minecraft-server:java21";
-        autoStart = true;
-        ports = [ "25565:25565" ];
-        volumes = [ "${dataMount}/minecraft:/data" ];
-        environment = {
-          EULA = "TRUE";
-          TYPE = "PAPER";
-          MEMORY = cfg.minecraft.memory;
-          ENABLE_ROLLING_LOGS = "true";
-        };
-      };
-      networking.firewall.allowedTCPPorts = lib.mkIf cfg.minecraft.openFirewall [ 25565 ];
-      systemd.services.docker-minecraft = {
-        requires = [ "homelab-data-directories.service" ];
-        after = [ "homelab-data-directories.service" ];
-      };
-    })
   ];
 }

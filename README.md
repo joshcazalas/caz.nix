@@ -55,7 +55,7 @@ their standard Bash integrations.
 | WireGuard | off | UDP 51820 when enabled | Private remote administration |
 | Home Assistant | off | LAN/WireGuard | Enable when the first devices arrive |
 | Immich | off | LAN/WireGuard initially | Photo library, not a backup by itself |
-| Minecraft | off | LAN or TCP 25565 by choice | Paper server in an OCI container |
+| Minecraft | off | LAN/public TCP 25565 by explicit opt-in | Pinned, whitelisted Paper server with daily backups |
 
 Only Jellyfin is intended to be directly public at first. Its design is:
 
@@ -79,8 +79,11 @@ Jellyfin provides separate, non-admin usernames and passwords.
 - SSD: 1 GiB EFI partition labeled `NIXOS_BOOT`; remaining space ext4 labeled
   `NIXOS_ROOT`.
 - 2 TB HDD: single Btrfs filesystem labeled `HOMELAB_DATA`, mounted at `/srv`.
-- `/srv/media`, `/srv/photos`, `/srv/shares`, `/srv/minecraft`, and
-  `/srv/backups` are created only after the data disk is mounted.
+- `/srv/media`, `/srv/photos`, `/srv/shares`, and `/srv/backups` are created
+  only after the data disk is mounted.
+- Minecraft state and its first local backup set stay on the healthy NVMe at
+  `/var/lib/minecraft` and `/var/backup/minecraft` until reliable replacement
+  storage is installed.
 - zram handles incidental swap; there is no disk swap partition initially.
 
 Btrfs gives checksums, compression, and snapshots. One disk is still one copy:
@@ -106,6 +109,7 @@ secrets/                          sops-nix workflow; encrypted files only
 docs/bootstrap-wsl.md             short WSL command reference
 docs/install-server.md            safe installation-day checklist
 docs/remote-access.md             DNS, HTTPS, Jellyfin, and WireGuard plan
+docs/minecraft.md                 pinned server, backups, and exposure checklist
 docs/ci-and-releases.md           update, validation, SBOM, and release design
 docs/publication-checklist.md     safe path from private to public
 scripts/                          local CI, secret scan, and release tooling

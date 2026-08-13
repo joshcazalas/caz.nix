@@ -36,7 +36,6 @@ in
       install -d -m 2775 -o root -g media \
         ${dataMount}/backups \
         ${dataMount}/media \
-        ${dataMount}/minecraft \
         ${dataMount}/photos \
         ${dataMount}/shares
     '';

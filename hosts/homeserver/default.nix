@@ -11,6 +11,7 @@
     ../../modules/nixos/filesharing.nix
     ../../modules/nixos/adguard-home.nix
     ../../modules/nixos/jellyfin.nix
+    ../../modules/nixos/minecraft.nix
     ../../modules/nixos/monitoring.nix
     ../../modules/nixos/optional-services.nix
     ../../modules/nixos/release-updater.nix
