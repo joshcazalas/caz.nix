@@ -1,6 +1,8 @@
 keys:
   - &admin "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJPPR7VdBolKryex6C9qgqq6XQU5snK1Z3HcEkqRkK/a"
-  - &homeserver "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICspqO/MCq49e/WlXUuIfg5JhA7fok5cahjQb5/3tOek"
+  # sops-nix converts age.sshKeyPaths through ssh-to-age at activation time,
+  # so server recipients must use the corresponding native age identity.
+  - &homeserver "age1gw8fdcxlndt7heqg57sp7gq3wm0v7yuhmeu2xg0nsr4qr2n8qc5spz8rfz"
 
 creation_rules:
   - path_regex: secrets/homeserver\.yaml$

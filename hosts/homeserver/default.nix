@@ -1,8 +1,12 @@
 {
   config,
+  lib,
   settings,
   ...
 }:
+let
+  sopsInstallUnit = "sops-install-secrets.service";
+in
 {
   imports = [
     ./hardware.nix
@@ -31,11 +35,13 @@
         owner = "minecraft";
         group = "minecraft";
         mode = "0400";
+        restartUnits = [ "docker-minecraft.service" ];
       };
       minecraft-operators = {
         owner = "minecraft";
         group = "minecraft";
         mode = "0400";
+        restartUnits = [ "docker-minecraft.service" ];
       };
     };
   };
@@ -52,9 +58,25 @@
   };
 
   systemd.services.docker-minecraft = {
-    requires = [ "sops-install-secrets.service" ];
-    after = [ "sops-install-secrets.service" ];
+    # With the default sops-nix activation mode, secrets are installed before
+    # switch-to-configuration starts services and no systemd unit exists. If
+    # systemd activation is enabled later, order against the unit it creates.
+    requires = lib.optional config.sops.useSystemdActivation sopsInstallUnit;
+    after = lib.optional config.sops.useSystemdActivation sopsInstallUnit;
   };
+
+  assertions = [
+    {
+      assertion = lib.elem "multi-user.target" config.systemd.services.docker-minecraft.wantedBy;
+      message = "Minecraft must remain enabled for automatic startup.";
+    }
+    {
+      assertion =
+        config.sops.useSystemdActivation
+        || !lib.elem sopsInstallUnit config.systemd.services.docker-minecraft.requires;
+      message = "Minecraft cannot require a sops-nix service when secrets use activation scripts.";
+    }
+  ];
 
   home-manager = {
     useGlobalPkgs = true;
