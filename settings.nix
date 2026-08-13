@@ -8,7 +8,9 @@
   server = {
     hostName = "homeserver";
     timeZone = "America/Chicago";
-    dataMount = "/srv";
+    # Until reliable secondary storage is installed, shared service data lives
+    # explicitly on the root NVMe instead of implying that /srv is available.
+    dataRoot = "/var/lib/homelab";
   };
 
   # Public publishing is intentionally two-step. Replace the placeholder and

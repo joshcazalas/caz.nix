@@ -5,7 +5,15 @@
   ...
 }:
 let
-  sopsInstallUnit = "sops-install-secrets.service";
+  minecraftEnvironment = config.virtualisation.oci-containers.containers.minecraft.environment;
+  releaseManagedMembershipVariables = [
+    "EXISTING_OPS_FILE"
+    "EXISTING_WHITELIST_FILE"
+    "OPS"
+    "OPS_FILE"
+    "WHITELIST"
+    "WHITELIST_FILE"
+  ];
 in
 {
   imports = [
@@ -27,25 +35,6 @@ in
   # been installed and its first known-good generation has been tested.
   homelab.releaseUpdater.enable = false;
 
-  sops = {
-    defaultSopsFile = ../../secrets/homeserver.yaml;
-    age.sshKeyPaths = [ "/etc/ssh/ssh_host_ed25519_key" ];
-    secrets = {
-      minecraft-whitelist = {
-        owner = "minecraft";
-        group = "minecraft";
-        mode = "0400";
-        restartUnits = [ "docker-minecraft.service" ];
-      };
-      minecraft-operators = {
-        owner = "minecraft";
-        group = "minecraft";
-        mode = "0400";
-        restartUnits = [ "docker-minecraft.service" ];
-      };
-    };
-  };
-
   homelab.minecraft = {
     enable = true;
     acceptEula = true;
@@ -53,16 +42,6 @@ in
     gameMode = "survival";
     difficulty = "hard";
     seed = "1691256543523180978";
-    whitelistFile = config.sops.secrets.minecraft-whitelist.path;
-    operatorsFile = config.sops.secrets.minecraft-operators.path;
-  };
-
-  systemd.services.docker-minecraft = {
-    # With the default sops-nix activation mode, secrets are installed before
-    # switch-to-configuration starts services and no systemd unit exists. If
-    # systemd activation is enabled later, order against the unit it creates.
-    requires = lib.optional config.sops.useSystemdActivation sopsInstallUnit;
-    after = lib.optional config.sops.useSystemdActivation sopsInstallUnit;
   };
 
   assertions = [
@@ -72,9 +51,14 @@ in
     }
     {
       assertion =
-        config.sops.useSystemdActivation
-        || !lib.elem sopsInstallUnit config.systemd.services.docker-minecraft.requires;
-      message = "Minecraft cannot require a sops-nix service when secrets use activation scripts.";
+        minecraftEnvironment.ENABLE_WHITELIST == "TRUE" && minecraftEnvironment.ENFORCE_WHITELIST == "TRUE";
+      message = "Minecraft must keep its locally managed whitelist enabled and enforced.";
+    }
+    {
+      assertion = lib.all (
+        variable: !builtins.hasAttr variable minecraftEnvironment
+      ) releaseManagedMembershipVariables;
+      message = "Minecraft releases must not synchronize mutable whitelist or operator membership.";
     }
   ];
 

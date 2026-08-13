@@ -3,7 +3,7 @@
   ...
 }:
 let
-  dataMount = settings.server.dataMount;
+  dataRoot = settings.server.dataRoot;
 in
 {
   services.samba = {
@@ -18,14 +18,14 @@ in
         "map to guest" = "never";
       };
       media = {
-        path = "${dataMount}/media";
+        path = "${dataRoot}/media";
         browseable = "yes";
         "read only" = "yes";
         "guest ok" = "no";
         "valid users" = "@media";
       };
       files = {
-        path = "${dataMount}/shares";
+        path = "${dataRoot}/shares";
         browseable = "yes";
         "read only" = "no";
         "guest ok" = "no";
@@ -34,11 +34,6 @@ in
         "valid users" = "@media";
       };
     };
-  };
-
-  systemd.services.samba-smbd = {
-    requires = [ "homelab-data-directories.service" ];
-    after = [ "homelab-data-directories.service" ];
   };
 
   services.samba-wsdd = {

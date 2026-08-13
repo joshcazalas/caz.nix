@@ -44,8 +44,6 @@ in
   ];
 
   systemd.services.jellyfin = {
-    requires = [ "homelab-data-directories.service" ];
-    after = [ "homelab-data-directories.service" ];
     environment.LIBVA_DRIVER_NAME = "iHD";
   };
 
