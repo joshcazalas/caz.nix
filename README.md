@@ -53,7 +53,6 @@ their standard Bash integrations.
 | AdGuard Home | on | LAN or SSH forwarding | Network DNS filtering; simpler NixOS fit than Pi-hole |
 | Prometheus + Alertmanager | on | Loopback; SSH forwarding | Metrics, declarative alert rules validated in CI, email and Discord notifications |
 | Grafana | on | Loopback; SSH forwarding | Provisioned dashboard over the Prometheus data source |
-| Beszel hub | on, transitional | LAN or SSH forwarding | Superseded by the above; removed once Prometheus is confirmed working |
 | Cloudflare DDNS | on | Outbound HTTPS only | Keep reviewed public IPv4 records synchronized |
 | Home Assistant | off | LAN or SSH forwarding | Enable when the first devices arrive |
 | Immich | off | LAN or SSH forwarding initially | Photo library, not a backup by itself |
