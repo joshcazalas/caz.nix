@@ -276,11 +276,25 @@ in
           so that no mailbox, webhook, or password reaches the Nix store.
         '';
       }
-      {
-        assertion = !config.services.beszel.hub.enable;
-        message = "Beszel was replaced by the Prometheus stack; remove the leftover hub.";
-      }
     ];
+
+    # Transitional. Beszel is superseded by everything above and will be
+    # removed in a follow-up once the Prometheus stack is confirmed working on
+    # the server.
+    #
+    # It cannot be removed in the same release that introduces its replacement.
+    # The release updater keeps running from the previous generation while it
+    # supervises activation, so the health gate applied to a new release is the
+    # one built into the *old* system. Removing beszel-hub here would stop a
+    # unit that the old gate still requires, and the release would roll itself
+    # back. Retiring it needs two releases: this one teaches the updater to
+    # resolve the health gate from the running generation, and the next one
+    # drops the service.
+    services.beszel.hub = {
+      enable = true;
+      host = "0.0.0.0";
+      port = 8090;
+    };
 
     # Forces the dummy-substituted Alertmanager config to build, turning a
     # malformed route or receiver into a CI failure instead of a silent

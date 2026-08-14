@@ -4,7 +4,14 @@ Prometheus collects metrics, Alertmanager delivers notifications by email and
 Discord, and Grafana renders one provisioned dashboard. Every listener binds to
 loopback and is reached through SSH local forwarding.
 
-This replaced the Beszel hub. Beszel is a good tool and its NixOS module now
+The Beszel hub is still running alongside this, and is removed in a follow-up
+once the Prometheus stack is confirmed working on the server. It cannot be
+removed in the same release that replaces it: the release updater is gated by
+the health checks belonging to the *previous* generation, so dropping a unit
+that the older gate still requires makes the release roll itself back. See
+"Removing a service takes two releases" in `docs/server-updates.md`.
+
+This replaces the Beszel hub. Beszel is a good tool and its NixOS module now
 covers SMART, systemd, and temperatures, but its alert thresholds live in a
 web UI backed by a SQLite database. Every other invariant in this repository is
 reviewable code validated before it deploys, and alerting is the last thing that
