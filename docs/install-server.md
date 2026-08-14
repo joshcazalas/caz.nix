@@ -89,8 +89,10 @@ Then:
 4. Open AdGuard Home on `http://homeserver:3000`, finish setup, then configure
    the router's LAN DNS to the server's reserved address. Keep a fallback plan:
    if the server is down, clients otherwise lose DNS.
-5. Open Beszel at `http://homeserver:8090`; add agents only after its initial
-   account is established.
+5. Provision the monitoring secrets and the external dead man's switch before
+   the first release that enables monitoring. See `docs/monitoring.md`; the
+   build fails closed until those keys exist. Grafana is then reached over SSH
+   forwarding rather than the LAN.
 6. Verify the Intel media path with `vainfo` and watch activity during a test
    transcode with `intel_gpu_top`.
 

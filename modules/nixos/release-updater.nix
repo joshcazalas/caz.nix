@@ -17,7 +17,13 @@ let
     ++ optionals config.services.samba.enable [ "samba-smbd.service" ]
     ++ optionals config.services.jellyfin.enable [ "jellyfin.service" ]
     ++ optionals config.services.adguardhome.enable [ "adguardhome.service" ]
-    ++ optionals config.services.beszel.hub.enable [ "beszel-hub.service" ]
+    ++ optionals config.services.prometheus.enable [
+      "prometheus.service"
+      "prometheus-node-exporter.service"
+      "prometheus-smartctl-exporter.service"
+    ]
+    ++ optionals config.services.prometheus.alertmanager.enable [ "alertmanager.service" ]
+    ++ optionals config.services.grafana.enable [ "grafana.service" ]
     ++ optionals config.services.cloudflare-ddns.enable [ "cloudflare-ddns.service" ]
     ++ optionals config.services.fail2ban.enable [ "fail2ban.service" ]
     ++ optionals config.services.auxide.enable [ "auxide.service" ]
@@ -31,7 +37,15 @@ let
   httpEndpoints =
     optionals config.services.jellyfin.enable [ "jellyfin=http://127.0.0.1:8096/health" ]
     ++ optionals config.services.adguardhome.enable [ "adguardhome=http://127.0.0.1:3000/" ]
-    ++ optionals config.services.beszel.hub.enable [ "beszel=http://127.0.0.1:8090/" ]
+    ++ optionals config.services.prometheus.enable [
+      "prometheus=http://127.0.0.1:${toString config.services.prometheus.port}/-/healthy"
+    ]
+    ++ optionals config.services.prometheus.alertmanager.enable [
+      "alertmanager=http://127.0.0.1:${toString config.services.prometheus.alertmanager.port}/-/healthy"
+    ]
+    ++ optionals config.services.grafana.enable [
+      "grafana=http://127.0.0.1:${toString config.services.grafana.settings.server.http_port}/api/health"
+    ]
     ++ optionals config.homelab.homeAssistant.enable [ "home-assistant=http://127.0.0.1:8123/" ]
     ++ optionals config.homelab.immich.enable [ "immich=http://127.0.0.1:2283/api/server/ping" ]
     ++ optionals config.services.auxide.enable [ "auxide=http://127.0.0.1:9090/health/ready" ];
@@ -65,12 +79,15 @@ let
     ]
     ++ optionals config.services.jellyfin.enable [ "jellyfin.service" ]
     ++ optionals config.services.adguardhome.enable [ "adguardhome.service" ]
-    ++ optionals config.services.beszel.hub.enable [ "beszel-hub.service" ];
+    ++ optionals config.services.grafana.enable [ "grafana.service" ];
   backupStatePaths =
     optionals config.services.samba.enable [ "var/lib/samba" ]
     ++ optionals config.services.jellyfin.enable [ "var/lib/jellyfin" ]
     ++ optionals config.services.adguardhome.enable [ "var/lib/AdGuardHome" ]
-    ++ optionals config.services.beszel.hub.enable [ "var/lib/beszel-hub" ];
+    # Grafana's database is small and holds annotations and preferences.
+    # Prometheus' TSDB is deliberately excluded: it is large, rewritten
+    # constantly, and reproducible by simply scraping again.
+    ++ optionals config.services.grafana.enable [ "var/lib/grafana" ];
   preDeployBackup = pkgs.writeShellApplication {
     name = "caz-pre-deployment-backup";
     runtimeInputs = [

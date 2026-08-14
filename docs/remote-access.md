@@ -169,15 +169,23 @@ without installing a VPN client:
 ```bash
 ssh \
   -L 3000:127.0.0.1:3000 \
-  -L 8090:127.0.0.1:8090 \
+  -L 3001:127.0.0.1:3001 \
   -L 8096:127.0.0.1:8096 \
+  -L 9093:127.0.0.1:9093 \
+  -L 9095:127.0.0.1:9095 \
   joshcaz@ssh.joshcaz.com
 ```
 
 While that session is open, the remote laptop can browse AdGuard at
-`http://127.0.0.1:3000`, Beszel at `http://127.0.0.1:8090`, and Jellyfin's local
-endpoint at `http://127.0.0.1:8096`. Do not forward Samba, AdGuard DNS, Beszel,
+`http://127.0.0.1:3000`, Grafana at `http://127.0.0.1:3001`, Jellyfin's local
+endpoint at `http://127.0.0.1:8096`, Alertmanager at `http://127.0.0.1:9093`,
+and Prometheus at `http://127.0.0.1:9095`. Do not forward Samba, AdGuard DNS,
 or arbitrary administration ports through the router.
+
+Grafana, Prometheus, and Alertmanager bind to loopback only, so this tunnel is
+the sole path to them from anywhere, including the LAN. That is deliberate: an
+observability stack knows the shape of every service on the host, and a
+dashboard is not worth a new listening port.
 
 IPv6 is disabled on this host for now. Enable it only alongside an explicit
 IPv6 firewall review and external test. Before forwarding any port, also verify
