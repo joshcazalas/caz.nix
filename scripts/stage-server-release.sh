@@ -424,6 +424,29 @@ for value in "$health_wait_seconds" "$stabilization_seconds"; do
   fi
 done
 
+# Always ask the *running* generation what healthy means.
+#
+# release-updater.nix sets restartIfChanged = false so this updater survives
+# activation and can supervise its own replacement, which means the script and
+# its build-time closure both belong to the previous generation. A release that
+# adds or removes a service also changes the set of units and endpoints that
+# define health, so a checker baked in at build time describes the system being
+# replaced rather than the one now running.
+#
+# Resolving through /run/current-system is correct at every call site because
+# that symlink tracks whatever is active: the old generation before activation,
+# the new one after it, and the restored one after a rollback.
+server_health() {
+  local checker=/run/current-system/sw/bin/caz-server-health
+
+  if [[ ! -x "$checker" ]]; then
+    echo "The active generation does not provide ${checker}." >&2
+    return 1
+  fi
+
+  "$checker" "$@"
+}
+
 write_accepted_state() {
   local status="$1"
   local previous_store_path="$2"
@@ -516,7 +539,7 @@ if [[ "$current_store_path" == "$built_store_path" ]]; then
   echo "==> ${release_tag} is already the running system; adopting it as verified"
   nix-env --profile /nix/var/nix/profiles/system --set "$built_store_path"
   "${built_store_path}/bin/switch-to-configuration" boot
-  caz-server-health \
+  server_health \
     --wait "$health_wait_seconds" \
     --stabilize "$stabilization_seconds"
 
@@ -530,7 +553,7 @@ if [[ "$current_store_path" == "$built_store_path" ]]; then
 fi
 
 echo "==> Verifying the current generation before changing it"
-caz-server-health --wait 60
+server_health --wait 60
 
 echo "==> Protecting mutable application state before activation"
 caz-pre-deployment-backup
@@ -557,7 +580,7 @@ rollback_deployment() {
     rollback_status=activation-failed
   elif [[ "$(readlink --canonicalize /run/current-system)" != "$previous_store_path" ]]; then
     rollback_status=store-path-mismatch
-  elif ! caz-server-health \
+  elif ! server_health \
     --wait "$health_wait_seconds" \
     --stabilize "$stabilization_seconds"; then
     rollback_status=health-check-failed
@@ -611,7 +634,7 @@ if [[ "$(readlink --canonicalize /run/current-system)" != "$built_store_path" ]]
 fi
 
 echo "==> Waiting for the deployed services to stabilize"
-if ! caz-server-health \
+if ! server_health \
   --wait "$health_wait_seconds" \
   --stabilize "$stabilization_seconds"; then
   fail_and_rollback "post-deployment health checks failed"

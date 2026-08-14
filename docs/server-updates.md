@@ -56,7 +56,8 @@ After activation it waits up to five minutes for these checks, then requires
 them to remain healthy for another minute:
 
 - SSH and Samba systemd services;
-- Jellyfin, AdGuard Home, Prometheus, Alertmanager, and Grafana HTTP responses;
+- Jellyfin, AdGuard Home, Prometheus, Alertmanager, Grafana, and Beszel HTTP
+  responses;
 - an actual DNS lookup through the local AdGuard Home resolver;
 - the Minecraft container, its RCON console, and public-listener socket.
 
@@ -69,6 +70,36 @@ release can deploy normally; retrying the same release requires an explicit
 Deployment state is stored under `/var/lib/caz-release-updater`. The root-owned
 state and systemd journal form the local audit record. Public releases remain
 build records and do not reveal which release is actually running.
+
+### Which generation defines "healthy"
+
+The updater deliberately keeps running from the previous generation while it
+supervises its own replacement, so that activation cannot kill the process
+responsible for rolling activation back. That means the script, and everything
+resolved from its build-time closure, belongs to the system being replaced.
+
+The health gate must not work that way. A release that adds or removes a
+service also changes which units and endpoints define health, so the updater
+resolves `caz-server-health` through `/run/current-system/sw/bin` at every call
+site. That symlink tracks whatever is active: the old generation before
+activation, the new one after it, and the restored one after a rollback.
+
+The pre-deployment backup is the opposite case and is intentionally left as the
+updater's own copy, because it protects the state that exists *now*.
+
+### Removing a service takes two releases
+
+This follows from the above and is easy to trip over.
+
+A release that removes a service is still gated by the health checks built into
+the generation that came before it. If that older gate still requires the unit
+the new release just removed, the check can never pass and the release rolls
+itself back — even though the new system is perfectly healthy.
+
+So retire a service in two steps: keep it running in the release that changes
+the health gate, then remove it in the next one. This only applies to removals.
+Adding a service is safe in a single release, because the older gate simply
+does not know to look for it.
 
 ## Run it now
 

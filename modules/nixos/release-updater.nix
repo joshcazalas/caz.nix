@@ -17,6 +17,7 @@ let
     ++ optionals config.services.samba.enable [ "samba-smbd.service" ]
     ++ optionals config.services.jellyfin.enable [ "jellyfin.service" ]
     ++ optionals config.services.adguardhome.enable [ "adguardhome.service" ]
+    ++ optionals config.services.beszel.hub.enable [ "beszel-hub.service" ]
     ++ optionals config.services.prometheus.enable [
       "prometheus.service"
       "prometheus-node-exporter.service"
@@ -37,6 +38,7 @@ let
   httpEndpoints =
     optionals config.services.jellyfin.enable [ "jellyfin=http://127.0.0.1:8096/health" ]
     ++ optionals config.services.adguardhome.enable [ "adguardhome=http://127.0.0.1:3000/" ]
+    ++ optionals config.services.beszel.hub.enable [ "beszel=http://127.0.0.1:8090/" ]
     ++ optionals config.services.prometheus.enable [
       "prometheus=http://127.0.0.1:${toString config.services.prometheus.port}/-/healthy"
     ]
@@ -79,11 +81,13 @@ let
     ]
     ++ optionals config.services.jellyfin.enable [ "jellyfin.service" ]
     ++ optionals config.services.adguardhome.enable [ "adguardhome.service" ]
+    ++ optionals config.services.beszel.hub.enable [ "beszel-hub.service" ]
     ++ optionals config.services.grafana.enable [ "grafana.service" ];
   backupStatePaths =
     optionals config.services.samba.enable [ "var/lib/samba" ]
     ++ optionals config.services.jellyfin.enable [ "var/lib/jellyfin" ]
     ++ optionals config.services.adguardhome.enable [ "var/lib/AdGuardHome" ]
+    ++ optionals config.services.beszel.hub.enable [ "var/lib/beszel-hub" ]
     # Grafana's database is small and holds annotations and preferences.
     # Prometheus' TSDB is deliberately excluded: it is large, rewritten
     # constantly, and reproducible by simply scraping again.
@@ -119,8 +123,13 @@ let
       pkgs.jq
       pkgs.snzip
       pkgs.util-linux
+      # The pre-deployment backup describes the state that exists *now*, so the
+      # copy built alongside this updater is the correct one.
       preDeployBackup
-      serverHealth
+      # serverHealth is deliberately absent. The health gate must describe the
+      # generation that is actually running, so the script resolves it through
+      # /run/current-system instead. Putting it back here would silently
+      # reintroduce a stale gate that fails every release removing a service.
     ];
     text = ''
       export CAZ_RELEASE_HEALTH_WAIT_SECONDS=${toString cfg.healthWaitSeconds}
