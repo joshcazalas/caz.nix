@@ -19,5 +19,9 @@
     domain = "joshcaz.com";
     ssh = true;
     jellyfin = false;
+    # A read-only static tile server. Much smaller attack surface than
+    # Jellyfin, but still a deliberate Internet exposure: it needs the router
+    # forward and DNS record from docs/bluemap.md before it can work.
+    bluemap = true;
   };
 }

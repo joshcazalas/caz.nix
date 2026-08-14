@@ -63,7 +63,7 @@ let
     ++ optionals (config.homelab.minecraft.enable && config.homelab.minecraft.openFirewall) [
       config.homelab.minecraft.port
     ]
-    ++ optionals settings.public.jellyfin [
+    ++ optionals (settings.public.jellyfin || settings.public.bluemap) [
       80
       443
     ];

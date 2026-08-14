@@ -57,6 +57,7 @@ their standard Bash integrations.
 | Home Assistant | off | LAN or SSH forwarding | Enable when the first devices arrive |
 | Immich | off | LAN or SSH forwarding initially | Photo library, not a backup by itself |
 | Minecraft | on | LAN TCP 25565; Internet after manual DNS/router setup | Pinned Paper server with a locally managed whitelist and daily backups |
+| BlueMap | on | Public HTTPS after manual router setup | Static 3D world map served by Caddy; no player markers, bounded render |
 | Release updater | on | outbound HTTPS only | Verified maintenance-window deployment, health checks, and rollback |
 
 The host firewall accepts storage, monitoring, discovery, and DNS traffic only
