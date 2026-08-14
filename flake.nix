@@ -14,11 +14,14 @@
       url = "github:Mic92/sops-nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
+    auxide.url = "github:joshcazalas/auxide";
   };
 
   outputs =
     inputs@{
       self,
+      auxide,
       nixpkgs,
       nixpkgs-unstable,
       home-manager,
@@ -55,6 +58,7 @@
         inherit system specialArgs;
         modules = [
           sops-nix.nixosModules.sops
+          auxide.nixosModules.default
           home-manager.nixosModules.home-manager
           ./hosts/homeserver
         ];
