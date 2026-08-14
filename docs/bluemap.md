@@ -103,6 +103,27 @@ Also note that the bounding key is `render-mask`. Several third-party guides
 still reference `render-boundaries`, which this version ignores silently — the
 map would render everything rather than failing loudly.
 
+## Troubleshooting
+
+**`AccessDeniedException: /data/plugins/BlueMap/packs`** on startup means the
+plugin's config directory is owned by root instead of the container's user.
+
+Docker creates parent directories for a bind-mounted file when they do not
+already exist, and it creates them as root. Because the BlueMap configs are
+mounted individually, the first container start would otherwise leave
+`/data/plugins/BlueMap` root-owned, and the unprivileged server user could not
+create the resource-pack directory beside its own configs.
+
+The module now pre-creates those directories through `systemd.tmpfiles`, which
+also corrects the ownership of directories an earlier start already created.
+If it recurs, check the host side:
+
+```console
+sudo ls -lan /var/lib/minecraft/plugins/BlueMap
+```
+
+Everything there should be owned by uid and gid `20000`.
+
 ## Upgrading
 
 Bump the version and hash together:
