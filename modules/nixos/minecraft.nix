@@ -256,6 +256,19 @@ in
 
       environment.systemPackages = [ minecraftAccess ];
 
+      # Minecraft is the only containerized service, so it owns the runtime
+      # rather than the base system carrying a root-privileged daemon whether
+      # or not anything uses it. Disabling Minecraft now removes Docker too.
+      virtualisation.docker = {
+        enable = true;
+        autoPrune = {
+          enable = true;
+          dates = "weekly";
+          flags = [ "--all" ];
+        };
+      };
+      virtualisation.oci-containers.backend = "docker";
+
       virtualisation.oci-containers.containers.minecraft = {
         inherit (cfg) image;
         autoStart = true;
