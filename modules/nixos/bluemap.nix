@@ -31,6 +31,13 @@ let
   containerState = "/data/bluemap";
   pluginDir = "/data/plugins/BlueMap";
 
+  # Host-side view of the same directory, so ownership can be established
+  # before the container starts.
+  pluginStateDir = "${minecraftCfg.dataDir}/plugins/BlueMap";
+
+  owner = toString config.users.users.minecraft.uid;
+  group = toString config.users.groups.minecraft.gid;
+
   # BlueMap reads HOCON. Every value below is policy rather than operational
   # state, so it is release-controlled and mounted read-only.
   coreConf = pkgs.writeText "bluemap-core.conf" ''
@@ -232,8 +239,21 @@ in
     # Caddy can serve it without joining the Minecraft group. The contents are
     # published on the Internet anyway.
     systemd.tmpfiles.rules = [
-      "d ${stateDir} 0755 ${toString config.users.users.minecraft.uid} ${toString config.users.groups.minecraft.gid} -"
-      "d ${webRoot} 0755 ${toString config.users.users.minecraft.uid} ${toString config.users.groups.minecraft.gid} -"
+      "d ${stateDir} 0755 ${owner} ${group} -"
+      "d ${webRoot} 0755 ${owner} ${group} -"
+    ]
+    # Bind-mounting a file into a directory that does not exist yet makes
+    # Docker create the parents as root, which leaves the container's
+    # unprivileged user unable to write beside its own config files. BlueMap
+    # then fails to start because it cannot create its resource-pack
+    # directory. Creating these first keeps ownership correct, and systemd
+    # also corrects directories a previous start already created as root.
+    ++ map (path: "d ${path} 0750 ${owner} ${group} -") [
+      "${minecraftCfg.dataDir}/plugins"
+      pluginStateDir
+      "${pluginStateDir}/maps"
+      "${pluginStateDir}/storages"
+      "${pluginStateDir}/packs"
     ];
 
     virtualisation.oci-containers.containers.minecraft.volumes = [
