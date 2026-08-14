@@ -58,9 +58,14 @@ in
   # in Jellyfin so native TV and mobile clients work without an Access gateway.
   services.caddy = lib.mkIf publicCfg.jellyfin {
     enable = true;
-    virtualHosts."jellyfin.${publicCfg.domain}".extraConfig = ''
-      reverse_proxy 127.0.0.1:8096
-    '';
+    virtualHosts."jellyfin.${publicCfg.domain}" = {
+      # Jellyfin can place API keys in request URLs. Keep Caddy's request log
+      # disabled rather than persisting bearer credentials in access logs.
+      logFormat = "output discard";
+      extraConfig = ''
+        reverse_proxy 127.0.0.1:8096
+      '';
+    };
   };
 
   networking.firewall.allowedTCPPorts = lib.mkIf publicCfg.jellyfin [

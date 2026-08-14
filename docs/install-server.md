@@ -100,4 +100,4 @@ Then:
 - Off-site backups and a second local copy.
 - Filesystem snapshots, after the long-term storage architecture is revisited.
 - Immich and Home Assistant activation.
-- Public DNS, port forwarding, WireGuard peers, and secret material.
+- Public Jellyfin and its port forwarding.

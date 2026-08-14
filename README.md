@@ -47,23 +47,23 @@ their standard Bash integrations.
 
 | Service | Default | Reachability | Purpose |
 | --- | --- | --- | --- |
-| SSH | on | LAN/WireGuard | Key-only administration |
-| Samba | on | LAN/WireGuard | Windows-friendly NAS shares |
+| SSH | on | Public TCP 22 | Key-only administration; Fail2ban-protected |
+| Samba | on | LAN only | Windows-friendly NAS shares |
 | Jellyfin | on | LAN; public is opt-in | Media streaming and per-person accounts |
-| AdGuard Home | on | LAN/WireGuard | Network DNS filtering; simpler NixOS fit than Pi-hole |
-| Beszel hub | on | LAN/WireGuard | Lightweight monitoring before committing to Prometheus/Grafana |
+| AdGuard Home | on | LAN or SSH forwarding | Network DNS filtering; simpler NixOS fit than Pi-hole |
+| Beszel hub | on | LAN or SSH forwarding | Lightweight monitoring before committing to Prometheus/Grafana |
 | Cloudflare DDNS | on | Outbound HTTPS only | Keep reviewed public IPv4 records synchronized |
-| WireGuard | off | UDP 51820 when enabled | Private remote administration |
-| Home Assistant | off | LAN/WireGuard | Enable when the first devices arrive |
-| Immich | off | LAN/WireGuard initially | Photo library, not a backup by itself |
+| Home Assistant | off | LAN or SSH forwarding | Enable when the first devices arrive |
+| Immich | off | LAN or SSH forwarding initially | Photo library, not a backup by itself |
 | Minecraft | on | LAN TCP 25565; Internet after manual DNS/router setup | Pinned Paper server with a locally managed whitelist and daily backups |
 | Release updater | on | outbound HTTPS only | Verified maintenance-window deployment, health checks, and rollback |
 
-The host firewall accepts management, storage, monitoring, discovery, and DNS
-traffic only from RFC 1918 private IPv4 sources. Minecraft TCP 25565 is the
-only globally allowed port in the default configuration. IPv6 is temporarily
-disabled on the host until its firewall and external reachability are reviewed
-and tested deliberately.
+The host firewall accepts storage, monitoring, discovery, and DNS traffic only
+from RFC 1918 private IPv4 sources. Public SSH is restricted to the declared
+administrator and public-key authentication, with five failures in ten minutes
+earning a one-hour Fail2ban block. Minecraft TCP 25565 remains the other
+globally allowed port. IPv6 is temporarily disabled until its firewall and
+external reachability are reviewed and tested deliberately.
 
 Minecraft and the optional public Jellyfin endpoint have separate, explicitly
 reviewed exposure paths. Jellyfin's design is:
@@ -72,8 +72,9 @@ reviewed exposure paths. Jellyfin's design is:
 friends/family -> jellyfin.your-domain -> router TCP 80/443
                -> Caddy HTTPS -> Jellyfin accounts
 
-you while away -> vpn.your-domain -> router UDP 51820
-               -> WireGuard -> SSH and private dashboards
+you while away -> ssh.your-domain -> router TCP 22
+               -> key-only OpenSSH -> shell/sudo
+               -> optional SSH local forwarding -> private dashboards
 ```
 
 Cloudflare should host the DNS record in **DNS-only** mode. A Cloudflare Tunnel
@@ -119,7 +120,7 @@ modules/nixos/cloudflare-ddns.nix scoped IPv4-only Cloudflare DNS updater
 secrets/                          sops-nix workflow for future runtime secrets
 docs/bootstrap-wsl.md             short WSL command reference
 docs/install-server.md            safe installation-day checklist
-docs/remote-access.md             DNS, HTTPS, Jellyfin, and WireGuard plan
+docs/remote-access.md             DNS, hardened SSH, and public Jellyfin plan
 docs/minecraft.md                 pinned server, backups, and exposure checklist
 docs/ci-and-releases.md           update, validation, SBOM, and release design
 docs/publication-checklist.md     safe path from private to public

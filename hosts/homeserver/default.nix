@@ -22,6 +22,7 @@ in
     ../../modules/nixos/storage.nix
     ../../modules/nixos/networking.nix
     ../../modules/nixos/network-policy.nix
+    ../../modules/nixos/security.nix
     ../../modules/nixos/cloudflare-ddns.nix
     ../../modules/nixos/filesharing.nix
     ../../modules/nixos/adguard-home.nix
@@ -37,10 +38,17 @@ in
   # disabled until boot-success rollback has been tested on this hardware.
   homelab.releaseUpdater.enable = true;
 
-  # Keep the public Minecraft A record synchronized when the residential
-  # public IPv4 address changes. The scoped Cloudflare token is decrypted only
-  # at activation time and never enters the Nix store.
-  homelab.cloudflareDdns.enable = true;
+  # Keep each explicitly reviewed public hostname synchronized when the
+  # residential IPv4 address changes. The scoped Cloudflare token is decrypted
+  # only at activation time and never enters the Nix store.
+  homelab.cloudflareDdns = {
+    enable = true;
+    domains = [
+      "mc.${settings.public.domain}"
+    ]
+    ++ lib.optionals settings.public.ssh [ "ssh.${settings.public.domain}" ]
+    ++ lib.optionals settings.public.jellyfin [ "jellyfin.${settings.public.domain}" ];
+  };
 
   homelab.minecraft = {
     enable = true;

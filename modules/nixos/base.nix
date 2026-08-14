@@ -61,17 +61,32 @@
     openssh.authorizedKeys.keys = [ settings.user.sshPublicKey ];
   };
 
-  # SSH is key-only, so passwordless sudo provides a usable recovery path for
-  # the initial bootstrap. Revisit this if the server becomes multi-user.
-  security.sudo.wheelNeedsPassword = false;
+  # A stolen SSH key should not immediately grant root. The local account
+  # password remains a separate sudo factor and is never accepted by sshd.
+  security.sudo.wheelNeedsPassword = true;
 
   services.openssh = {
     enable = true;
     openFirewall = false;
     settings = {
+      AllowAgentForwarding = false;
+      AllowTcpForwarding = "local";
+      AllowUsers = [ settings.user.name ];
+      AuthenticationMethods = "publickey";
+      ClientAliveCountMax = 2;
+      ClientAliveInterval = 300;
+      GatewayPorts = "no";
       KbdInteractiveAuthentication = false;
+      LoginGraceTime = 30;
+      MaxAuthTries = 3;
+      MaxStartups = "10:30:30";
       PasswordAuthentication = false;
+      PerSourceMaxStartups = 3;
+      PermitEmptyPasswords = false;
       PermitRootLogin = "no";
+      PermitTunnel = false;
+      PubkeyAuthentication = true;
+      X11Forwarding = false;
     };
   };
 
@@ -98,6 +113,7 @@
   };
 
   environment.systemPackages = with pkgs; [
+    bind.dnsutils
     btop
     curl
     git

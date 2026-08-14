@@ -19,6 +19,7 @@ let
     ++ optionals config.services.adguardhome.enable [ "adguardhome.service" ]
     ++ optionals config.services.beszel.hub.enable [ "beszel-hub.service" ]
     ++ optionals config.services.cloudflare-ddns.enable [ "cloudflare-ddns.service" ]
+    ++ optionals config.services.fail2ban.enable [ "fail2ban.service" ]
     ++ optionals config.homelab.homeAssistant.enable [ "home-assistant.service" ]
     ++ optionals config.homelab.immich.enable [ "immich-server.service" ]
     ++ optionals minecraftEnabled [ "docker-minecraft.service" ]

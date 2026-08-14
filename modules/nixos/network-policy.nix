@@ -12,8 +12,8 @@ let
     unique
     ;
 
-  # Deliberately broad enough for ordinary home LANs and the planned
-  # WireGuard subnet without publishing this home's exact network topology.
+  # Deliberately broad enough for ordinary home LANs without publishing this
+  # home's exact network topology.
   privateIPv4Ranges = [
     "10.0.0.0/8"
     "172.16.0.0/12"
@@ -60,16 +60,15 @@ let
   '') privateIPv4Ranges;
 
   expectedPublicTCPPorts =
-    optionals (config.homelab.minecraft.enable && config.homelab.minecraft.openFirewall) [
+    optionals settings.public.ssh config.services.openssh.ports
+    ++ optionals (config.homelab.minecraft.enable && config.homelab.minecraft.openFirewall) [
       config.homelab.minecraft.port
     ]
     ++ optionals settings.public.jellyfin [
       80
       443
     ];
-  expectedPublicUDPPorts = optionals config.homelab.wireguard.enable [
-    config.homelab.wireguard.listenPort
-  ];
+  expectedPublicUDPPorts = [ ];
 
   normalized = ports: lib.sort builtins.lessThan (unique ports);
 in
@@ -86,8 +85,9 @@ in
 
     # The current iptables firewall backend inserts these rules immediately
     # before its final reject rule. Service modules keep openFirewall disabled,
-    # so management and discovery traffic is accepted only from private IPv4
-    # sources. The existing reverse-path check helps reject spoofed sources.
+    # so private applications and discovery traffic are accepted only from
+    # private IPv4 sources. Public SSH is listed separately in
+    # expectedPublicTCPPorts. Reverse-path checking helps reject spoofed sources.
     extraCommands = ''
       # Docker also uses RFC 1918 addresses. Do not treat containers as trusted
       # LAN clients if one of them becomes compromised.
