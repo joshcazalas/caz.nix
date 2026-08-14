@@ -27,6 +27,7 @@ in
     ../../modules/nixos/filesharing.nix
     ../../modules/nixos/adguard-home.nix
     ../../modules/nixos/auxide.nix
+    ../../modules/nixos/bluemap.nix
     ../../modules/nixos/jellyfin.nix
     ../../modules/nixos/minecraft.nix
     ../../modules/nixos/monitoring.nix
@@ -49,7 +50,8 @@ in
       "mc.${settings.public.domain}"
     ]
     ++ lib.optionals settings.public.ssh [ "ssh.${settings.public.domain}" ]
-    ++ lib.optionals settings.public.jellyfin [ "jellyfin.${settings.public.domain}" ];
+    ++ lib.optionals settings.public.jellyfin [ "jellyfin.${settings.public.domain}" ]
+    ++ lib.optionals settings.public.bluemap [ "map.${settings.public.domain}" ];
   };
 
   # Auxide is packaged and its hardened service is ready, but stays disabled
@@ -65,6 +67,11 @@ in
     enable = true;
     peers = [ ];
   };
+
+  # Renders the overworld around spawn into static tiles served by Caddy over
+  # HTTPS. Player markers stay off: the map is public, and live markers would
+  # publish friends' usernames and positions to anyone with the URL.
+  homelab.bluemap.enable = true;
 
   homelab.minecraft = {
     enable = true;
