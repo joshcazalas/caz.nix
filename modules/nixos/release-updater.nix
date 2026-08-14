@@ -19,6 +19,7 @@ let
     ++ optionals config.services.adguardhome.enable [ "adguardhome.service" ]
     ++ optionals config.services.beszel.hub.enable [ "beszel-hub.service" ]
     ++ optionals config.services.cloudflare-ddns.enable [ "cloudflare-ddns.service" ]
+    ++ optionals config.services.auxide.enable [ "auxide.service" ]
     ++ optionals config.homelab.homeAssistant.enable [ "home-assistant.service" ]
     ++ optionals config.homelab.immich.enable [ "immich-server.service" ]
     ++ optionals minecraftEnabled [ "docker-minecraft.service" ]
@@ -31,7 +32,8 @@ let
     ++ optionals config.services.adguardhome.enable [ "adguardhome=http://127.0.0.1:3000/" ]
     ++ optionals config.services.beszel.hub.enable [ "beszel=http://127.0.0.1:8090/" ]
     ++ optionals config.homelab.homeAssistant.enable [ "home-assistant=http://127.0.0.1:8123/" ]
-    ++ optionals config.homelab.immich.enable [ "immich=http://127.0.0.1:2283/api/server/ping" ];
+    ++ optionals config.homelab.immich.enable [ "immich=http://127.0.0.1:2283/api/server/ping" ]
+    ++ optionals config.services.auxide.enable [ "auxide=http://127.0.0.1:9090/health/ready" ];
 
   serverHealth = pkgs.writeShellApplication {
     name = "caz-server-health";
