@@ -30,6 +30,7 @@ in
     ../../modules/nixos/jellyfin.nix
     ../../modules/nixos/minecraft.nix
     ../../modules/nixos/monitoring.nix
+    ../../modules/nixos/monitoring-rules.nix
     ../../modules/nixos/optional-services.nix
     ../../modules/nixos/release-updater.nix
   ];
@@ -54,6 +55,16 @@ in
   # Auxide is packaged and its hardened service is ready, but stays disabled
   # until the server-local config and host-encrypted Discord token exist.
   homelab.auxide.enable = false;
+
+  # Every listener stays on loopback and is reached through SSH local
+  # forwarding. Alerts leave the house by email and Discord, and an external
+  # dead man's switch reports the one failure this host can never report
+  # itself: its own death. Add the Pi to `peers` once it is a NixOS host, and
+  # the pair begins monitoring each other.
+  homelab.monitoring = {
+    enable = true;
+    peers = [ ];
+  };
 
   homelab.minecraft = {
     enable = true;

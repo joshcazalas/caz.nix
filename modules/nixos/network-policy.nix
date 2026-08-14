@@ -27,7 +27,6 @@ let
     445 # Samba direct hosting
     3000 # AdGuard Home administration
     5357 # Web Services Discovery
-    8090 # Beszel
     8096 # Jellyfin HTTP
   ]
   ++ optionals config.homelab.homeAssistant.enable [ 8123 ]

@@ -51,7 +51,8 @@ their standard Bash integrations.
 | Samba | on | LAN only | Windows-friendly NAS shares |
 | Jellyfin | on | LAN; public is opt-in | Media streaming and per-person accounts |
 | AdGuard Home | on | LAN or SSH forwarding | Network DNS filtering; simpler NixOS fit than Pi-hole |
-| Beszel hub | on | LAN or SSH forwarding | Lightweight monitoring before committing to Prometheus/Grafana |
+| Prometheus + Alertmanager | on | Loopback; SSH forwarding | Metrics, declarative alert rules validated in CI, email and Discord notifications |
+| Grafana | on | Loopback; SSH forwarding | Provisioned dashboard over the Prometheus data source |
 | Cloudflare DDNS | on | Outbound HTTPS only | Keep reviewed public IPv4 records synchronized |
 | Home Assistant | off | LAN or SSH forwarding | Enable when the first devices arrive |
 | Immich | off | LAN or SSH forwarding initially | Photo library, not a backup by itself |
