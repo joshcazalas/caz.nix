@@ -63,17 +63,26 @@ updates but grants no shell, Cloudflare account, or non-DNS access.
 1. Choose the domain and set it in `settings.nix`.
 2. Add `jellyfin.<domain>` in Cloudflare DNS as a **DNS-only** A record. Do not
    add an AAAA record while IPv6 remains disabled on the server.
-3. Include the hostname in `homelab.cloudflareDdns.domains` so public-address
-   changes are reconciled automatically.
+3. The host configuration includes this name in Cloudflare DDNS automatically
+   when `settings.public.jellyfin` is enabled.
 4. Forward router TCP 80 and 443 to the server's reserved LAN address.
-5. Set `settings.public.jellyfin = true`, evaluate, and deploy. Caddy will obtain
+5. In Jellyfin's dashboard, add `127.0.0.1` under `Networking > Known proxies`
+   so its authorization decisions and security log contain the real client IP.
+6. Give every person a separate strong password and non-admin account. Restrict
+   each account to the intended libraries and capabilities. Keep the admin
+   account hidden and disallow its remote connections; use an SSH local forward
+   for remote administration instead.
+7. Set `settings.public.jellyfin = true`, evaluate, and deploy. Caddy will obtain
    and renew HTTPS certificates and proxy only to Jellyfin on port 8096.
-6. Test from cellular data, not from the home Wi-Fi, including a native client.
+8. Confirm `sudo fail2ban-client status jellyfin` reports the active jail.
+9. Test from cellular data, not from home Wi-Fi, including a native client.
 
 Do not forward Jellyfin's port 8096. Do not put Cloudflare Access in front of
-Jellyfin: its browser login can work, but native clients generally expect the
-Jellyfin API and authentication flow. Each person gets a separate Jellyfin
-account and only the owner account is an administrator.
+Jellyfin: its browser login can work, but native clients expect the Jellyfin API
+and authentication flow. The Caddy endpoint deliberately keeps request access
+logging off because Jellyfin can place API keys in URLs. Fail2ban instead reads
+Jellyfin's authentication log and blocks an address on TCP 80/443 after five
+failures in ten minutes. Its first ban lasts one hour and repeat bans grow.
 
 Cloudflare Tunnel remains an option later for small browser-only applications,
 but not for the video stream itself. Cloudflare documents that Tunnel-published
@@ -83,30 +92,103 @@ using ordinary CDN service for disproportionate video or large-file delivery:
 - <https://developers.cloudflare.com/tunnel/>
 - <https://developers.cloudflare.com/fundamentals/reference/policies-compliances/delivering-videos-with-cloudflare/>
 
-## Private administration path
+## Public administration path
 
-WireGuard is the simple, fully open-source default. It gives the owner normal
-network access to SSH, AdGuard's UI, Beszel, Home Assistant, Immich, and Samba
-without publishing those services.
+The administration endpoint is ordinary OpenSSH, so Windows, WSL, macOS, and
+Linux can use their existing `ssh` command. There is no VPN agent, account, or
+background client. A device still needs the administrator's private key; a
+username or server password is never sufficient.
 
-Before enabling `homelab.wireguard`:
+The declarative policy layers the following controls:
 
-1. Generate a server private key and one keypair per client.
-2. Store the server key as `/run/secrets/wireguard-private-key` using sops-nix.
-3. Declare peers in the host config; peer public keys are not secrets.
-4. Add a DNS-only `vpn.<domain>` record or DDNS updater for the public IP.
-5. Forward UDP 51820 only to the server.
-6. Enable WireGuard and test SSH over `10.100.0.1` before relying on it away
-   from home.
+- only the declared administrator username is accepted;
+- only public-key authentication is accepted; root, password, keyboard-
+  interactive, empty-password, X11, agent-forwarding, remote-forwarding, and
+  tunnel-device paths are disabled;
+- local TCP forwarding remains available for private web dashboards;
+- each connection gets at most three authentication attempts and each source
+  gets at most three concurrent unauthenticated connections;
+- Fail2ban blocks an Internet source after five logged failures in ten minutes.
+  The first ban is one hour and repeat bans grow to at most one week;
+- private IPv4 ranges are exempt from Fail2ban so a mistake on the home LAN
+  cannot remove the local recovery path;
+- `sudo` requires the local account password, which sshd does not accept.
 
-WireGuard initially reaches the server itself, which is enough for nearly full
-administrative control. Routing the rest of the home LAN through it can be added
-later once the LAN subnet and server interface name are known.
+Changing TCP 22 to an unusual port can reduce log noise but does not add an
+authentication boundary, so this setup keeps the standard port and ordinary SSH
+commands. Some guest networks block outbound SSH; use a trusted mobile hotspot
+instead of weakening the endpoint to work around that policy.
 
-The server firewall admits private services only from RFC 1918 IPv4 sources,
-which includes the default WireGuard subnet without publishing the home's exact
-LAN. IPv6 is disabled on this host for now; enable it only alongside an explicit
-IPv6 firewall review and an external exposure test.
+Before merging or deploying this policy, verify both credentials while still on
+the LAN:
 
-Before deployment, verify that the router's WAN address matches the public
-address seen externally; a mismatch would indicate another NAT layer.
+```bash
+ssh -o PreferredAuthentications=publickey joshcaz@homeserver
+sudo -k
+sudo true
+```
+
+The first command must use the intended private key, and the last command must
+accept the local account password. Put a passphrase on the private key before
+publishing SSH if it does not already have one:
+
+```bash
+ssh-keygen -p -f ~/.ssh/id_ed25519
+```
+
+Changing a key's passphrase does not change its public key. Store an encrypted
+backup of the private key away from the server; never commit or copy the private
+key into this repository. `ssh-agent` can cache the unlocked key for the current
+login session without removing its at-rest encryption.
+
+After deploying:
+
+1. Confirm `ssh.joshcaz.com` is a **DNS-only** A record and resolves to the same
+   IPv4 address as `curl -4fsS https://api.ipify.org` on the server.
+2. In the router, forward external TCP 22 to TCP 22 on the server's reserved
+   LAN address. Do not use DMZ, a port range, or UPnP.
+3. Keep an existing LAN SSH session open during the first test.
+4. Disconnect the laptop from home Wi-Fi, use a phone hotspot, and run
+   `ssh joshcaz@ssh.joshcaz.com`.
+5. Confirm the protections on the server:
+
+   ```bash
+   systemctl is-active sshd fail2ban
+   sudo fail2ban-client status sshd
+   sudo ss -ltnp | rg ':22\\b'
+   ```
+
+If a trusted external address is accidentally banned, recover from the LAN and
+run `sudo fail2ban-client set sshd unbanip ADDRESS`. Do not permanently exempt a
+mobile or residential public address because it can later belong to someone
+else.
+
+Private dashboards remain private. Reach them through the same SSH connection
+without installing a VPN client:
+
+```bash
+ssh \
+  -L 3000:127.0.0.1:3000 \
+  -L 8090:127.0.0.1:8090 \
+  -L 8096:127.0.0.1:8096 \
+  joshcaz@ssh.joshcaz.com
+```
+
+While that session is open, the remote laptop can browse AdGuard at
+`http://127.0.0.1:3000`, Beszel at `http://127.0.0.1:8090`, and Jellyfin's local
+endpoint at `http://127.0.0.1:8096`. Do not forward Samba, AdGuard DNS, Beszel,
+or arbitrary administration ports through the router.
+
+IPv6 is disabled on this host for now. Enable it only alongside an explicit
+IPv6 firewall review and external test. Before forwarding any port, also verify
+that the router's WAN address matches the address seen externally; a mismatch
+would indicate another NAT layer.
+
+## Primary references
+
+- OpenSSH server controls: <https://man.openbsd.org/sshd_config>
+- NixOS Fail2ban module: <https://wiki.nixos.org/wiki/Fail2ban>
+- Jellyfin reverse proxy guidance:
+  <https://jellyfin.org/docs/general/post-install/networking/reverse-proxy/>
+- Jellyfin Fail2ban filter and rotation guidance:
+  <https://jellyfin.org/docs/general/post-install/networking/advanced/fail2ban/>

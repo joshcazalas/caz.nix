@@ -17,6 +17,7 @@
   # declared. A domain name alone never opens a firewall port or service.
   public = {
     domain = "joshcaz.com";
+    ssh = true;
     jellyfin = false;
   };
 }
