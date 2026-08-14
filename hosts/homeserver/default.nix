@@ -25,6 +25,7 @@ in
     ../../modules/nixos/cloudflare-ddns.nix
     ../../modules/nixos/filesharing.nix
     ../../modules/nixos/adguard-home.nix
+    ../../modules/nixos/auxide.nix
     ../../modules/nixos/jellyfin.nix
     ../../modules/nixos/minecraft.nix
     ../../modules/nixos/monitoring.nix
@@ -41,6 +42,10 @@ in
   # public IPv4 address changes. The scoped Cloudflare token is decrypted only
   # at activation time and never enters the Nix store.
   homelab.cloudflareDdns.enable = true;
+
+  # Auxide is packaged and its hardened service is ready, but stays disabled
+  # until the server-local config and host-encrypted Discord token exist.
+  homelab.auxide.enable = false;
 
   homelab.minecraft = {
     enable = true;
