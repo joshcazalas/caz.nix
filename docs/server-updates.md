@@ -56,8 +56,7 @@ After activation it waits up to five minutes for these checks, then requires
 them to remain healthy for another minute:
 
 - SSH and Samba systemd services;
-- Jellyfin, AdGuard Home, Prometheus, Alertmanager, Grafana, and Beszel HTTP
-  responses;
+- Jellyfin, AdGuard Home, Prometheus, Alertmanager, and Grafana HTTP responses;
 - an actual DNS lookup through the local AdGuard Home resolver;
 - the Minecraft container, its RCON console, and public-listener socket.
 
