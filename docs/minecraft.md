@@ -77,6 +77,17 @@ systemctl status minecraft-proxy.socket --no-pager
 systemctl list-timers minecraft-backup.timer --no-pager
 ```
 
+Every `docker` command here needs `sudo`, and that is deliberate. The
+administrator is not in the `docker` group, because membership in it allows
+bind-mounting the host filesystem into a privileged container and is therefore
+equivalent to passwordless root. Granting it would let a stolen SSH key reach
+root without ever meeting the separate sudo password, which is the boundary
+that makes public SSH acceptable. An assertion in `modules/nixos/security.nix`
+keeps it that way.
+
+Docker itself is enabled by this module rather than the base system, so a
+homeserver with Minecraft disabled runs no container daemon at all.
+
 Test from another LAN device with the server's reserved LAN address before
 creating any public DNS record or router rule.
 

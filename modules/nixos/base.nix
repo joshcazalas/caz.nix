@@ -51,8 +51,12 @@
   users.users.${settings.user.name} = {
     isNormalUser = true;
     description = settings.user.name;
+    # Deliberately excludes "docker". Membership in that group is equivalent to
+    # passwordless root, because anyone in it can bind-mount the host
+    # filesystem into a privileged container. Granting it here would let a
+    # stolen SSH key reach root without ever meeting the separate sudo
+    # password. Use `sudo docker` for the occasional manual container command.
     extraGroups = [
-      "docker"
       "media"
       "render"
       "video"
@@ -100,17 +104,9 @@
 
   zramSwap.enable = true;
 
-  virtualisation = {
-    docker = {
-      enable = true;
-      autoPrune = {
-        enable = true;
-        dates = "weekly";
-        flags = [ "--all" ];
-      };
-    };
-    oci-containers.backend = "docker";
-  };
+  # The container runtime is not part of the base system. It is enabled by the
+  # module that actually needs it, so a host running no containers does not
+  # carry a root-privileged daemon and its bridge networks.
 
   environment.systemPackages = with pkgs; [
     bind.dnsutils

@@ -107,5 +107,24 @@ in
         );
       message = "Public Jellyfin requires HTTPS proxying without request logs and an active Fail2ban jail.";
     }
+    {
+      # The docker group can bind-mount the host filesystem into a privileged
+      # container, so it is equivalent to passwordless root. Granting it to the
+      # administrator would silently undo the separate sudo password that
+      # protects this host once SSH is reachable from the Internet.
+      assertion = !lib.elem "docker" config.users.users.${settings.user.name}.extraGroups;
+      message = ''
+        The administrator must not belong to the docker group; it is
+        root-equivalent and bypasses the separate sudo password. Use
+        `sudo docker` instead.
+      '';
+    }
+    {
+      # Rootful Docker installs iptables rules of its own. network-policy.nix
+      # compensates by refusing management ports arriving on container
+      # interfaces, so the daemon must not appear without that policy present.
+      assertion = !config.virtualisation.docker.enable || config.networking.firewall.enable;
+      message = "Docker requires the NixOS firewall so its NAT rules cannot bypass the private-service policy.";
+    }
   ];
 }
