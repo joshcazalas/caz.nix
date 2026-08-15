@@ -382,12 +382,19 @@ expected_derivation="$(jq --raw-output '.outputs.homeserver.derivation' \
 flake_reference="github:${repository}/${commit_sha}"
 
 echo "==> Reproducing the exact homeserver build from ${commit_sha}"
-mapfile -t built_paths < <(
-  nix build \
-    --no-link \
-    --print-out-paths \
-    "${flake_reference}#nixosConfigurations.homeserver.config.system.build.toplevel"
-)
+# `mapfile < <(nix build ...)` reports mapfile's own exit status, so `set -e`
+# never sees a failed build and the count check below reports a missing output
+# instead of the error Nix actually printed. Redirect and test the build itself
+# so the failure that stopped the deployment is the one the operator reads.
+if ! nix build \
+  --no-link \
+  --print-out-paths \
+  "${flake_reference}#nixosConfigurations.homeserver.config.system.build.toplevel" \
+  >"${work_directory}/build-outputs"; then
+  echo "Building ${release_tag} from ${commit_sha} failed; see the Nix error above." >&2
+  exit 1
+fi
+mapfile -t built_paths <"${work_directory}/build-outputs"
 
 if [[ ${#built_paths[@]} -ne 1 ]]; then
   echo "Expected one homeserver output, got ${#built_paths[@]}." >&2

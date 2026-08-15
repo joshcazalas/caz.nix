@@ -212,6 +212,26 @@ in
       environment = {
         CAZ_RELEASE_REPOSITORY = cfg.repository;
         XDG_CACHE_HOME = "/var/cache/caz-release-updater";
+
+        # Build through the Nix daemon instead of inside this unit.
+        #
+        # Nix's build sandbox creates mount, PID, network, IPC, and UTS
+        # namespaces. The hardening below denies that, so a client building
+        # in-process dies with "this system does not support the kernel
+        # namespaces that are required for sandboxing". Root reaches the store
+        # directly by default, so nothing routed the build elsewhere on its own.
+        #
+        # This only ever broke the timer. An administrator running the same
+        # command from a shell inherits no such restrictions and builds fine,
+        # which is why the fault stayed hidden until the first unattended run
+        # that actually had something new to build.
+        #
+        # The obvious alternatives are both worse: --no-sandbox would quietly
+        # weaken build isolation for every release, and relaxing the unit would
+        # hand the updater privileges it otherwise never needs. The daemon
+        # already exists to perform builds at the privilege they require on
+        # behalf of confined clients, so both sandboxes stay intact.
+        NIX_REMOTE = "daemon";
       };
 
       serviceConfig = {
