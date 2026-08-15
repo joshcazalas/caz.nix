@@ -45,6 +45,13 @@ nix path-info --json --json-format 1 --recursive --closure-size "${wsl_store_pat
 cp flake.lock "${output_directory}/flake.lock"
 
 echo "==> Generating the homeserver SBOMs"
+# Deliberately the flake installable and not "${server_store_path}", even
+# though the closure is already realised and passing the path is far faster.
+# sbomnix can only read Nix meta information through the installable: given a
+# bare store path it warns "SBOM will include only minimum set of attributes"
+# and silently drops every license, description, and homepage. Measured on
+# .#packages.x86_64-linux.home-manager, that is 60 of 86 components losing
+# their license declaration -- most of what makes a published SBOM useful.
 sbomnix "${server_installable}" \
   --cdx "${output_directory}/homeserver.cdx.json" \
   --spdx "${output_directory}/homeserver.spdx.json" \
