@@ -43,12 +43,13 @@ jobs:
           extra_nix_config: |
             build-dir = /nix/build
 
-      - name: Check formatting, source, and workflows
-        run: nix develop --command ./scripts/check.sh
-
-      - name: Scan the complete Git history for secrets
-        run: nix develop --command ./scripts/secret-scan.sh
-
+      # Linting and the full-history secret scan are deliberately not repeated
+      # here. `main` requires the `Validate` check with strict mode enabled, so
+      # a branch must be current with `main` before it can merge, and CI runs
+      # against the merge result. The tree that lands is therefore the exact
+      # tree that was linted and scanned. Administrators are included in that
+      # rule and force pushes are blocked, so there is no path onto `main` that
+      # skips it. Relaxing any of those settings means restoring these steps.
       - name: Evaluate and build every declared output
         run: nix flake check --print-build-logs
 

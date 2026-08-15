@@ -12,13 +12,37 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  validate:
-    name: Validate
+  # Split from the build so a formatting or ShellCheck mistake is reported in
+  # well under a minute instead of behind a four-minute closure build. These
+  # two jobs share no work, so running them apart costs nothing.
+  lint:
+    name: Lint and scan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out the complete history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # Deliberately no `nothing-but-nix` and no `build-dir` here. Both exist to
+      # fit the server closure on a runner that cannot hold it; this job only
+      # realises the small development shell.
+      - name: Install Nix
+        uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31.11.0
+
+      - name: Check formatting, source, and workflows
+        run: nix develop --command ./scripts/check.sh
+
+      - name: Scan the complete Git history for secrets
+        run: nix develop --command ./scripts/secret-scan.sh
+
+  build:
+    name: Build
     runs-on: ubuntu-24.04
     timeout-minutes: 60
-    permissions:
-      contents: read
-      id-token: write
 
     steps:
       - name: Check out the complete history
@@ -38,11 +62,28 @@ jobs:
           extra_nix_config: |
             build-dir = /nix/build
 
-      - name: Check formatting, source, and workflows
-        run: nix develop --command ./scripts/check.sh
-
-      - name: Scan the complete Git history for secrets
-        run: nix develop --command ./scripts/secret-scan.sh
-
       - name: Evaluate and build every declared output
         run: nix flake check --print-build-logs
+
+  # `Validate` is the required status check on `main`. Keeping that exact name
+  # on a job that passes only when both real jobs passed means the split needs
+  # no branch-protection change, and a lint failure still blocks a merge just as
+  # it did when everything lived in one job. Renaming this would silently leave
+  # `main` waiting for a context that no longer reports.
+  validate:
+    name: Validate
+    needs:
+      - lint
+      - build
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    steps:
+      - name: Require every check to have succeeded
+        env:
+          LINT_RESULT: ${{ needs.lint.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+        run: |
+          echo "lint=${LINT_RESULT} build=${BUILD_RESULT}"
+          [[ "${LINT_RESULT}" == success && "${BUILD_RESULT}" == success ]]

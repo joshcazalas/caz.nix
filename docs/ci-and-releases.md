@@ -15,12 +15,22 @@ unhealthy live generation. It does not reboot automatically. See
 
 ## Continuous integration
 
-Every pull request and manual dispatch runs one `Validate` job. It:
+Every pull request and manual dispatch runs two independent jobs in parallel:
 
-1. enforces Nix formatting;
-2. runs Deadnix, Statix, ShellCheck, and Actionlint;
-3. scans every reachable Git commit with Gitleaks and redacts any match;
-4. builds both the NixOS homeserver closure and WSL Home Manager activation.
+- **Lint and scan** enforces Nix formatting, runs Deadnix, Statix, ShellCheck,
+  and Actionlint, then scans every reachable Git commit with Gitleaks and
+  redacts any match.
+- **Build** evaluates every declared flake output and builds both the NixOS
+  homeserver closure and the WSL Home Manager activation.
+
+They share no work, so running them apart costs nothing and reports a
+formatting or ShellCheck mistake in well under a minute instead of behind a
+four-minute closure build.
+
+A third job, `Validate`, passes only when both of those succeeded. It exists to
+carry the exact name `main` requires as a status check: the split therefore
+needs no branch-protection change, and a lint failure still blocks a merge just
+as it did when everything lived in one job.
 
 Each bootstrapped checkout also uses the tracked `.githooks/pre-commit` hook to
 scan staged changes with the same pinned Gitleaks package. This is the fast
@@ -33,9 +43,11 @@ about four minutes, while cache finalization proved capable of wedging an
 otherwise successful job until its timeout.
 
 The complete server closure exceeds the standard private runner's 14 GB disk.
-Before installing Nix, CI conservatively reserves the runner's otherwise-unused
-`/mnt` space as a compressed `/nix` volume. It does not purge preinstalled
-runner tools, and Nix build temporaries are kept on that larger volume as well.
+Before installing Nix, the build job conservatively reserves the runner's
+otherwise-unused `/mnt` space as a compressed `/nix` volume. It does not purge
+preinstalled runner tools, and Nix build temporaries are kept on that larger
+volume as well. The lint job reserves nothing, because it only realises the
+small development shell.
 
 Run the same checks locally with:
 
@@ -68,6 +80,15 @@ Every push to `main` creates one release named:
 caz.nix-YYYY.MM.DD-g<12-character-commit>
 ```
 
+The release job builds every declared output but deliberately does not repeat
+linting or the full-history secret scan. `main` requires the `Validate` check
+in strict mode, so a branch must be current with `main` before it can merge and
+CI runs against the merge result: the tree that lands is the exact tree that was
+already linted and scanned. Administrators are held to that rule and force
+pushes are blocked, so no commit reaches `main` around it. **Relaxing strict
+mode, admin enforcement, or force-push protection means restoring those steps
+in `release.yml`.**
+
 The UTC date is pleasant to scan, and the commit suffix makes the tag unique
 and traceable if several changes land on one day. A release contains:
 
@@ -95,7 +116,9 @@ private repositories.
 
 After the sanitized history becomes `main` and the repository becomes public:
 
-1. require the `CI / Validate` check before merging to `main`;
+1. require the `CI / Validate` check before merging to `main`, in strict mode
+   and with administrators included — the release job trusts this instead of
+   linting and scanning `main` a second time;
 2. require pull requests and block force pushes to `main`;
 3. enable GitHub secret scanning and push protection;
 4. enable immutable releases before the first public release;
