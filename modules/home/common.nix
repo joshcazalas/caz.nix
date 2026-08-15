@@ -31,6 +31,10 @@
   home.packages = with pkgs; [
     age
     bat
+    # dig and friends. Checking a DNS record is a routine step in this
+    # homelab's runbooks, and reaching for `nix-shell` every time is friction
+    # in exactly the moment something is already broken.
+    bind.dnsutils
     btop
     eza
     fd
