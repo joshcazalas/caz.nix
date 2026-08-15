@@ -54,9 +54,7 @@ in
     ++ lib.optionals settings.public.bluemap [ "map.${settings.public.domain}" ];
   };
 
-  # Auxide is packaged and its hardened service is ready, but stays disabled
-  # until the server-local config and host-encrypted Discord token exist.
-  homelab.auxide.enable = false;
+  homelab.auxide.enable = true;
 
   # Every listener stays on loopback and is reached through SSH local
   # forwarding. Alerts leave the house by email and Discord, and an external
