@@ -141,6 +141,49 @@ backup of the private key away from the server; never commit or copy the private
 key into this repository. `ssh-agent` can cache the unlocked key for the current
 login session without removing its at-rest encryption.
 
+### One key per destination
+
+The administrator key opens a shell on an Internet-facing host, so it should not
+also be the key that pushes code. A forge credential only ever needs to write to
+a repository; if the same key does both, losing it loses the server too. That
+coupling is easy to arrive at by accident, because a single key created early
+tends to get reused everywhere.
+
+This profile keeps two keys and routes them by host:
+
+| Key | Authorises |
+| --- | --- |
+| `~/.ssh/id_ed25519` | server administration; published as `settings.user.sshPublicKey` |
+| `~/.ssh/id_ed25519_github` | GitHub only |
+
+`modules/home/ssh.nix` declares that routing and sets `IdentitiesOnly`, so each
+host is offered only its own key instead of every public key on the machine.
+
+Both keys keep a passphrase, which encrypts them at rest but also makes them
+unusable wherever there is no terminal to prompt at. Editors, hooks, and
+scripted tooling then fail with `Permission denied (publickey)`; under WSLg the
+symptom is the more misleading `ssh_askpass: exec(/usr/bin/ssh-askpass): No such
+file or directory`, because a set `DISPLAY` sends OpenSSH looking for a
+graphical prompt that is not installed. The agent is what resolves this:
+`services.ssh-agent` runs it, and `AddKeysToAgent yes` enrols each key on first
+use, so one unlock per login covers every later call.
+
+Add a GitHub key with:
+
+```bash
+ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519_github -C "github"
+gh ssh-key add ~/.ssh/id_ed25519_github.pub --title "wsl"
+home-manager switch --flake .#joshcaz@wsl
+ssh -T git@github.com
+```
+
+Generate and register the key before applying the profile, because the routing
+points at a file that must already exist. `gh ssh-key add` needs a scope the
+default login does not carry; either run
+`gh auth refresh -h github.com -s admin:public_key` first or paste the public
+key into GitHub's settings by hand. Registering a public key is safe to do in
+the open: only the private half is a secret.
+
 After deploying:
 
 1. Confirm `ssh.joshcaz.com` is a **DNS-only** A record and resolves to the same
