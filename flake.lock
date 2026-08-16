@@ -6,11 +6,11 @@
         "nixpkgs": "nixpkgs"
       },
       "locked": {
-        "lastModified": 1786905065,
-        "narHash": "sha256-YtEGHPvhC9aFwYjWnBIGDvbHNvXfxEYmYLWzQwbahBs=",
+        "lastModified": 1786910404,
+        "narHash": "sha256-Pf5/u2fP2g5yE63K2Xro2LYLSp/xVZK2gBpHyZ6kEP0=",
         "owner": "joshcazalas",
         "repo": "auxide",
-        "rev": "2056ffc18df4d81e7a0352218edd32622e28f998",
+        "rev": "07043e59393bf085d6ba1c25bd156afdd7a8cd74",
         "type": "github"
       },
       "original": {
