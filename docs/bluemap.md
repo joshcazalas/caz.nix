@@ -36,8 +36,25 @@ where.
 ## Disk
 
 Rendered tiles are the dominant cost. `renderRadius` bounds a square around
-spawn — the default 750 covers spawn and the built-up area around it while
+`renderCenter` — the default 750 covers a settlement and its surroundings while
 skipping empty wilderness, which stores exactly as expensively as builds do.
+
+`renderCenter` is **not** the world spawn point. BlueMap's render mask is a
+fixed box in the map configuration, so `/setworldspawn` moves nothing here. It
+defaults to the world origin, which merely tends to look like spawn because
+most worlds begin near it. Set it to whatever is actually worth looking at:
+
+```nix
+homelab.bluemap.renderCenter = {
+  x = 12175;
+  z = 1441;
+};
+```
+
+Covering two distant areas by widening the radius gets expensive fast, because
+the mask is a square and the wilderness between them renders too. Two points
+12k blocks apart need a 12k-wide square — roughly 64x the disk of the default.
+Prefer moving the centre, or add a second map configuration later.
 
 Tiles live at `/var/lib/bluemap`, **outside** the Minecraft data directory.
 That is deliberate: the daily backup archives the data directory wholesale, and
@@ -51,6 +68,18 @@ Published static content does not belong under the private shared data root.
 
 Widening the radius later is safe. BlueMap re-renders the new area, and if you
 narrow it, deletes the tiles that fall outside the new mask on its own.
+
+Moving `renderCenter` invalidates everything already rendered. BlueMap drops
+out-of-mask tiles eventually, but reclaiming the disk immediately is explicit:
+
+```console
+sudo docker exec minecraft rcon-cli bluemap purge overworld
+sudo docker exec minecraft rcon-cli bluemap reload
+sudo docker exec minecraft rcon-cli bluemap update
+```
+
+`overworld` is the map ID, taken from the `overworld.conf` filename. Purging
+restarts the render from nothing, which takes hours again.
 
 ```nix
 homelab.bluemap.renderRadius = 1500;  # roughly 4x the area, and the disk
