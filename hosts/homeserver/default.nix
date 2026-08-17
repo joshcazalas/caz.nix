@@ -69,7 +69,16 @@ in
   # Renders the overworld around spawn into static tiles served by Caddy over
   # HTTPS. Player markers stay off: the map is public, and live markers would
   # publish friends' usernames and positions to anyone with the URL.
-  homelab.bluemap.enable = true;
+  homelab.bluemap = {
+    enable = true;
+    # The permanent base, roughly 12k blocks from the world origin. The default
+    # centre is the origin rather than the world spawn point, so this has to be
+    # stated explicitly; moving spawn in-game does not move the render mask.
+    renderCenter = {
+      x = 12175;
+      z = 1441;
+    };
+  };
 
   homelab.minecraft = {
     enable = true;

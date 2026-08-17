@@ -123,7 +123,7 @@ let
     dimension: "minecraft:overworld"
     name: "${cfg.mapName}"
     sorting: 0
-    start-pos: { x: 0, z: 0 }
+    start-pos: { x: ${toString cfg.renderCenter.x}, z: ${toString cfg.renderCenter.z} }
     sky-color: "#7dabff"
     void-color: "#000000"
     sky-light: 1
@@ -135,10 +135,10 @@ let
     render-mask: [
       {
         type: box
-        min-x: -${toString cfg.renderRadius}
-        max-x: ${toString cfg.renderRadius}
-        min-z: -${toString cfg.renderRadius}
-        max-z: ${toString cfg.renderRadius}
+        min-x: ${toString (cfg.renderCenter.x - cfg.renderRadius)}
+        max-x: ${toString (cfg.renderCenter.x + cfg.renderRadius)}
+        min-z: ${toString (cfg.renderCenter.z - cfg.renderRadius)}
+        max-z: ${toString (cfg.renderCenter.z + cfg.renderRadius)}
       }
     ]
     render-edges: true
@@ -177,11 +177,41 @@ in
       description = "Display name shown in the web viewer.";
     };
 
+    renderCenter = mkOption {
+      type = types.submodule {
+        options = {
+          x = mkOption {
+            type = types.int;
+            default = 0;
+            description = "Block X coordinate at the centre of the rendered square.";
+          };
+          z = mkOption {
+            type = types.int;
+            default = 0;
+            description = "Block Z coordinate at the centre of the rendered square.";
+          };
+        };
+      };
+      default = { };
+      description = ''
+        Centre of the rendered area, in block coordinates.
+
+        This is **not** the world spawn point. BlueMap's render mask is a fixed
+        box in the map configuration, so moving spawn in-game changes nothing
+        here; the default of the world origin only looks like spawn because
+        most worlds begin near it. Point this at whatever is worth looking at.
+
+        Moving it invalidates everything already rendered. BlueMap eventually
+        drops tiles falling outside the mask, but `/bluemap purge overworld` is
+        the decisive way to reclaim the disk. See `docs/bluemap.md`.
+      '';
+    };
+
     renderRadius = mkOption {
       type = types.ints.positive;
       default = 750;
       description = ''
-        Half-width in blocks of the square area rendered around spawn.
+        Half-width in blocks of the square area rendered around renderCenter.
         Rendered tiles are the dominant disk cost, and empty wilderness costs
         as much to store as built areas. Widening this later only costs CPU:
         tiles are regenerable, and BlueMap deletes tiles that fall outside a
