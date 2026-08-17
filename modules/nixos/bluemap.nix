@@ -25,7 +25,19 @@ let
   # are regenerable cache measured in gigabytes, and the daily backup archives
   # the data directory wholesale, so keeping them apart means backups stay
   # small without needing an exclude rule that could silently stop matching.
-  stateDir = "${settings.server.dataRoot}/bluemap";
+  #
+  # It also lives outside settings.server.dataRoot, which storage.nix creates
+  # as 0750 root:media. Caddy runs as its own user and is not in that group, so
+  # it cannot traverse that directory no matter how permissive the tiles below
+  # it are -- the map returned 403 from an empty-looking root until this moved.
+  # Making dataRoot traversable is the wrong repair: media, photos, and shares
+  # are 2775, so their contents are guarded only by that 0750 parent, and
+  # widening it would hand every system account -- including an Internet-facing
+  # web server -- read access to the whole media library.
+  #
+  # Published static content simply does not belong under the private shared
+  # data root, so it gets its own directory directly under /var/lib.
+  stateDir = "/var/lib/bluemap";
   webRoot = "${stateDir}/web";
 
   containerState = "/data/bluemap";
