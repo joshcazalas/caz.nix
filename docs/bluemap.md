@@ -39,10 +39,15 @@ Rendered tiles are the dominant cost. `renderRadius` bounds a square around
 spawn — the default 750 covers spawn and the built-up area around it while
 skipping empty wilderness, which stores exactly as expensively as builds do.
 
-Tiles live at `/var/lib/homelab/bluemap`, **outside** the Minecraft data
-directory. That is deliberate: the daily backup archives the data directory
-wholesale, and putting gigabytes of regenerable tiles inside it would bloat
-every archive. Tiles are cache, not state — losing them costs CPU, not data.
+Tiles live at `/var/lib/bluemap`, **outside** the Minecraft data directory.
+That is deliberate: the daily backup archives the data directory wholesale, and
+putting gigabytes of regenerable tiles inside it would bloat every archive.
+Tiles are cache, not state — losing them costs CPU, not data.
+
+They are equally deliberately outside `settings.server.dataRoot`. That
+directory is `0750 root:media`, and Caddy runs as its own user outside that
+group, so it cannot traverse into it however permissive the tiles below are.
+Published static content does not belong under the private shared data root.
 
 Widening the radius later is safe. BlueMap re-renders the new area, and if you
 narrow it, deletes the tiles that fall outside the new mask on its own.
@@ -78,7 +83,7 @@ Watch progress from the shell:
 
 ```console
 sudo docker logs --follow minecraft | grep -i bluemap
-du -sh /var/lib/homelab/bluemap/web
+du -sh /var/lib/bluemap/web
 ```
 
 ## Configuration is release-controlled
@@ -104,6 +109,23 @@ still reference `render-boundaries`, which this version ignores silently — the
 map would render everything rather than failing loudly.
 
 ## Troubleshooting
+
+**HTTP 403 from Caddy** means Caddy could not read the file, not that the file
+is missing. Check the whole path rather than the web root alone:
+
+```console
+sudo namei -l /var/lib/bluemap/web/index.html
+sudo -u caddy stat /var/lib/bluemap/web/index.html
+```
+
+Every component must be traversable by `caddy`. This is why the tiles do not
+live under `settings.server.dataRoot`; a single `0750` ancestor makes the
+world-readable directories beneath it unreachable.
+
+An empty web root produces the same 403 for a different reason: `file_server`
+has directory browsing disabled, so a root with no `index.html` is forbidden
+rather than listed. Confirm which one you have before changing permissions —
+if `index.html` does not exist yet, the plugin is the problem, not Caddy.
 
 **`AccessDeniedException: /data/plugins/BlueMap/packs`** on startup means the
 plugin's config directory is owned by root instead of the container's user.
