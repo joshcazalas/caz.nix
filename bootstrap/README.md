@@ -11,6 +11,8 @@ The intended result is:
 - Docker Engine running inside Ubuntu, with Buildx and Compose;
 - MesloLGL Nerd Font installed for the current Windows user and selected as
   the Windows Terminal default;
+- the Windows VS Code client and Microsoft WSL extension, reconciled by Home
+  Manager without installing the Linux GUI build;
 - the complete Home Manager development and Bash profile;
 - a repository-local pre-commit Gitleaks scan;
 - no Python installation outside uv;
@@ -115,6 +117,9 @@ The script clearly asks before each system-level change. It may:
   install MesloLGL Nerd Font for the current Windows user;
 - back up and update existing Windows Terminal settings so MesloLGL is the
   default font;
+- let the Home Manager activation run [`windows-vscode.ps1`](windows-vscode.ps1)
+  through WSL interoperability to install the user-scoped Windows VS Code
+  client with WinGet and ensure its declared Windows extensions are present;
 - clone this repository when it is not already available;
 - configure this checkout to use the tracked `.githooks` directory;
 - run `nix flake check --no-build` and the pinned Home Manager CLI;
@@ -158,6 +163,12 @@ installed manually, it skips the 107 MB font download and only offers to update
 Windows Terminal if needed. Once both are configured, that step is a complete
 no-op on later runs.
 
+The Home Manager VS Code activation is also idempotent. It preserves undeclared
+extensions, skips WinGet when a Windows VS Code launcher already exists, and
+installs only declared extensions that are missing. The Windows package and
+Marketplace extensions follow their normal upstream update channels rather
+than becoming part of the Nix store or a Home Manager rollback.
+
 ## After bootstrap
 
 Open a fresh Ubuntu terminal so Bash loads the new generation. If Docker group
@@ -175,7 +186,12 @@ home-manager generations
 atuin doctor
 docker run --rm hello-world
 docker compose version
+code .
 ```
+
+`code .` should open the Windows client with a `WSL: Ubuntu` indicator. If VS
+Code was installed during this bootstrap run, use the fresh terminal requested
+above so WSL inherits the Windows installer's updated `PATH`.
 
 The shell bindings are:
 
