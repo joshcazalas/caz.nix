@@ -86,6 +86,17 @@ activation, the new one after it, and the restored one after a rollback.
 The pre-deployment backup is the opposite case and is intentionally left as the
 updater's own copy, because it protects the state that exists *now*.
 
+### A failing check is confirmed before it rolls anything back
+
+Every check is a point-in-time probe, and the DNS one leaves the machine to
+reach an upstream resolver, so a sample can miss for reasons the release under
+test had no part in. During the stabilization window a failed sample is
+therefore re-checked a few seconds later, and only a second consecutive failure
+rolls the release back. A service that is genuinely down stays down and fails
+the re-check too, so this costs a real failure seconds, not a rollback.
+
+The wait phase needs no such treatment: it already retries until its deadline.
+
 ### Removing a service takes two releases
 
 This follows from the above and is easy to trip over.

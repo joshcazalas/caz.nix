@@ -12,6 +12,14 @@ let
     ;
 
   minecraftEnabled = config.homelab.minecraft.enable;
+
+  # Auxide keeps answering commands without its proof-of-origin provider, so
+  # nothing here fails when it dies -- it just quietly costs whole tracks,
+  # which is why a deployment could report itself healthy while the provider
+  # had been down the entire time. Gated on both switches because the provider
+  # is optional even when Auxide is not.
+  providerEnabled = config.services.auxide.enable && config.services.auxide.poTokenProvider.enable;
+  providerUnit = "${config.virtualisation.oci-containers.backend}-auxide-pot-provider.service";
   requiredUnits =
     optionals config.services.openssh.enable [ "sshd.service" ]
     ++ optionals config.services.samba.enable [ "samba-smbd.service" ]
@@ -27,6 +35,7 @@ let
     ++ optionals config.services.cloudflare-ddns.enable [ "cloudflare-ddns.service" ]
     ++ optionals config.services.fail2ban.enable [ "fail2ban.service" ]
     ++ optionals config.services.auxide.enable [ "auxide.service" ]
+    ++ optionals providerEnabled [ providerUnit ]
     ++ optionals config.homelab.homeAssistant.enable [ "home-assistant.service" ]
     ++ optionals config.homelab.immich.enable [ "immich-server.service" ]
     ++ optionals minecraftEnabled [ "docker-minecraft.service" ]
@@ -48,7 +57,14 @@ let
     ]
     ++ optionals config.homelab.homeAssistant.enable [ "home-assistant=http://127.0.0.1:8123/" ]
     ++ optionals config.homelab.immich.enable [ "immich=http://127.0.0.1:2283/api/server/ping" ]
-    ++ optionals config.services.auxide.enable [ "auxide=http://127.0.0.1:9090/health/ready" ];
+    ++ optionals config.services.auxide.enable [ "auxide=http://127.0.0.1:9090/health/ready" ]
+    # The unit check above proves systemd still has it; this proves the token
+    # server inside actually answers. `/ping` rather than `/`, which 404s --
+    # and a 404 counts as healthy here, since it still shows an application
+    # processing requests.
+    ++ optionals providerEnabled [
+      "auxide-pot-provider=http://127.0.0.1:${toString config.services.auxide.poTokenProvider.port}/ping"
+    ];
 
   serverHealth = pkgs.writeShellApplication {
     name = "caz-server-health";
