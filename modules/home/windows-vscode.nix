@@ -7,6 +7,8 @@ let
   cfg = config.caz.windows.vscode;
   windowsScript = "${config.xdg.dataHome}/caz/windows-vscode.ps1";
   extensionsFile = "${config.xdg.configHome}/caz/windows-vscode-extensions.json";
+  powershell = "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe";
+  wslpath = "/usr/bin/wslpath";
 in
 {
   options.caz.windows.vscode = {
@@ -34,18 +36,23 @@ in
     # WSL extension on Windows. Keep those external side effects idempotent and
     # after Home Manager has installed the managed helper and extension list.
     home.activation.windowsVSCode = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-      if ! command -v powershell.exe >/dev/null 2>&1; then
-        echo "Windows VS Code setup requires WSL interoperability and powershell.exe." >&2
+      # Home Manager replaces PATH with a Nix-only activation environment, so
+      # host and Windows interoperability tools must use their absolute paths.
+      powershell_bin=${lib.escapeShellArg powershell}
+      wslpath_bin=${lib.escapeShellArg wslpath}
+
+      if [[ ! -x "$powershell_bin" ]]; then
+        echo "Windows VS Code setup requires WSL interoperability at $powershell_bin." >&2
         exit 1
       fi
-      if ! command -v wslpath >/dev/null 2>&1; then
-        echo "Windows VS Code setup requires the WSL wslpath utility." >&2
+      if [[ ! -x "$wslpath_bin" ]]; then
+        echo "Windows VS Code setup requires the WSL utility at $wslpath_bin." >&2
         exit 1
       fi
 
-      windows_script="$(wslpath -w ${lib.escapeShellArg windowsScript})"
-      extensions_file="$(wslpath -w ${lib.escapeShellArg extensionsFile})"
-      run powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass \
+      windows_script="$("$wslpath_bin" -w ${lib.escapeShellArg windowsScript})"
+      extensions_file="$("$wslpath_bin" -w ${lib.escapeShellArg extensionsFile})"
+      run "$powershell_bin" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass \
         -File "$windows_script" -ExtensionsFile "$extensions_file"
     '';
   };
