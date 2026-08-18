@@ -100,6 +100,21 @@
       checks.${system} = {
         homeserver = self.nixosConfigurations.${settings.server.hostName}.config.system.build.toplevel;
         wsl-home = self.homeConfigurations."${settings.user.name}@wsl".activationPackage;
+        wsl-vscode-activation = pkgs.runCommand "check-wsl-vscode-activation" { } ''
+          activation=${wslHome.activationPackage}/activate
+
+          grep -Fqx 'powershell_bin=/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe' "$activation"
+          grep -Fqx 'wslpath_bin=/usr/bin/wslpath' "$activation"
+          grep -Fq 'run "$powershell_bin"' "$activation"
+
+          if grep -Fq 'command -v powershell.exe' "$activation" \
+            || grep -Fq 'command -v wslpath' "$activation"; then
+            echo "Windows VS Code activation must not resolve interoperability tools through its Nix-only PATH." >&2
+            exit 1
+          fi
+
+          touch "$out"
+        '';
       };
     };
 }
