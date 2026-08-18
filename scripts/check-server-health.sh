@@ -135,14 +135,27 @@ if ! wait_for_health "$wait_seconds"; then
   exit 1
 fi
 
+# A single failed sample is not a failed deployment. Every check above is a
+# point-in-time probe, and the DNS one leaves the machine entirely, so any of
+# them can miss for reasons the release under test had no part in. Confirm a
+# failure before rolling back on it: whatever is genuinely broken is still
+# broken a few seconds later, and a blip is not.
+stabilization_recheck_seconds=5
+
 if (( stabilization_seconds > 0 )); then
   echo "All checks passed; observing a ${stabilization_seconds}-second stabilization window."
   stabilization_deadline=$((SECONDS + stabilization_seconds))
 
   while (( SECONDS < stabilization_deadline )); do
     sleep 10
+
+    check_once && continue
+
+    echo "Re-checking in ${stabilization_recheck_seconds}s before calling that a failure." >&2
+    sleep "$stabilization_recheck_seconds"
+
     if ! check_once; then
-      echo "A homeserver check failed during the stabilization window." >&2
+      echo "A homeserver check failed twice during the stabilization window." >&2
       exit 1
     fi
   done
