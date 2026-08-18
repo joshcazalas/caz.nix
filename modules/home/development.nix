@@ -21,7 +21,6 @@
     rustfmt
     typescript
     uv
-    vscode
   ];
 
   # Never let uv silently select a Python installation managed outside uv.

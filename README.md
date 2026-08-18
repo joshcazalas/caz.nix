@@ -16,7 +16,8 @@ partitioned, formatted, mounted, or otherwise changed.
 NixOS and Home Manager solve different layers of the same problem. NixOS owns
 boot, disks, networking, daemons, users, and firewall rules. Home Manager owns
 the user's shell and CLI tools and can also run standalone on Ubuntu. Windows
-itself stays outside this flake; Ubuntu under WSL2 is the portable boundary.
+packages remain outside the Nix store, but the WSL profile reconciles its
+explicit Windows user integrations through WSL interoperability.
 
 The stable NixOS and Home Manager branches are pinned in `flake.lock` once Nix
 first evaluates the repo. Developer toolchains come from a separately pinned
@@ -37,8 +38,11 @@ behavior:
 Atuin sync, its update network check, and its AI features are explicitly off.
 WSL installs Meslo LG Nerd Font for Linux applications through Nix; the guided
 bootstrap separately installs MesloLGL on Windows because Windows Terminal is
-the process that renders WSL text. The same interactive shell and prompt are
-used on the NixOS server, while the connecting client supplies its font.
+the process that renders WSL text. Home Manager similarly uses WinGet to ensure
+the supported Windows VS Code client and its WSL extension are present instead
+of installing the Linux GUI build under WSLg. The same interactive shell and
+prompt are used on the NixOS server, while the connecting client supplies its
+font.
 The ble.sh integration is the only experimental component and can be disabled
 with one option in `hosts/cazpc/home.nix`; the other tools then fall back to
 their standard Bash integrations.
