@@ -91,6 +91,42 @@ runtime_parent="${RUNTIME_DIRECTORY:-/tmp}"
 accepted_state="${state_directory}/accepted-release.json"
 failed_state="${state_directory}/failed-release.json"
 
+verify_activation_access() {
+  local path
+  local -a blocked_paths=()
+  local -a required_writable_paths=(
+    /boot
+    /etc
+    /home
+    /nix/var/nix/profiles
+    /proc/sys/kernel/modprobe
+    /root
+    /run
+    /run/user
+    /sys/fs/cgroup
+  )
+
+  for path in "${required_writable_paths[@]}"; do
+    if [[ ! -e "$path" || ! -w "$path" ]]; then
+      blocked_paths+=("$path")
+    fi
+  done
+
+  if (( ${#blocked_paths[@]} == 0 )); then
+    return 0
+  fi
+
+  echo "Refusing deployment: NixOS activation cannot write required host paths:" >&2
+  printf '  - %s\n' "${blocked_paths[@]}" >&2
+  cat >&2 <<'EOF'
+No system profile, application backup, or service state has been changed.
+Run the deployer directly from an unrestricted root shell, and ensure its
+systemd unit does not enable ProtectHome, ProtectSystem,
+ProtectKernelTunables, ProtectKernelModules, or ProtectControlGroups.
+EOF
+  return 1
+}
+
 if [[ "$mode" == status ]]; then
   echo "Running system:  $(readlink --canonicalize /run/current-system 2>/dev/null || echo unknown)"
   echo "Next boot:      $(readlink --canonicalize /nix/var/nix/profiles/system 2>/dev/null || echo unknown)"
@@ -271,6 +307,11 @@ if [[ "${check_only}" == false && -e "$failed_state" && "$force" == false ]]; th
     echo "Inspect ${failed_state}, then use --force to retry it deliberately."
     exit 0
   fi
+fi
+
+if [[ "${check_only}" == false ]]; then
+  echo "==> Verifying live activation access"
+  verify_activation_access
 fi
 
 echo "==> Downloading the signed deployment metadata"

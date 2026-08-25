@@ -70,6 +70,28 @@ Deployment state is stored under `/var/lib/caz-release-updater`. The root-owned
 state and systemd journal form the local audit record. Public releases remain
 build records and do not reveal which release is actually running.
 
+### Activation is intentionally host-privileged
+
+`switch-to-configuration` runs the selected generation's activation script in
+the updater process context. That script manages users and home directories,
+updates `/etc` and the bootloader, writes required kernel settings, reloads the
+system manager, and may load modules. Rollback performs the same operations for
+the previous generation.
+
+The updater therefore must not use systemd's host-isolating `ProtectHome`,
+`ProtectSystem`, `ProtectKernelTunables`, `ProtectKernelModules`,
+`ProtectControlGroups`, or `ProtectHostname` settings. The release provenance,
+signed store-path comparison, and review policy are the security boundary for
+the root code being activated. Process-level restrictions that do not change
+the activation view remain enabled.
+
+The NixOS module asserts this contract against the effective service
+configuration so incompatible settings fail evaluation in CI. The deployer
+also checks every host path required for activation before it builds a release,
+backs up applications, changes the system profile, or stops services. This
+turns a runtime mount or sandbox regression into an early, non-disruptive
+failure.
+
 ### Which generation defines "healthy"
 
 The updater deliberately keeps running from the previous generation while it
@@ -177,6 +199,19 @@ Automation cannot install itself onto a server that does not have it yet. The
 release containing this feature therefore requires one final manual verified
 deployment. After that generation is active, the timer and all commands above
 are declarative parts of the server and future releases deploy themselves.
+
+The same bootstrap rule applies to a release that repairs the updater's own
+execution sandbox: the already-running unit cannot escape restrictions imposed
+by the previous generation. After the corrective release is published, deploy
+it once by invoking the updater directly from a normal root shell rather than
+through systemd:
+
+```bash
+sudo caz-deploy-server-release
+```
+
+The direct process does not inherit the old unit's mount namespace. Once that
+release is active, future timer runs use the corrected declarative unit.
 
 ## Public metadata
 
