@@ -22,7 +22,6 @@ in
     ../../modules/home/development.nix
     ../../modules/home/shell.nix
     ../../modules/home/ssh.nix
-    ../../modules/home/windows-vscode.nix
   ];
 
   home = {
@@ -71,5 +70,4 @@ in
   # Atuin, fzf, Starship, or zoxide.
   caz.shell.blesh.enable = true;
   caz.shell.fonts.enable = true;
-  caz.windows.vscode.enable = true;
 }

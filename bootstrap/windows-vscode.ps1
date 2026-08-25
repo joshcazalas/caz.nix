@@ -42,7 +42,7 @@ function Install-VSCode {
     $wingetCommand = Get-Command 'winget.exe' -CommandType Application -ErrorAction SilentlyContinue |
         Select-Object -First 1
     if ($null -eq $wingetCommand) {
-        throw 'WinGet is required to install Windows VS Code. Install or repair Microsoft App Installer, then rerun Home Manager.'
+        throw 'WinGet is required to install Windows VS Code. Install or repair Microsoft App Installer, then reapply the Windows profile.'
     }
 
     Write-Host 'Installing the Windows user-scoped Visual Studio Code client with WinGet...'
@@ -53,7 +53,8 @@ function Install-VSCode {
         --scope user `
         --silent `
         --accept-package-agreements `
-        --accept-source-agreements
+        --accept-source-agreements `
+        --disable-interactivity
     if ($LASTEXITCODE -ne 0) {
         throw "WinGet failed to install $PackageId (exit $LASTEXITCODE)."
     }
@@ -61,7 +62,7 @@ function Install-VSCode {
 
 function Get-RequestedExtensions {
     if (-not (Test-Path -LiteralPath $ExtensionsFile)) {
-        throw "The Home Manager extension declaration is missing at $ExtensionsFile."
+        throw "The Windows extension declaration is missing at $ExtensionsFile."
     }
 
     $parsed = Get-Content -LiteralPath $ExtensionsFile -Raw | ConvertFrom-Json

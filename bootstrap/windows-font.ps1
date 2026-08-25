@@ -4,7 +4,8 @@
 param(
     [switch]$Check,
     [switch]$ConfigureWindowsTerminal,
-    [switch]$Force
+    [switch]$Force,
+    [switch]$SelfTest
 )
 
 Set-StrictMode -Version Latest
@@ -18,18 +19,22 @@ $FontFiles = @(
     [pscustomobject]@{
         File = 'MesloLGLNerdFont-Regular.ttf'
         RegistryName = 'MesloLGL Nerd Font Regular (TrueType)'
+        Sha256 = '5343e2b5f9f0e520f6bffa58d6db13043ac7736458a1bf9aceb6a9fd94b1f0c0'
     },
     [pscustomobject]@{
         File = 'MesloLGLNerdFont-Bold.ttf'
         RegistryName = 'MesloLGL Nerd Font Bold (TrueType)'
+        Sha256 = '0aa95657d97628abc3f7674080e539e89e9823c408df14ddf93ce4d11bff9c7e'
     },
     [pscustomobject]@{
         File = 'MesloLGLNerdFont-Italic.ttf'
         RegistryName = 'MesloLGL Nerd Font Italic (TrueType)'
+        Sha256 = 'db6a6e72dd06cdf98bea6a0a34f28a9f241c8d16bcfe96258180904b0ed76cc0'
     },
     [pscustomobject]@{
         File = 'MesloLGLNerdFont-BoldItalic.ttf'
         RegistryName = 'MesloLGL Nerd Font Bold Italic (TrueType)'
+        Sha256 = '89c063735ba98c514573b827a32c30e17b5bce45edc1ac0c5be8559a2207fb8b'
     }
 )
 
@@ -62,32 +67,153 @@ function Set-ObjectProperty {
     }
 }
 
+function ConvertFrom-TerminalSettingsJson {
+    param([Parameter(Mandatory)][string]$Json)
+
+    # Windows Terminal accepts JSON with comments and trailing commas, while
+    # Windows PowerShell 5.1's ConvertFrom-Json accepts strict JSON only.
+    # Parse these extensions character by character so comment-like text and
+    # comma/bracket sequences inside quoted values remain untouched.
+    $strictJson = New-Object System.Text.StringBuilder
+    $inString = $false
+    $escaped = $false
+    $inLineComment = $false
+    $inBlockComment = $false
+
+    for ($index = 0; $index -lt $Json.Length; $index++) {
+        $character = $Json[$index]
+        $next = if ($index + 1 -lt $Json.Length) { $Json[$index + 1] } else { [char]0 }
+
+        if ($inLineComment) {
+            if ($character -eq "`r" -or $character -eq "`n") {
+                $inLineComment = $false
+                [void]$strictJson.Append($character)
+            }
+            continue
+        }
+
+        if ($inBlockComment) {
+            if ($character -eq '*' -and $next -eq '/') {
+                $inBlockComment = $false
+                $index++
+            }
+            elseif ($character -eq "`r" -or $character -eq "`n") {
+                [void]$strictJson.Append($character)
+            }
+            continue
+        }
+
+        if ($inString) {
+            [void]$strictJson.Append($character)
+            if ($escaped) {
+                $escaped = $false
+            }
+            elseif ($character -eq '\') {
+                $escaped = $true
+            }
+            elseif ($character -eq '"') {
+                $inString = $false
+            }
+            continue
+        }
+
+        if ($character -eq '"') {
+            $inString = $true
+            [void]$strictJson.Append($character)
+            continue
+        }
+        if ($character -eq '/' -and $next -eq '/') {
+            $inLineComment = $true
+            $index++
+            continue
+        }
+        if ($character -eq '/' -and $next -eq '*') {
+            $inBlockComment = $true
+            $index++
+            continue
+        }
+        if ($character -eq ',') {
+            $lookAhead = $index + 1
+            while ($lookAhead -lt $Json.Length -and [char]::IsWhiteSpace($Json[$lookAhead])) {
+                $lookAhead++
+            }
+            if ($lookAhead -lt $Json.Length -and $Json[$lookAhead] -in @('}', ']')) {
+                continue
+            }
+        }
+
+        [void]$strictJson.Append($character)
+    }
+
+    if ($inBlockComment) {
+        throw 'Windows Terminal settings contain an unterminated block comment.'
+    }
+
+    return $strictJson.ToString() | ConvertFrom-Json
+}
+
 function Test-MesloInstalled {
-    Add-Type -AssemblyName System.Drawing
-    $collection = New-Object System.Drawing.Text.InstalledFontCollection
-    try {
-        return $null -ne ($collection.Families | Where-Object Name -EQ $FontFamily | Select-Object -First 1)
+    $fontDirectory = Join-Path $env:LOCALAPPDATA 'Microsoft\Windows\Fonts'
+    $fontRegistry = 'HKCU:\Software\Microsoft\Windows NT\CurrentVersion\Fonts'
+
+    foreach ($font in $FontFiles) {
+        $path = Join-Path $fontDirectory $font.File
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+            return $false
+        }
+        $actualHash = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($actualHash -ne $font.Sha256) {
+            return $false
+        }
+
+        $registeredPath = Get-ItemPropertyValue `
+            -LiteralPath $fontRegistry `
+            -Name $font.RegistryName `
+            -ErrorAction SilentlyContinue
+        if ([string]::IsNullOrWhiteSpace($registeredPath) -or $registeredPath -ne $path) {
+            return $false
+        }
     }
-    finally {
-        $collection.Dispose()
-    }
+
+    return $true
 }
 
 function Get-WindowsTerminalSettingsPaths {
-    $candidates = @(
-        (Join-Path $env:LOCALAPPDATA 'Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState\settings.json'),
-        (Join-Path $env:LOCALAPPDATA 'Packages\Microsoft.WindowsTerminalPreview_8wekyb3d8bbwe\LocalState\settings.json'),
-        (Join-Path $env:LOCALAPPDATA 'Microsoft\Windows Terminal\settings.json')
+    $stablePath = Join-Path $env:LOCALAPPDATA 'Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState\settings.json'
+    $previewPath = Join-Path $env:LOCALAPPDATA 'Packages\Microsoft.WindowsTerminalPreview_8wekyb3d8bbwe\LocalState\settings.json'
+    $unpackagedPath = Join-Path $env:LOCALAPPDATA 'Microsoft\Windows Terminal\settings.json'
+    $stablePackageReady = $null -ne (
+        Get-AppxPackage -Name Microsoft.WindowsTerminal -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+    )
+    $previewPackageReady = $null -ne (
+        Get-AppxPackage -Name Microsoft.WindowsTerminalPreview -ErrorAction SilentlyContinue |
+            Select-Object -First 1
     )
 
-    return @($candidates | Where-Object { Test-Path -LiteralPath $_ })
+    # Windows Terminal does not create settings.json until first launch. Keep a
+    # candidate for each installed package so this helper can create a minimal
+    # settings file during a fresh bootstrap. The unpackaged path has no package
+    # identity to query, so include it only when the settings file itself exists.
+    return @(
+        if ($stablePackageReady -or (Test-Path -LiteralPath $stablePath)) {
+            $stablePath
+        }
+        if ($previewPackageReady -or (Test-Path -LiteralPath $previewPath)) {
+            $previewPath
+        }
+        if (Test-Path -LiteralPath $unpackagedPath) {
+            $unpackagedPath
+        }
+    )
 }
 
 function Test-TerminalFont {
     param([Parameter(Mandatory)][string]$Path)
 
     try {
-        $settings = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+        $settingsJson = Get-Content -LiteralPath $Path -Raw
+        $settings = ConvertFrom-TerminalSettingsJson -Json $settingsJson
         $profiles = Get-ObjectProperty -InputObject $settings -Name 'profiles'
         if ($null -eq $profiles -or $profiles -is [System.Array]) {
             return $false
@@ -191,12 +317,26 @@ namespace CazNix.FontInstaller {
 function Set-TerminalFont {
     param([Parameter(Mandatory)][string]$Path)
 
-    if (Test-TerminalFont -Path $Path) {
+    $settingsExist = Test-Path -LiteralPath $Path
+    if ($settingsExist -and (Test-TerminalFont -Path $Path)) {
         Write-Host "Windows Terminal already uses $FontFamily by default."
         return
     }
 
-    $settings = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+    if ($settingsExist) {
+        $settingsJson = Get-Content -LiteralPath $Path -Raw
+        $settings = ConvertFrom-TerminalSettingsJson -Json $settingsJson
+    }
+    else {
+        $settings = [pscustomobject]@{
+            '$schema' = 'https://aka.ms/terminal-profiles-schema'
+            profiles = [pscustomobject]@{
+                defaults = [pscustomobject]@{}
+                list = @()
+            }
+        }
+        New-Item -ItemType Directory -Path (Split-Path -Parent $Path) -Force | Out-Null
+    }
     $profiles = Get-ObjectProperty -InputObject $settings -Name 'profiles'
     if ($profiles -is [System.Array]) {
         throw "The legacy Windows Terminal profile-array format at $Path is not changed automatically."
@@ -225,7 +365,9 @@ function Set-TerminalFont {
     $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
     $backupPath = "$Path.pre-caz-nix-$timestamp"
     $tempPath = "$Path.caz-nix-tmp"
-    Copy-Item -LiteralPath $Path -Destination $backupPath
+    if ($settingsExist) {
+        Copy-Item -LiteralPath $Path -Destination $backupPath
+    }
 
     try {
         $json = $settings | ConvertTo-Json -Depth 100
@@ -241,7 +383,48 @@ function Set-TerminalFont {
     }
 
     Write-Host "Set the Windows Terminal default font to $FontFamily."
-    Write-Host "Preserved the prior settings at $backupPath."
+    if ($settingsExist) {
+        Write-Host "Preserved the prior settings at $backupPath."
+    }
+    else {
+        Write-Host "Created Windows Terminal settings at $Path."
+    }
+}
+
+if ($SelfTest) {
+    $sample = @'
+{
+  // a full-line comment
+  "$schema": "https://aka.ms/terminal-profiles-schema", // an inline comment
+  "literal": "keep // and /* and ,} text",
+  "escaped": "keep \\\"// quoted text\\\"",
+  /* a block
+     comment */
+  "profiles": {
+    "defaults": {
+      "font": {
+        "face": "MesloLGL Nerd Font",
+      },
+    },
+    "list": [],
+  },
+}
+'@
+    $parsed = ConvertFrom-TerminalSettingsJson -Json $sample
+    if ($parsed.'$schema' -ne 'https://aka.ms/terminal-profiles-schema') {
+        throw 'Terminal JSONC self-test corrupted a URL.'
+    }
+    if ($parsed.literal -ne 'keep // and /* and ,} text') {
+        throw 'Terminal JSONC self-test corrupted comment-like string content.'
+    }
+    if ($parsed.escaped -ne 'keep \"// quoted text\"') {
+        throw 'Terminal JSONC self-test corrupted an escaped quoted value.'
+    }
+    if ($parsed.profiles.defaults.font.face -ne $FontFamily) {
+        throw 'Terminal JSONC self-test did not preserve the nested font value.'
+    }
+    Write-Host 'Windows Terminal JSONC parser self-test passed.'
+    return
 }
 
 $fontReady = (Test-MesloInstalled) -and (-not $Force)

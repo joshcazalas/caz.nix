@@ -1,0 +1,58 @@
+# Gaming applications shared by any profile that selects this capability.
+
+$schema: https://raw.githubusercontent.com/PowerShell/DSC/main/schemas/2023/08/config/document.json
+metadata:
+  winget:
+    processor:
+      identifier: dscv3
+
+resources:
+  - type: Microsoft.WinGet/Package
+    name: Steam
+    properties:
+      id: Valve.Steam
+      source: winget
+      useLatest: true
+      installMode: silent
+      acceptAgreements: true
+    metadata:
+      winget:
+        securityContext: elevated
+      description: Install Steam
+
+  - type: Microsoft.WinGet/Package
+    name: EAApp
+    properties:
+      id: ElectronicArts.EADesktop
+      source: winget
+      useLatest: true
+      installMode: silent
+      acceptAgreements: true
+    metadata:
+      winget:
+        securityContext: elevated
+      description: Install the EA app
+
+  - type: Microsoft.WinGet/Package
+    name: UbisoftConnect
+    properties:
+      id: Ubisoft.Connect
+      source: winget
+      useLatest: true
+      installMode: silent
+      acceptAgreements: true
+    metadata:
+      winget:
+        securityContext: elevated
+      description: Install Ubisoft Connect
+
+  - type: Microsoft.WinGet/Package
+    name: PrismLauncher
+    properties:
+      id: PrismLauncher.PrismLauncher
+      source: winget
+      useLatest: true
+      installMode: silent
+      acceptAgreements: true
+    metadata:
+      description: Install Prism Launcher

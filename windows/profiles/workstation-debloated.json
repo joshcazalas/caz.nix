@@ -1,0 +1,8 @@
+{
+  "capabilities": [
+    "base",
+    "development",
+    "gaming",
+    "debloat"
+  ]
+}

@@ -21,10 +21,8 @@ home-manager switch --flake .#joshcaz@wsl
 Docker Engine remains an Ubuntu system service; the bootstrap installs it from
 Docker's official apt repository. Home Manager owns the Docker client baseline
 along with OpenTofu, Node/TypeScript, Go, Rust, uv, and the shell environment.
-The bootstrap also installs the Windows-host MesloLGL Nerd Font needed by the
-Gruvbox Rainbow prompt; use `--skip-windows-font` to omit that optional step.
-The WSL Home Manager profile uses WinGet through interoperability to ensure the
-Windows VS Code client and Microsoft WSL extension are installed. A fresh WSL
-terminal after the first activation inherits the Windows launcher's `PATH`, so
-`code .` opens the supported Windows client connected back to Ubuntu instead of
-a Linux GUI under WSLg.
+
+Windows software and preferences are deliberately outside the WSL activation.
+Apply the single shared WinGet/DSC profile from Windows PowerShell after the WSL
+bootstrap; see [`../windows/README.md`](../windows/README.md). That profile owns
+the Windows VS Code client, WSL extension, Terminal, and required host font.

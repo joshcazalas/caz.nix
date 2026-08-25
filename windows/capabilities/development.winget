@@ -1,0 +1,68 @@
+# Windows-side development capability. WSL bootstrap is stateful and may
+# require one explicit reboot followed by rerunning the profile.
+
+$schema: https://raw.githubusercontent.com/PowerShell/DSC/main/schemas/2023/08/config/document.json
+metadata:
+  winget:
+    processor:
+      identifier: dscv3
+
+resources:
+  - type: Microsoft.DSC.Transitional/WindowsPowerShellScript
+    name: WindowsWSL
+    properties:
+      getScript: |
+        $script = "${WinGetConfigRoot}\scripts\windows-wsl.ps1"
+        $output = @(& powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $script -Check 2>&1)
+        return @{ exitCode = $LASTEXITCODE; summary = ($output -join "`n") }
+      testScript: |
+        $script = "${WinGetConfigRoot}\scripts\windows-wsl.ps1"
+        $null = & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $script -Check
+        return ($LASTEXITCODE -eq 0)
+      setScript: |
+        $script = "${WinGetConfigRoot}\scripts\windows-wsl.ps1"
+        & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $script
+        if ($LASTEXITCODE -eq 20) { throw "WSL components were enabled. Restart Windows and apply this profile again." }
+        if ($LASTEXITCODE -ne 0) { throw "Windows WSL helper failed with exit code $LASTEXITCODE." }
+    metadata:
+      winget:
+        securityContext: elevated
+      description: Enable WSL 2 components and install Ubuntu 24.04 without launching it
+
+  - type: Microsoft.WinGet/Package
+    name: WSLPackage
+    dependsOn:
+      - WindowsWSL
+    properties:
+      id: Microsoft.WSL
+      source: winget
+      useLatest: true
+      installMode: silent
+      acceptAgreements: true
+    metadata:
+      winget:
+        securityContext: elevated
+      description: Keep the packaged WSL runtime current
+
+  - type: Microsoft.DSC.Transitional/WindowsPowerShellScript
+    name: WindowsVSCode
+    dependsOn:
+      - WindowsWSL
+    properties:
+      getScript: |
+        $script = "${WinGetConfigRoot}\scripts\windows-vscode.ps1"
+        $extensions = "${WinGetConfigRoot}\vscode-extensions.json"
+        $output = @(& powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $script -ExtensionsFile $extensions -Check 2>&1)
+        return @{ exitCode = $LASTEXITCODE; summary = ($output -join "`n") }
+      testScript: |
+        $script = "${WinGetConfigRoot}\scripts\windows-vscode.ps1"
+        $extensions = "${WinGetConfigRoot}\vscode-extensions.json"
+        $null = & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $script -ExtensionsFile $extensions -Check
+        return ($LASTEXITCODE -eq 0)
+      setScript: |
+        $script = "${WinGetConfigRoot}\scripts\windows-vscode.ps1"
+        $extensions = "${WinGetConfigRoot}\vscode-extensions.json"
+        & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $script -ExtensionsFile $extensions
+        if ($LASTEXITCODE -ne 0) { throw "Windows VS Code helper failed with exit code $LASTEXITCODE." }
+    metadata:
+      description: Install user-scoped Windows VS Code and its declared extensions
