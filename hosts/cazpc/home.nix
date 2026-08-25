@@ -1,4 +1,5 @@
 {
+  config,
   lib,
   pkgs,
   settings,
@@ -19,7 +20,6 @@ in
     username = settings.user.name;
     homeDirectory = "/home/${settings.user.name}";
     packages = with pkgs; [
-      awscli2
       wsl-open
     ];
     sessionVariables = {
@@ -30,6 +30,68 @@ in
     };
     stateVersion = "26.05";
   };
+
+  programs.awscli = {
+    enable = true;
+    settings = {
+      "sso-session mor" = {
+        sso_start_url = "https://d-906786c4bb.awsapps.com/start";
+        sso_region = "us-east-1";
+        sso_registration_scopes = "sso:account:access";
+      };
+
+      "profile mor-management" = {
+        sso_session = "mor";
+        sso_account_id = "357964519547";
+        sso_role_name = "BootstrapAdministrator";
+        region = "us-east-1";
+        output = "json";
+      };
+
+      "profile mor-management-readonly" = {
+        sso_session = "mor";
+        sso_account_id = "357964519547";
+        sso_role_name = "ReadOnly";
+        region = "us-east-1";
+        output = "json";
+      };
+
+      "profile mor-uat" = {
+        sso_session = "mor";
+        sso_account_id = "732006412638";
+        sso_role_name = "BootstrapAdministrator";
+        region = "us-east-1";
+        output = "json";
+      };
+
+      "profile mor-uat-readonly" = {
+        sso_session = "mor";
+        sso_account_id = "732006412638";
+        sso_role_name = "ReadOnly";
+        region = "us-east-1";
+        output = "json";
+      };
+
+      "profile mor-prod" = {
+        sso_session = "mor";
+        sso_account_id = "134604497564";
+        sso_role_name = "BootstrapAdministrator";
+        region = "us-east-1";
+        output = "json";
+      };
+
+      "profile mor-prod-readonly" = {
+        sso_session = "mor";
+        sso_account_id = "134604497564";
+        sso_role_name = "ReadOnly";
+        region = "us-east-1";
+        output = "json";
+      };
+    };
+  };
+
+  # Adopt the existing hand-written config on the first Home Manager switch.
+  home.file."${config.home.homeDirectory}/.aws/config".force = true;
 
   # This profile targets Ubuntu under WSL2, not NixOS-WSL.
   targets.genericLinux.enable = true;
