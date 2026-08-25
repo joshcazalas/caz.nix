@@ -1,7 +1,12 @@
 {
+  lib,
+  pkgs,
   settings,
   ...
 }:
+let
+  windowsBrowser = lib.getExe pkgs.wsl-open;
+in
 {
   imports = [
     ../../modules/home/common.nix
@@ -13,6 +18,13 @@
   home = {
     username = settings.user.name;
     homeDirectory = "/home/${settings.user.name}";
+    packages = [ pkgs.wsl-open ];
+    sessionVariables = {
+      # OAuth and other web flows launched in WSL should use the Windows
+      # default browser rather than searching for a Linux desktop browser.
+      BROWSER = windowsBrowser;
+      GH_BROWSER = windowsBrowser;
+    };
     stateVersion = "26.05";
   };
 
