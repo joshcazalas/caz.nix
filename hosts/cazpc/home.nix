@@ -18,7 +18,10 @@ in
   home = {
     username = settings.user.name;
     homeDirectory = "/home/${settings.user.name}";
-    packages = [ pkgs.wsl-open ];
+    packages = with pkgs; [
+      awscli2
+      wsl-open
+    ];
     sessionVariables = {
       # OAuth and other web flows launched in WSL should use the Windows
       # default browser rather than searching for a Linux desktop browser.
