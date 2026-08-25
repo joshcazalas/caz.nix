@@ -7,9 +7,25 @@
 let
   cfg = config.homelab.releaseUpdater;
   inherit (lib)
+    all
     concatStringsSep
     optionals
     ;
+
+  # switch-to-configuration executes the new generation's activation script in
+  # this service's execution context. These settings isolate exactly the host
+  # state that NixOS activation is responsible for updating. Keep the contract
+  # explicit so a future hardening pass fails evaluation instead of failing a
+  # live activation and its rollback.
+  activationBlockingServiceSettings = [
+    "ProtectControlGroups"
+    "ProtectHome"
+    "ProtectHostname"
+    "ProtectKernelModules"
+    "ProtectKernelTunables"
+    "ProtectSystem"
+  ];
+  updaterServiceConfig = config.systemd.services.caz-release-updater.serviceConfig;
 
   minecraftEnabled = config.homelab.minecraft.enable;
 
@@ -202,6 +218,17 @@ in
         assertion = backupStatePaths != [ ];
         message = "Automatic deployment requires at least one application state path to protect.";
       }
+      {
+        assertion = all (
+          setting: (updaterServiceConfig.${setting} or false) == false
+        ) activationBlockingServiceSettings;
+        message = ''
+          caz-release-updater must run without host-isolating Protect* settings.
+          switch-to-configuration executes NixOS activation and rollback inside
+          the updater's service context, where it must manage users, boot state,
+          kernel settings, modules, the hostname, cgroups, and system files.
+        '';
+      }
     ];
 
     environment.systemPackages = [
@@ -259,17 +286,15 @@ in
         TimeoutStartSec = "3h";
         UMask = "0077";
 
-        # This root unit must update the NixOS system profile, bootloader, and
-        # running services. Retain hardening controls that do not block those
-        # explicit responsibilities.
+        # This root unit runs a cryptographically verified NixOS generation's
+        # activation code. It must retain the host filesystem and kernel view
+        # expected by switch-to-configuration; ProtectHome, ProtectSystem, and
+        # the ProtectKernel*/ProtectControlGroups/ProtectHostname family are
+        # therefore intentionally absent and guarded by the assertion above.
+        # Keep process restrictions that do not interfere with host activation.
         LockPersonality = true;
         NoNewPrivileges = true;
         PrivateTmp = true;
-        ProtectControlGroups = true;
-        ProtectHome = true;
-        ProtectHostname = true;
-        ProtectKernelModules = true;
-        ProtectKernelTunables = true;
         RestrictRealtime = true;
       };
     };
