@@ -92,6 +92,13 @@ backs up applications, changes the system profile, or stops services. This
 turns a runtime mount or sandbox regression into an early, non-disruptive
 failure.
 
+A release that removes one of these restrictions cannot deploy itself through
+an updater process that already started under the old restricted unit. The
+process keeps that mount namespace until it exits, even after the new unit file
+has been built. Bootstrap such a correction once from an unrestricted root
+shell with `sudo caz-deploy-server-release`; after that successful switch, the
+timer starts future runs under the corrected unit.
+
 ### Which generation defines "healthy"
 
 The updater deliberately keeps running from the previous generation while it
