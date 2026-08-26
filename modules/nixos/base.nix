@@ -62,7 +62,7 @@
       "video"
       "wheel"
     ];
-    openssh.authorizedKeys.keys = [ settings.user.sshPublicKey ];
+    openssh.authorizedKeys.keys = settings.user.sshPublicKeys;
   };
 
   # A stolen SSH key should not immediately grant root. The local account

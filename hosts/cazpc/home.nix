@@ -13,6 +13,7 @@ in
     ../../modules/home/common.nix
     ../../modules/home/development.nix
     ../../modules/home/shell.nix
+    ../../modules/home/ssh.nix
     ../../modules/home/windows-vscode.nix
   ];
 
