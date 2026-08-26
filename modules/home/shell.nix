@@ -39,7 +39,7 @@ in
         ai.enabled = false;
         auto_sync = false;
         enter_accept = false;
-        filter_mode_shell_up_key_binding = "directory";
+        filter_mode_shell_up_key_binding = "global";
         search_mode = "fuzzy";
         update_check = false;
       };
