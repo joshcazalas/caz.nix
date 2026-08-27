@@ -141,6 +141,11 @@ backup of the private key away from the server; never commit or copy the private
 key into this repository. `ssh-agent` can cache the unlocked key for the current
 login session without removing its at-rest encryption.
 
+The managed WSL SSH profile keeps the two network paths explicit: `ssh homeserver`
+uses the LAN resolver, while `ssh homeserver-remote` uses the public
+`ssh.joshcaz.com` endpoint. The public alias is for testing from a different
+network; it is not expected to resolve from the home LAN.
+
 After deploying:
 
 1. Confirm `ssh.joshcaz.com` is a **DNS-only** A record and resolves to the same
