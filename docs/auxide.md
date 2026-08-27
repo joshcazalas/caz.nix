@@ -35,3 +35,9 @@ Auxide's operator guide for the exact command and deferred private-guild voice a
 The service has supplementary membership in `media`, reserving read-only access to
 `/var/lib/homelab/media` for a future local-library adapter. Phase 1 YouTube playback does not write
 media files there and does not use `/srv`.
+
+During a NixOS switch, the provider reuses its pinned image when it is already loaded and waits
+up to 55 seconds for an old container port-forwarder to release `127.0.0.1:4416`. This keeps a
+transient Docker restart race from failing the whole release while preserving a bounded failure:
+an image that cannot be loaded or a port that remains occupied still fails activation and lets the
+release updater restore the previous generation.
