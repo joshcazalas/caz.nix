@@ -55,6 +55,33 @@
         modules = [ ./hosts/cazpc/home.nix ];
       };
       wslSshSettings = wslHome.config.programs.ssh.settings;
+      wslAwsSettings = wslHome.config.programs.awscli.settings;
+      expectedWslAwsSettings =
+        let
+          region = "us-east-1";
+          ssoSession = "personal-aws";
+          profile = sso_account_id: sso_role_name: {
+            inherit sso_account_id sso_role_name;
+            sso_session = ssoSession;
+            inherit region;
+            output = "json";
+          };
+        in
+        {
+          "sso-session ${ssoSession}" = {
+            sso_start_url = "https://d-906786c4bb.awsapps.com/start";
+            sso_region = region;
+            sso_registration_scopes = "sso:account:access";
+          };
+          "profile management" = profile "357964519547" "BootstrapAdministrator";
+          "profile management-readonly" = profile "357964519547" "ReadOnly";
+          "profile deployment" = profile "245459924498" "BootstrapAdministrator";
+          "profile deployment-readonly" = profile "245459924498" "ReadOnly";
+          "profile uat" = profile "732006412638" "BootstrapAdministrator";
+          "profile uat-readonly" = profile "732006412638" "ReadOnly";
+          "profile production" = profile "134604497564" "BootstrapAdministrator";
+          "profile production-readonly" = profile "134604497564" "ReadOnly";
+        };
       homeserver = nixpkgs.lib.nixosSystem {
         inherit system specialArgs;
         modules = [
@@ -101,6 +128,39 @@
       checks.${system} = {
         homeserver = self.nixosConfigurations.${settings.server.hostName}.config.system.build.toplevel;
         wsl-home = self.homeConfigurations."${settings.user.name}@wsl".activationPackage;
+        wsl-aws-profiles = pkgs.runCommand "check-wsl-aws-profiles" { } ''
+          aws_config=${wslHome.config.home.file."${wslHome.config.home.homeDirectory}/.aws/config".source}
+
+          test ${
+            pkgs.lib.escapeShellArg (pkgs.lib.boolToString (wslAwsSettings == expectedWslAwsSettings))
+          } = true
+          test ${
+            pkgs.lib.escapeShellArg (
+              pkgs.lib.boolToString (
+                !(builtins.hasAttr "${wslHome.config.home.homeDirectory}/.aws/credentials" wslHome.config.home.file)
+              )
+            )
+          } = true
+
+          test "$(${pkgs.gnugrep}/bin/grep -c '^\[' "$aws_config")" -eq 9
+          test "$(${pkgs.gnugrep}/bin/grep -c '^\[sso-session personal-aws\]$' "$aws_config")" -eq 1
+
+          for profile in \
+            management management-readonly \
+            deployment deployment-readonly \
+            uat uat-readonly \
+            production production-readonly
+          do
+            ${pkgs.gnugrep}/bin/grep -Fqx "[profile $profile]" "$aws_config"
+          done
+
+          if ${pkgs.gnugrep}/bin/grep -Eq '^\[(profile mor-|sso-session mor\])' "$aws_config"; then
+            echo "Legacy mor AWS configuration remains." >&2
+            exit 1
+          fi
+
+          touch "$out"
+        '';
         wsl-vscode-activation = pkgs.runCommand "check-wsl-vscode-activation" { } ''
           activation=${wslHome.activationPackage}/activate
 

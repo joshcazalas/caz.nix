@@ -7,6 +7,14 @@
 }:
 let
   windowsBrowser = lib.getExe pkgs.wsl-open;
+  awsRegion = "us-east-1";
+  awsSsoSession = "personal-aws";
+  mkAwsProfile = sso_account_id: sso_role_name: {
+    inherit sso_account_id sso_role_name;
+    sso_session = awsSsoSession;
+    region = awsRegion;
+    output = "json";
+  };
 in
 {
   imports = [
@@ -35,59 +43,20 @@ in
   programs.awscli = {
     enable = true;
     settings = {
-      "sso-session mor" = {
+      "sso-session ${awsSsoSession}" = {
         sso_start_url = "https://d-906786c4bb.awsapps.com/start";
-        sso_region = "us-east-1";
+        sso_region = awsRegion;
         sso_registration_scopes = "sso:account:access";
       };
 
-      "profile mor-management" = {
-        sso_session = "mor";
-        sso_account_id = "357964519547";
-        sso_role_name = "BootstrapAdministrator";
-        region = "us-east-1";
-        output = "json";
-      };
-
-      "profile mor-management-readonly" = {
-        sso_session = "mor";
-        sso_account_id = "357964519547";
-        sso_role_name = "ReadOnly";
-        region = "us-east-1";
-        output = "json";
-      };
-
-      "profile mor-uat" = {
-        sso_session = "mor";
-        sso_account_id = "732006412638";
-        sso_role_name = "BootstrapAdministrator";
-        region = "us-east-1";
-        output = "json";
-      };
-
-      "profile mor-uat-readonly" = {
-        sso_session = "mor";
-        sso_account_id = "732006412638";
-        sso_role_name = "ReadOnly";
-        region = "us-east-1";
-        output = "json";
-      };
-
-      "profile mor-prod" = {
-        sso_session = "mor";
-        sso_account_id = "134604497564";
-        sso_role_name = "BootstrapAdministrator";
-        region = "us-east-1";
-        output = "json";
-      };
-
-      "profile mor-prod-readonly" = {
-        sso_session = "mor";
-        sso_account_id = "134604497564";
-        sso_role_name = "ReadOnly";
-        region = "us-east-1";
-        output = "json";
-      };
+      "profile management" = mkAwsProfile "357964519547" "BootstrapAdministrator";
+      "profile management-readonly" = mkAwsProfile "357964519547" "ReadOnly";
+      "profile deployment" = mkAwsProfile "245459924498" "BootstrapAdministrator";
+      "profile deployment-readonly" = mkAwsProfile "245459924498" "ReadOnly";
+      "profile uat" = mkAwsProfile "732006412638" "BootstrapAdministrator";
+      "profile uat-readonly" = mkAwsProfile "732006412638" "ReadOnly";
+      "profile production" = mkAwsProfile "134604497564" "BootstrapAdministrator";
+      "profile production-readonly" = mkAwsProfile "134604497564" "ReadOnly";
     };
   };
 
