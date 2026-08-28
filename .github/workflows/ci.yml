@@ -70,6 +70,43 @@ jobs:
       - name: Evaluate and build every declared output
         run: nix flake check --print-build-logs
 
+  windows:
+    name: Validate Windows configuration
+    runs-on: windows-2025
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Parse PowerShell, JSON, capabilities, and profiles
+        shell: powershell
+        run: .\scripts\check-windows.ps1
+
+      - name: Parse and resolve with WinGet
+        shell: powershell
+        run: |
+          $winGetCommand = (Get-Command winget.exe -CommandType Application -ErrorAction Stop).Source
+          Get-ChildItem .\windows\capabilities\*.winget | ForEach-Object {
+            Write-Host "Parsing and resolving $($_.Name) with WinGet"
+            $succeeded = $false
+            foreach ($attempt in 1, 2) {
+              & $winGetCommand configure show --file $_.FullName
+              if ($LASTEXITCODE -eq 0) {
+                $succeeded = $true
+                break
+              }
+              if ($attempt -eq 1) {
+                Write-Warning "WinGet initialization failed; retrying once."
+              }
+            }
+            if (-not $succeeded) {
+              throw "WinGet could not parse and resolve $($_.Name) after two attempts."
+            }
+          }
+
   # `Validate` is the required status check on `main`. Keeping that exact name
   # on a job that passes only when both real jobs passed means the split needs
   # no branch-protection change, and a lint failure still blocks a merge just as
@@ -80,6 +117,7 @@ jobs:
     needs:
       - lint
       - build
+      - windows
     if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -89,6 +127,7 @@ jobs:
         env:
           LINT_RESULT: ${{ needs.lint.result }}
           BUILD_RESULT: ${{ needs.build.result }}
+          WINDOWS_RESULT: ${{ needs.windows.result }}
         run: |
-          echo "lint=${LINT_RESULT} build=${BUILD_RESULT}"
-          [[ "${LINT_RESULT}" == success && "${BUILD_RESULT}" == success ]]
+          echo "lint=${LINT_RESULT} build=${BUILD_RESULT} windows=${WINDOWS_RESULT}"
+          [[ "${LINT_RESULT}" == success && "${BUILD_RESULT}" == success && "${WINDOWS_RESULT}" == success ]]

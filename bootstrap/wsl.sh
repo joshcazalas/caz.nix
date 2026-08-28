@@ -3,7 +3,8 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-readonly REPO_URL="git@github.com:joshcazalas/caz.nix.git"
+readonly REPO_HTTPS_URL="https://github.com/joshcazalas/caz.nix.git"
+readonly REPO_SSH_URL="git@github.com:joshcazalas/caz.nix.git"
 readonly EXPECTED_USER="joshcaz"
 readonly HOME_PROFILE="joshcaz@wsl"
 readonly DEFAULT_REPO_DIR="$HOME/develop/caz.nix"
@@ -15,7 +16,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT_REPO_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 REPO_DIR=""
 SKIP_DOCKER=false
-SKIP_WINDOWS_FONT=false
+USE_SSH_CLONE=false
 NIX_INSTALLER=""
 DOCKER_GROUP_CHANGED=false
 
@@ -82,8 +83,7 @@ Options:
   --repo-dir PATH  Use or clone the repository at PATH.
                    Default: $DEFAULT_REPO_DIR
   --skip-docker    Do not install or configure Docker Engine.
-  --skip-windows-font
-                   Do not install MesloLGL Nerd Font or configure Windows Terminal.
+  --ssh-clone      Use authenticated SSH instead of public HTTPS when cloning.
   -h, --help       Show this help.
 
 The script is idempotent: rerunning it skips completed installation steps and
@@ -102,8 +102,8 @@ while (($# > 0)); do
       SKIP_DOCKER=true
       shift
       ;;
-    --skip-windows-font)
-      SKIP_WINDOWS_FONT=true
+    --ssh-clone)
+      USE_SSH_CLONE=true
       shift
       ;;
     -h | --help)
@@ -270,7 +270,7 @@ ensure_github_ssh_access() {
     note "If SSH asks to trust GitHub, compare the fingerprint with:"
     note "$GITHUB_FINGERPRINTS_URL"
   fi
-  if git ls-remote "$REPO_URL" HEAD >/dev/null; then
+  if git ls-remote "$REPO_SSH_URL" HEAD >/dev/null; then
     note "GitHub accepted the existing SSH identity."
     return 0
   fi
@@ -278,7 +278,7 @@ ensure_github_ssh_access() {
   public_key="$(find_public_key || true)"
   if [[ -z "$public_key" ]]; then
     confirm "No Ed25519 public key was found. Generate one now?" ||
-      die "An SSH key is required for the private repository."
+      die "An SSH key is required because --ssh-clone was selected."
     public_key="$(create_ssh_key)"
   fi
 
@@ -302,7 +302,7 @@ EOF
   read -r -p "Press Enter after GitHub has saved the key... "
 
   for attempt in 1 2 3; do
-    if git ls-remote "$REPO_URL" HEAD >/dev/null; then
+    if git ls-remote "$REPO_SSH_URL" HEAD >/dev/null; then
       note "GitHub SSH authentication succeeded."
       return 0
     fi
@@ -311,25 +311,30 @@ EOF
     read -r -p "Press Enter to retry... "
   done
 
-  die "Could not authenticate to $REPO_URL over SSH."
+  die "Could not authenticate to $REPO_SSH_URL over SSH."
 }
 
 ensure_repository() {
+  local clone_url=$REPO_HTTPS_URL
   local remote_url
+
+  if [[ "$USE_SSH_CLONE" == true ]]; then
+    clone_url=$REPO_SSH_URL
+  fi
 
   if [[ -e "$REPO_DIR" ]]; then
     [[ -d "$REPO_DIR/.git" && -f "$REPO_DIR/flake.nix" ]] ||
       die "$REPO_DIR already exists but is not a caz.nix checkout. It was left untouched."
     remote_url="$(git -C "$REPO_DIR" remote get-url origin 2>/dev/null || true)"
-    [[ "$remote_url" == "$REPO_URL" ]] ||
-      warn "The existing checkout uses origin '$remote_url' rather than '$REPO_URL'."
+    [[ "$remote_url" == "$REPO_HTTPS_URL" || "$remote_url" == "$REPO_SSH_URL" ]] ||
+      warn "The existing checkout uses an unexpected origin: '$remote_url'."
     note "Using existing checkout: $REPO_DIR"
     return 0
   fi
 
   say "Cloning caz.nix"
   mkdir -p -- "$(dirname -- "$REPO_DIR")"
-  git clone "$REPO_URL" "$REPO_DIR"
+  git clone "$clone_url" "$REPO_DIR"
 }
 
 configure_repository_hooks() {
@@ -453,42 +458,6 @@ EOF
   note "Docker daemon is running."
 }
 
-setup_windows_font() {
-  local windows_script
-  local check_status
-
-  if [[ "$SKIP_WINDOWS_FONT" == true ]]; then
-    note "Windows font setup skipped by request."
-    return 0
-  fi
-  if ! command -v powershell.exe >/dev/null 2>&1; then
-    warn "powershell.exe is unavailable; skipping Windows Meslo font setup."
-    return 0
-  fi
-
-  windows_script="$(wslpath -w "$REPO_DIR/bootstrap/windows-font.ps1")"
-  if powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass \
-    -File "$windows_script" -Check -ConfigureWindowsTerminal; then
-    note "MesloLGL Nerd Font and Windows Terminal are already configured."
-    return 0
-  else
-    check_status=$?
-  fi
-  [[ "$check_status" -eq 10 ]] ||
-    die "The Windows font prerequisite check failed with exit $check_status."
-
-  say "Windows terminal font"
-  note "This installs the checksum-pinned MesloLGL Nerd Font for the current Windows user."
-  note "Windows Terminal settings are backed up before its default font is changed."
-  confirm "Install or configure the Windows terminal font now?" || {
-    note "Windows font setup skipped. Use --skip-windows-font to suppress this prompt."
-    return 0
-  }
-
-  powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass \
-    -File "$windows_script" -ConfigureWindowsTerminal
-}
-
 activate_home_manager() {
   local flake_ref="$REPO_DIR#$HOME_PROFILE"
   local backup_extension
@@ -553,10 +522,11 @@ main() {
   ensure_systemd
   install_prerequisites
   select_repo_dir
-  ensure_github_ssh_access
+  if [[ "$USE_SSH_CLONE" == true ]]; then
+    ensure_github_ssh_access
+  fi
   ensure_repository
   configure_repository_hooks
-  setup_windows_font
   install_nix
   install_docker
   activate_home_manager

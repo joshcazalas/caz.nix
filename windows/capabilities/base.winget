@@ -1,0 +1,63 @@
+# Common Windows applications. Packages are presence-only declarations;
+# their signed built-in updaters own routine version updates.
+
+$schema: https://raw.githubusercontent.com/PowerShell/DSC/main/schemas/2023/08/config/document.json
+metadata:
+  winget:
+    processor:
+      identifier: dscv3
+
+resources:
+  - type: Microsoft.WinGet/Package
+    name: WindowsTerminal
+    properties:
+      id: Microsoft.WindowsTerminal
+      source: winget
+      installMode: silent
+      acceptAgreements: true
+    metadata:
+      description: Ensure Windows Terminal is installed
+
+  - type: Microsoft.WinGet/Package
+    name: Chrome
+    properties:
+      id: Google.Chrome.EXE
+      source: winget
+      installMode: silent
+      acceptAgreements: true
+    metadata:
+      winget:
+        securityContext: elevated
+      description: Ensure Google Chrome is installed
+
+  - type: Microsoft.WinGet/Package
+    name: Firefox
+    properties:
+      id: Mozilla.Firefox
+      source: winget
+      installMode: silent
+      acceptAgreements: true
+    metadata:
+      winget:
+        securityContext: elevated
+      description: Ensure Mozilla Firefox is installed
+
+  - type: Microsoft.WinGet/Package
+    name: Discord
+    properties:
+      id: Discord.Discord
+      source: winget
+      installMode: silent
+      acceptAgreements: true
+    metadata:
+      description: Ensure Discord is installed
+
+  - type: Microsoft.WinGet/Package
+    name: Spotify
+    properties:
+      id: Spotify.Spotify
+      source: winget
+      installMode: silent
+      acceptAgreements: true
+    metadata:
+      description: Ensure Spotify is installed

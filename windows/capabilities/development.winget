@@ -1,0 +1,30 @@
+# Windows-side development applications. WSL itself is a documented one-time
+# prerequisite rather than a custom desired-state resource.
+
+$schema: https://raw.githubusercontent.com/PowerShell/DSC/main/schemas/2023/08/config/document.json
+metadata:
+  winget:
+    processor:
+      identifier: dscv3
+
+resources:
+  - type: Microsoft.DSC.Transitional/WindowsPowerShellScript
+    name: WindowsVSCode
+    properties:
+      getScript: |
+        $script = "${WinGetConfigRoot}\scripts\windows-vscode.ps1"
+        $extensions = "${WinGetConfigRoot}\vscode-extensions.json"
+        $output = @(& powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $script -ExtensionsFile $extensions -Check 2>&1)
+        return @{ exitCode = $LASTEXITCODE; summary = ($output -join "`n") }
+      testScript: |
+        $script = "${WinGetConfigRoot}\scripts\windows-vscode.ps1"
+        $extensions = "${WinGetConfigRoot}\vscode-extensions.json"
+        $null = & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $script -ExtensionsFile $extensions -Check
+        return ($LASTEXITCODE -eq 0)
+      setScript: |
+        $script = "${WinGetConfigRoot}\scripts\windows-vscode.ps1"
+        $extensions = "${WinGetConfigRoot}\vscode-extensions.json"
+        & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $script -ExtensionsFile $extensions
+        if ($LASTEXITCODE -ne 0) { throw "Windows VS Code helper failed with exit code $LASTEXITCODE." }
+    metadata:
+      description: Install user-scoped Windows VS Code and its declared extensions

@@ -15,9 +15,9 @@ partitioned, formatted, mounted, or otherwise changed.
 
 NixOS and Home Manager solve different layers of the same problem. NixOS owns
 boot, disks, networking, daemons, users, and firewall rules. Home Manager owns
-the user's shell and CLI tools and can also run standalone on Ubuntu. Windows
-packages remain outside the Nix store, but the WSL profile reconciles its
-explicit Windows user integrations through WSL interoperability.
+the user's shell and CLI tools and can also run standalone on Ubuntu. The shared
+WinGet/DSC profiles own Windows packages and optional preferences independently;
+a Nix or Home Manager activation never changes the Windows host.
 
 The stable NixOS and Home Manager branches are pinned in `flake.lock` once Nix
 first evaluates the repo. Developer toolchains come from a separately pinned
@@ -36,13 +36,12 @@ behavior:
 - zoxide learns frequently used directories without replacing `cd`.
 
 Atuin sync, its update network check, and its AI features are explicitly off.
-WSL installs Meslo LG Nerd Font for Linux applications through Nix; the guided
-bootstrap separately installs MesloLGL on Windows because Windows Terminal is
-the process that renders WSL text. Home Manager similarly uses WinGet to ensure
-the supported Windows VS Code client and its WSL extension are present instead
-of installing the Linux GUI build under WSLg. The same interactive shell and
-prompt are used on the NixOS server, while the connecting client supplies its
-font.
+WSL installs Meslo LG Nerd Font for Linux applications through Nix. Windows
+Terminal renders WSL text and therefore needs a Nerd Font selected manually if
+prompt icons are desired. The Windows profile owns the supported Windows VS Code
+client plus its WSL extension instead of installing the Linux GUI build under
+WSLg. The same interactive shell and prompt are used on the NixOS server, while
+the connecting client supplies its font.
 The ble.sh integration is the only experimental component and can be disabled
 with one option in `hosts/cazpc/home.nix`; the other tools then fall back to
 their standard Bash integrations.
@@ -120,7 +119,10 @@ modules/home/starship-gruvbox-rainbow.toml
                                   pinned shared prompt preset
 bootstrap/README.md               manual prerequisites and recovery notes
 bootstrap/wsl.sh                  interactive new-WSL bootstrap
-bootstrap/windows-font.ps1        pinned Windows Meslo font installer
+bootstrap/windows.ps1             profile-aware Windows WinGet/DSC entry point
+windows/capabilities/             composable Windows desired-state documents
+windows/profiles/                 generic capability selections
+windows/README.md                 Windows setup, preferences, and limitations
 modules/nixos/                    storage, network, and service modules
 modules/nixos/cloudflare-ddns.nix scoped IPv4-only Cloudflare DNS updater
 secrets/                          sops-nix workflow for future runtime secrets
@@ -143,7 +145,9 @@ scripts/                          local CI, secret scan, and release tooling
    ./bootstrap/wsl.sh
    ```
 
-3. Open a new Ubuntu terminal and rate the Bash experience. If ble.sh is not a
+3. Apply a generic Windows capability profile from Windows PowerShell by following
+   [`windows/README.md`](windows/README.md).
+4. Open a new Ubuntu terminal and rate the Bash experience. If ble.sh is not a
    net improvement, disable only `caz.shell.blesh.enable` and switch again.
 
 Do not enable public Jellyfin until the domain is replaced in `settings.nix`,
