@@ -29,7 +29,9 @@ runs:
       with:
         primary-key: >-
           nix-auxide-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.cache-key.outputs.nix-version }}-${{ steps.cache-key.outputs.auxide-derivation-hash }}
-        save: ${{ github.event_name != 'pull_request' }}
+        # Only the default branch may create repository caches. Other branch
+        # dispatches stay read-only instead of consuming the free quota.
+        save: ${{ github.ref == 'refs/heads/main' }}
         # Auxide's runtime closure is currently about 812 MiB. Retaining it
         # while capping the complete saved store at 2 GiB leaves ample room
         # for the Nix installation and several cache generations.
