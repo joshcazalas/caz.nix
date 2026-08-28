@@ -18,10 +18,14 @@ updates:
     commit-message:
       prefix: "deps(nix)"
 
-  # Action updates work for both private and public repositories. Keep them in
-  # a separate PR so changes to CI's trusted code are especially easy to audit.
+  # Action updates work for both private and public repositories. Scan both the
+  # workflows and the local composite action; `/` does not recursively discover
+  # action manifests. Keep updates in a separate PR so changes to CI's trusted
+  # code are especially easy to audit.
   - package-ecosystem: github-actions
-    directory: /
+    directories:
+      - /
+      - /.github/actions/cache-auxide
     schedule:
       interval: weekly
       day: monday

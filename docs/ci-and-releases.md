@@ -37,10 +37,30 @@ scan staged changes with the same pinned Gitleaks package. This is the fast
 local guardrail; CI's full-history scan remains the authoritative backstop.
 
 GitHub Actions are pinned to full commit hashes. Dependabot updates those pins
-in a dedicated weekly PR. Jobs use the runner-local Nix store but deliberately
-do not export it through a persistent Actions cache: complete builds take only
-about four minutes, while cache finalization proved capable of wedging an
-otherwise successful job until its timeout.
+in a dedicated weekly PR. The expensive build and release jobs use GitHub's
+repository-local Actions cache to retain the Nix output for the exact Auxide
+commit recorded in `flake.lock`. The cache key includes the evaluated package
+derivation, installed Nix version, runner OS, and architecture. Transitive input
+updates and package overrides therefore rotate the cache even if Auxide's source
+commit does not. Ordinary configuration changes still reuse Auxide without
+weakening the lock file's immutable build identity. A local composite action
+owns this policy so CI and release restore the same cache on their respective
+build runners without duplicating its implementation.
+
+Pull requests may restore the default branch's cache but do not write caches:
+their isolated entries cannot be promoted to `main` and would only consume the
+free 10 GB repository allowance. A manual `main` CI run or the first release
+after an Auxide update builds and seeds the new entry. Before saving, the cache
+action garbage-collects the store to at most 2 GiB while an explicit GC root
+retains Auxide's roughly 812 MiB runtime closure. The full server closure is not
+retained. Consequently an Auxide update still compiles once in its PR and once
+on `main`, but the much more common PR or release that leaves Auxide unchanged
+restores the already-tested package.
+
+This bounded whole-store cache replaces the earlier per-path Magic Nix Cache
+experiment, whose post-job finalization once wedged until the job timeout. If
+cache restore or save time erases the build-time improvement, remove the cache
+rather than increasing GitHub's free storage limit.
 
 The complete server closure exceeds the standard private runner's 14 GB disk.
 Before installing Nix, the build job conservatively reserves the runner's
