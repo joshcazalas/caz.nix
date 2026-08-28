@@ -16,8 +16,8 @@ partitioned, formatted, mounted, or otherwise changed.
 NixOS and Home Manager solve different layers of the same problem. NixOS owns
 boot, disks, networking, daemons, users, and firewall rules. Home Manager owns
 the user's shell and CLI tools and can also run standalone on Ubuntu. The shared
-WinGet/DSC profile owns Windows packages and preferences independently; a Nix or
-Home Manager activation never changes the Windows host.
+WinGet/DSC profiles own Windows packages and optional preferences independently;
+a Nix or Home Manager activation never changes the Windows host.
 
 The stable NixOS and Home Manager branches are pinned in `flake.lock` once Nix
 first evaluates the repo. Developer toolchains come from a separately pinned
@@ -36,12 +36,12 @@ behavior:
 - zoxide learns frequently used directories without replacing `cd`.
 
 Atuin sync, its update network check, and its AI features are explicitly off.
-WSL installs Meslo LG Nerd Font for Linux applications through Nix. The Windows
-profile separately installs MesloLGL because Windows Terminal renders WSL text,
-and it owns the supported Windows VS Code client plus its WSL extension instead
-of installing the Linux GUI build under WSLg. The same interactive shell and
-prompt are used on the NixOS server, while the connecting client supplies its
-font.
+WSL installs Meslo LG Nerd Font for Linux applications through Nix. Windows
+Terminal renders WSL text and therefore needs a Nerd Font selected manually if
+prompt icons are desired. The Windows profile owns the supported Windows VS Code
+client plus its WSL extension instead of installing the Linux GUI build under
+WSLg. The same interactive shell and prompt are used on the NixOS server, while
+the connecting client supplies its font.
 The ble.sh integration is the only experimental component and can be disabled
 with one option in `hosts/cazpc/home.nix`; the other tools then fall back to
 their standard Bash integrations.
@@ -120,10 +120,9 @@ modules/home/starship-gruvbox-rainbow.toml
 bootstrap/README.md               manual prerequisites and recovery notes
 bootstrap/wsl.sh                  interactive new-WSL bootstrap
 bootstrap/windows.ps1             profile-aware Windows WinGet/DSC entry point
-bootstrap/windows-font.ps1        pinned Windows Meslo font installer
 windows/capabilities/             composable Windows desired-state documents
 windows/profiles/                 generic capability selections
-windows/README.md                 Windows setup, debloat, and limitations
+windows/README.md                 Windows setup, preferences, and limitations
 modules/nixos/                    storage, network, and service modules
 modules/nixos/cloudflare-ddns.nix scoped IPv4-only Cloudflare DNS updater
 secrets/                          sops-nix workflow for future runtime secrets

@@ -4,8 +4,6 @@
 param(
     [switch]$Check,
 
-    [switch]$Prepare,
-
     [ValidatePattern('^[a-z0-9][a-z0-9-]*$')]
     [string]$Profile = 'workstation'
 )
@@ -14,22 +12,13 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $MinimumWinGetVersion = [version]'1.11.430'
-$MinimumDscVersion = [version]'3.2.3'
-$DscBundleUri = 'https://github.com/PowerShell/DSC/releases/download/v3.2.3/DSC-3.2.3-Win.msixbundle'
-$DscBundleSha256 = '86ceaa0cfba4ea225bd50f3187595a9fcb2e900c0601d0aeadd51023ea967a40'
 $RepositoryRoot = Split-Path -Parent $PSScriptRoot
 $SourceWindowsRoot = Join-Path $RepositoryRoot 'windows'
 $SourceCapabilitiesRoot = Join-Path $SourceWindowsRoot 'capabilities'
 $SourceProfilesRoot = Join-Path $SourceWindowsRoot 'profiles'
-$DscValidationScript = Join-Path $PSScriptRoot 'windows-dsc-validation.ps1'
 $StagingRoot = Join-Path $env:LOCALAPPDATA "caz.nix\windows\$Profile"
 $StagedCapabilitiesRoot = Join-Path $StagingRoot 'capabilities'
 $StagedScriptsRoot = Join-Path $StagedCapabilitiesRoot 'scripts'
-
-if (-not (Test-Path -LiteralPath $DscValidationScript -PathType Leaf)) {
-    throw "The Microsoft DSC validation helper is missing: $DscValidationScript"
-}
-. $DscValidationScript
 
 function Test-CurrentUserCanSelfElevate {
     $whoAmI = Join-Path $env:SystemRoot 'System32\whoami.exe'
@@ -61,26 +50,6 @@ function Get-WinGetCommand {
     return $null
 }
 
-function Invoke-WinGetInstall {
-    param(
-        [Parameter(Mandatory)][string]$WinGet,
-        [Parameter(Mandatory)][string]$Id
-    )
-
-    Write-Host "Installing prerequisite package $Id..."
-    & $WinGet install `
-        --id $Id `
-        --exact `
-        --source winget `
-        --silent `
-        --accept-package-agreements `
-        --accept-source-agreements `
-        --disable-interactivity
-    if ($LASTEXITCODE -ne 0) {
-        throw "WinGet failed to install $Id (exit $LASTEXITCODE)."
-    }
-}
-
 function Test-VCRedistInstalled {
     $paths = @(
         'HKLM:\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64',
@@ -95,63 +64,48 @@ function Test-VCRedistInstalled {
     return $false
 }
 
-function Test-StableDscInstalled {
-    $package = Get-AppxPackage -Name 'Microsoft.DesiredStateConfiguration' -ErrorAction SilentlyContinue |
-        Sort-Object Version -Descending |
-        Select-Object -First 1
-    if ($null -eq $package -or $package.Status -ne 'Ok') {
-        return $false
-    }
+function Install-VCRedist {
+    param([Parameter(Mandatory)][string]$WinGet)
 
-    return [version]$package.Version -ge $MinimumDscVersion
+    Write-Host 'Installing the Visual C++ runtime required by non-elevated WinGet Configuration...'
+    & $WinGet install `
+        --id Microsoft.VCRedist.2015+.x64 `
+        --exact `
+        --source winget `
+        --silent `
+        --accept-package-agreements `
+        --accept-source-agreements `
+        --disable-interactivity
+    if ($LASTEXITCODE -ne 0) {
+        throw "WinGet failed to install Microsoft.VCRedist.2015+.x64 (exit $LASTEXITCODE)."
+    }
 }
 
-function Get-StableDscCommand {
-    $package = Get-AppxPackage -Name 'Microsoft.DesiredStateConfiguration' -ErrorAction SilentlyContinue |
-        Sort-Object Version -Descending |
-        Select-Object -First 1
-    if ($null -eq $package -or $package.Status -ne 'Ok' -or [version]$package.Version -lt $MinimumDscVersion) {
-        throw "Healthy stable Microsoft DSC $MinimumDscVersion or later is required."
-    }
+function Test-DscV3ProcessorAvailable {
+    $candidates = @(
+        @{ Name = 'Microsoft.DesiredStateConfiguration'; MinimumVersion = [version]'3.1' },
+        @{ Name = 'Microsoft.DesiredStateConfiguration-Preview'; MinimumVersion = [version]'3.1.7' }
+    )
 
-    $candidate = Join-Path $package.InstallLocation 'dsc.exe'
-    if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) {
-        throw "Microsoft DSC is registered, but dsc.exe is missing from $($package.InstallLocation)."
-    }
-    return $candidate
-}
-
-function Install-StableDsc {
-    $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) "caz-nix-dsc-$PID"
-    $bundlePath = Join-Path $tempRoot "DSC-$MinimumDscVersion-Win.msixbundle"
-
-    New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
-    try {
-        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-        Write-Host "Downloading Microsoft DSC $MinimumDscVersion from its official release..."
-        Invoke-WebRequest -Uri $DscBundleUri -OutFile $bundlePath -UseBasicParsing
-
-        $actualHash = (Get-FileHash -LiteralPath $bundlePath -Algorithm SHA256).Hash.ToLowerInvariant()
-        if ($actualHash -ne $DscBundleSha256) {
-            throw "Microsoft DSC bundle checksum mismatch. Expected $DscBundleSha256, received $actualHash."
-        }
-
-        Add-AppxPackage -Path $bundlePath -ErrorAction Stop
-    }
-    finally {
-        if (Test-Path -LiteralPath $tempRoot) {
-            Remove-Item -LiteralPath $tempRoot -Recurse -Force
+    foreach ($candidate in $candidates) {
+        $package = Get-AppxPackage -Name $candidate.Name -ErrorAction SilentlyContinue |
+            Sort-Object Version -Descending |
+            Select-Object -First 1
+        if (
+            $null -ne $package -and
+            $package.Status -eq 'Ok' -and
+            [version]$package.Version -ge $candidate.MinimumVersion
+        ) {
+            return $true
         }
     }
 
-    if (-not (Test-StableDscInstalled)) {
-        throw "Microsoft DSC $MinimumDscVersion was installed, but its stable Appx registration is not healthy for the current user."
-    }
+    return $false
 }
 
 function Get-ProfileCapabilities {
     $profilePath = Join-Path $SourceProfilesRoot "$Profile.json"
-    if (-not (Test-Path -LiteralPath $profilePath)) {
+    if (-not (Test-Path -LiteralPath $profilePath -PathType Leaf)) {
         $available = @(
             Get-ChildItem -LiteralPath $SourceProfilesRoot -Filter '*.json' -File |
                 ForEach-Object BaseName |
@@ -162,9 +116,10 @@ function Get-ProfileCapabilities {
 
     $declaration = Get-Content -LiteralPath $profilePath -Raw | ConvertFrom-Json
     $capabilities = @($declaration.capabilities)
-    if ($capabilities.Count -eq 0) {
-        throw "Windows profile '$Profile' must select at least one capability."
+    if ($capabilities.Count -eq 0 -or $capabilities[0] -ne 'base') {
+        throw "Windows profile '$Profile' must select the base capability first."
     }
+
     foreach ($capability in $capabilities) {
         if ($capability -isnot [string] -or $capability -notmatch '^[a-z0-9][a-z0-9-]*$') {
             throw "Windows profile '$Profile' contains invalid capability name '$capability'."
@@ -184,8 +139,8 @@ function Get-ProfileCapabilities {
     if ($duplicates.Count -gt 0) {
         throw "Windows profile '$Profile' repeats capabilities: $($duplicates -join ', ')."
     }
-    if ($capabilities[0] -ne 'base') {
-        throw "Windows profile '$Profile' must select the base capability first."
+    if (($capabilities -contains 'preferences') -and $capabilities[-1] -ne 'preferences') {
+        throw "Windows profile '$Profile' must select optional preferences last."
     }
 
     return $capabilities
@@ -194,7 +149,6 @@ function Get-ProfileCapabilities {
 function Stage-Configuration {
     param([Parameter(Mandatory)][string[]]$Capabilities)
 
-    New-Item -ItemType Directory -Path $StagingRoot -Force | Out-Null
     New-Item -ItemType Directory -Path $StagedCapabilitiesRoot -Force | Out-Null
     New-Item -ItemType Directory -Path $StagedScriptsRoot -Force | Out-Null
 
@@ -203,51 +157,43 @@ function Stage-Configuration {
 
     foreach ($capability in $Capabilities) {
         $source = Join-Path $SourceCapabilitiesRoot "$capability.winget"
-        if (-not (Test-Path -LiteralPath $source)) {
-            throw "Capability '$capability' is missing its configuration file: $source"
-        }
         Copy-Item -LiteralPath $source -Destination (Join-Path $StagedCapabilitiesRoot "$capability.winget") -Force
     }
 
-    $dataFiles = @()
     if ($Capabilities -contains 'development') {
-        $dataFiles += 'vscode-extensions.json'
-    }
-    if ($Capabilities -contains 'debloat') {
-        $dataFiles += 'debloat-appx.json'
-    }
-    foreach ($file in $dataFiles) {
-        $source = Join-Path $SourceWindowsRoot $file
-        if (-not (Test-Path -LiteralPath $source)) {
-            throw "Required Windows capability data is missing: $source"
+        $extensions = Join-Path $SourceWindowsRoot 'vscode-extensions.json'
+        $helper = Join-Path $PSScriptRoot 'windows-vscode.ps1'
+        if (-not (Test-Path -LiteralPath $extensions -PathType Leaf)) {
+            throw "The Windows VS Code extension declaration is missing: $extensions"
         }
-        Copy-Item -LiteralPath $source -Destination (Join-Path $StagedCapabilitiesRoot $file) -Force
-    }
-
-    $scriptSources = @()
-    if ($Capabilities -contains 'base') {
-        $scriptSources += Join-Path $PSScriptRoot 'windows-font.ps1'
-    }
-    if ($Capabilities -contains 'development') {
-        $scriptSources += Join-Path $SourceWindowsRoot 'scripts\windows-wsl.ps1'
-        $scriptSources += Join-Path $PSScriptRoot 'windows-vscode.ps1'
-    }
-    if ($Capabilities -contains 'debloat') {
-        $scriptSources += Join-Path $SourceWindowsRoot 'scripts\windows-debloat.ps1'
-    }
-    foreach ($source in $scriptSources) {
-        if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
-            throw "Required Windows capability helper is missing: $source"
+        if (-not (Test-Path -LiteralPath $helper -PathType Leaf)) {
+            throw "The Windows VS Code helper is missing: $helper"
         }
-        Copy-Item -LiteralPath $source -Destination $StagedScriptsRoot -Force
+        Copy-Item -LiteralPath $extensions -Destination $StagedCapabilitiesRoot -Force
+        Copy-Item -LiteralPath $helper -Destination $StagedScriptsRoot -Force
     }
 }
 
-try {
-    if ($Check -and $Prepare) {
-        throw 'Choose either -Check or -Prepare, not both.'
+function Assert-WinGetConfigurationReadable {
+    param(
+        [Parameter(Mandatory)][string]$WinGet,
+        [Parameter(Mandatory)][string]$ConfigurationPath
+    )
+
+    foreach ($attempt in 1, 2) {
+        & $WinGet configure show --file $ConfigurationPath
+        if ($LASTEXITCODE -eq 0) {
+            return
+        }
+        if ($attempt -eq 1) {
+            Write-Warning "WinGet could not initialize '$ConfigurationPath'; retrying once."
+        }
     }
 
+    throw "WinGet could not parse and resolve '$ConfigurationPath' after two attempts."
+}
+
+try {
     $currentBuild = [int](Get-ItemPropertyValue `
         -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' `
         -Name CurrentBuild)
@@ -260,8 +206,8 @@ try {
 
     $capabilities = @(Get-ProfileCapabilities)
 
-    # WSL paths are UNC paths from Windows. Move to a native working directory
-    # before launching WinGet and stage all inputs locally.
+    # WSL paths are UNC paths from Windows. Stage inputs locally and launch
+    # WinGet from a native working directory.
     Set-Location -LiteralPath $env:SystemRoot
 
     $winGet = Get-WinGetCommand
@@ -274,49 +220,31 @@ try {
     if ($winGetVersion -lt $MinimumWinGetVersion) {
         throw "WinGet $MinimumWinGetVersion or later is required; detected $winGetVersion. Update App Installer first."
     }
-    if ($winGetVersion -ge [version]'1.29.0' -and $winGetVersion -lt [version]'1.29.280') {
-        throw "WinGet $winGetVersion contains a known DSC v3 elevation regression. Update to WinGet 1.29.280 or later."
-    }
 
     if ($Check) {
         $missingPrerequisites = @()
         if (-not (Test-VCRedistInstalled)) {
             $missingPrerequisites += 'Microsoft.VCRedist.2015+.x64'
         }
-        if (-not (Test-StableDscInstalled)) {
-            $missingPrerequisites += "Microsoft.DSC $MinimumDscVersion+ (stable)"
+        if (-not (Test-DscV3ProcessorAvailable)) {
+            $missingPrerequisites += 'the Microsoft DSC v3 processor'
         }
         if ($missingPrerequisites.Count -gt 0) {
-            Write-Host "Windows configuration prerequisites are missing: $($missingPrerequisites -join ', ')"
+            Write-Host "A read-only check cannot provision missing prerequisites: $($missingPrerequisites -join ', '). Run the profile once without -Check."
             exit 10
         }
     }
-    else {
-        if (-not (Test-VCRedistInstalled)) {
-            Invoke-WinGetInstall -WinGet $winGet -Id 'Microsoft.VCRedist.2015+.x64'
-        }
-        if (-not (Test-StableDscInstalled)) {
-            Install-StableDsc
-        }
+    elseif (-not (Test-VCRedistInstalled)) {
+        Install-VCRedist -WinGet $winGet
     }
 
     Stage-Configuration -Capabilities $capabilities
-    $dsc = Get-StableDscCommand
 
     foreach ($capability in $capabilities) {
         $configurationPath = Join-Path $StagedCapabilitiesRoot "$capability.winget"
         Assert-WinGetConfigurationReadable `
-            -WinGetCommand $winGet `
+            -WinGet $winGet `
             -ConfigurationPath $configurationPath
-        Assert-DscConfigurationValid `
-            -DscCommand $dsc `
-            -ConfigurationPath $configurationPath
-    }
-
-    if ($Prepare) {
-        Write-Host "Windows profile '$Profile' prerequisites are ready and every capability document is valid."
-        Write-Host 'No declared Windows state was applied.'
-        exit 0
     }
 
     $testFailures = @()
@@ -355,7 +283,9 @@ try {
 
     Write-Host ''
     Write-Host "Windows profile '$Profile' is complete."
-    Write-Host 'Sign out once (or restart Explorer) to make every Explorer and taskbar preference visible.'
+    if ($capabilities -contains 'preferences') {
+        Write-Host 'Sign out once (or restart Explorer) to make every Explorer and taskbar preference visible.'
+    }
     Write-Host 'Exact taskbar pin ordering remains a short manual step; see windows/README.md.'
 }
 catch {

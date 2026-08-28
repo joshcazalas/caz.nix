@@ -85,56 +85,26 @@ jobs:
         shell: powershell
         run: .\scripts\check-windows.ps1
 
-      - name: Prepare stable DSC
-        shell: powershell
-        run: |
-          $minimumDsc = [version]'3.2.3'
-          $bundleUri = 'https://github.com/PowerShell/DSC/releases/download/v3.2.3/DSC-3.2.3-Win.msixbundle'
-          $expectedHash = '86ceaa0cfba4ea225bd50f3187595a9fcb2e900c0601d0aeadd51023ea967a40'
-          $dsc = Get-AppxPackage -Name Microsoft.DesiredStateConfiguration -ErrorAction SilentlyContinue |
-            Sort-Object Version -Descending |
-            Select-Object -First 1
-          if ($null -eq $dsc -or $dsc.Status -ne 'Ok' -or [version]$dsc.Version -lt $minimumDsc) {
-            $bundle = Join-Path $env:RUNNER_TEMP 'DSC-3.2.3-Win.msixbundle'
-            Invoke-WebRequest -Uri $bundleUri -OutFile $bundle -UseBasicParsing
-            $actualHash = (Get-FileHash -LiteralPath $bundle -Algorithm SHA256).Hash.ToLowerInvariant()
-            if ($actualHash -ne $expectedHash) {
-              throw "Microsoft DSC bundle checksum mismatch: $actualHash"
-            }
-            Add-AppxPackage -Path $bundle -ErrorAction Stop
-
-            $dsc = Get-AppxPackage -Name Microsoft.DesiredStateConfiguration -ErrorAction Stop |
-              Sort-Object Version -Descending |
-              Select-Object -First 1
-            if ($dsc.Status -ne 'Ok' -or [version]$dsc.Version -lt $minimumDsc) {
-              throw "Microsoft DSC $minimumDsc was installed but is not healthy."
-            }
-          }
-
-      - name: Parse with WinGet and validate with DSC
+      - name: Parse and resolve with WinGet
         shell: powershell
         run: |
           $winGetCommand = (Get-Command winget.exe -CommandType Application -ErrorAction Stop).Source
-          $dscPackage = Get-AppxPackage -Name Microsoft.DesiredStateConfiguration -ErrorAction Stop |
-            Sort-Object Version -Descending |
-            Select-Object -First 1
-          $dscCommand = Join-Path $dscPackage.InstallLocation 'dsc.exe'
-          if (-not (Test-Path -LiteralPath $dscCommand -PathType Leaf)) {
-            throw "dsc.exe is missing from $($dscPackage.InstallLocation)."
-          }
-
-          . .\bootstrap\windows-dsc-validation.ps1
-
           Get-ChildItem .\windows\capabilities\*.winget | ForEach-Object {
             Write-Host "Parsing and resolving $($_.Name) with WinGet"
-            Assert-WinGetConfigurationReadable `
-              -WinGetCommand $winGetCommand `
-              -ConfigurationPath $_.FullName
-
-            Write-Host "Validating $($_.Name) with Microsoft DSC"
-            Assert-DscConfigurationValid `
-              -DscCommand $dscCommand `
-              -ConfigurationPath $_.FullName
+            $succeeded = $false
+            foreach ($attempt in 1, 2) {
+              & $winGetCommand configure show --file $_.FullName
+              if ($LASTEXITCODE -eq 0) {
+                $succeeded = $true
+                break
+              }
+              if ($attempt -eq 1) {
+                Write-Warning "WinGet initialization failed; retrying once."
+              }
+            }
+            if (-not $succeeded) {
+              throw "WinGet could not parse and resolve $($_.Name) after two attempts."
+            }
           }
 
   # `Validate` is the required status check on `main`. Keeping that exact name

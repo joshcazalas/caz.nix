@@ -123,11 +123,11 @@ membership was added, first run `wsl.exe --shutdown` from PowerShell.
 
 From Windows PowerShell, apply one of the generic profiles documented in
 [`../windows/README.md`](../windows/README.md). The default `workstation`
-profile installs Windows Terminal, VS Code, the MesloLGL font, browsers,
-communication apps, and game launchers, then applies supported Windows
-preferences. Destructive Appx removal is available only through an explicitly
-debloated profile. Home Manager intentionally has no Windows-side activation
-effects.
+profile installs common applications, VS Code, declared extensions, and game
+launchers. UI and privacy preferences are available through the explicit
+`workstation-preferences` profile. Windows font selection and WSL feature
+installation remain short one-time prerequisites. Home Manager intentionally
+has no Windows-side activation effects.
 
 Useful checks:
 

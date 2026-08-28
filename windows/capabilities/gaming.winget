@@ -12,47 +12,43 @@ resources:
     properties:
       id: Valve.Steam
       source: winget
-      useLatest: true
       installMode: silent
       acceptAgreements: true
     metadata:
       winget:
         securityContext: elevated
-      description: Install Steam
+      description: Ensure Steam is installed
 
   - type: Microsoft.WinGet/Package
     name: EAApp
     properties:
       id: ElectronicArts.EADesktop
       source: winget
-      useLatest: true
       installMode: silent
       acceptAgreements: true
     metadata:
       winget:
         securityContext: elevated
-      description: Install the EA app
+      description: Ensure the EA app is installed
 
   - type: Microsoft.WinGet/Package
     name: UbisoftConnect
     properties:
       id: Ubisoft.Connect
       source: winget
-      useLatest: true
       installMode: silent
       acceptAgreements: true
     metadata:
       winget:
         securityContext: elevated
-      description: Install Ubisoft Connect
+      description: Ensure Ubisoft Connect is installed
 
   - type: Microsoft.WinGet/Package
     name: PrismLauncher
     properties:
       id: PrismLauncher.PrismLauncher
       source: winget
-      useLatest: true
       installMode: silent
       acceptAgreements: true
     metadata:
-      description: Install Prism Launcher
+      description: Ensure Prism Launcher is installed

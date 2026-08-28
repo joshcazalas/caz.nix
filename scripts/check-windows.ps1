@@ -10,10 +10,10 @@ $RepositoryRoot = Split-Path -Parent $PSScriptRoot
 $WindowsRoot = Join-Path $RepositoryRoot 'windows'
 $CapabilitiesRoot = Join-Path $WindowsRoot 'capabilities'
 $ProfilesRoot = Join-Path $WindowsRoot 'profiles'
+$ExpectedSchema = '$schema: https://raw.githubusercontent.com/PowerShell/DSC/main/schemas/2023/08/config/document.json'
 
 $powerShellFiles = @(
     Get-ChildItem -LiteralPath (Join-Path $RepositoryRoot 'bootstrap') -Filter '*.ps1' -File
-    Get-ChildItem -LiteralPath (Join-Path $WindowsRoot 'scripts') -Filter '*.ps1' -File
 )
 foreach ($file in $powerShellFiles) {
     $tokens = $null
@@ -29,61 +29,6 @@ foreach ($file in $powerShellFiles) {
     }
 }
 
-. (Join-Path $RepositoryRoot 'bootstrap\windows-dsc-validation.ps1')
-
-$winGetDocument = @"
-`$schema: https://raw.githubusercontent.com/PowerShell/DSC/main/schemas/2023/08/config/document.json
-resources: []
-"@
-$dscValidationDocument = ConvertTo-DscValidationDocument `
-    -Content $winGetDocument `
-    -ConfigurationPath 'intentional-schema-normalization-test.winget'
-if ($dscValidationDocument -notmatch [regex]::Escape('https://aka.ms/dsc/schemas/v3/bundled/config/document.json')) {
-    throw 'The DSC validation copy did not receive the bundled DSC schema URI.'
-}
-if ($dscValidationDocument -match [regex]::Escape('raw.githubusercontent.com/PowerShell/DSC/main/schemas/2023/08')) {
-    throw 'The DSC validation copy retained WinGet''s operational schema URI.'
-}
-
-$nonWinGetSchemaRejected = $false
-try {
-    $null = ConvertTo-DscValidationDocument `
-        -Content $dscValidationDocument `
-        -ConfigurationPath 'intentional-winget-incompatible-schema-test.winget'
-}
-catch {
-    $nonWinGetSchemaRejected = $true
-}
-if (-not $nonWinGetSchemaRejected) {
-    throw 'The schema normalizer accepted a document WinGet cannot dispatch as DSC v3.'
-}
-
-Assert-DscValidationResult `
-    -Output '{"valid":true,"reason":null}' `
-    -ExitCode 0 `
-    -ConfigurationPath 'intentional-valid-test.winget'
-
-$falseResultRejected = $false
-try {
-    Assert-DscValidationResult `
-        -Output '{"valid":false,"reason":"intentional regression test"}' `
-        -ExitCode 0 `
-        -ConfigurationPath 'intentional-invalid-test.winget'
-}
-catch {
-    $falseResultRejected = $true
-}
-if (-not $falseResultRejected) {
-    throw 'The DSC validation wrapper accepted valid=false.'
-}
-
-& (Join-Path $RepositoryRoot 'bootstrap\windows-font.ps1') -SelfTest
-
-$fontHelper = Get-Content -LiteralPath (Join-Path $RepositoryRoot 'bootstrap\windows-font.ps1') -Raw
-if ($fontHelper -match '\bGet-ItemPropertyValue\b') {
-    throw 'The font helper must inspect optional registry values without Get-ItemPropertyValue, which emits errors for missing properties.'
-}
-
 $jsonFiles = @(Get-ChildItem -LiteralPath $WindowsRoot -Filter '*.json' -File -Recurse)
 foreach ($file in $jsonFiles) {
     $null = Get-Content -LiteralPath $file.FullName -Raw | ConvertFrom-Json
@@ -91,32 +36,63 @@ foreach ($file in $jsonFiles) {
 
 $capabilityFiles = @(Get-ChildItem -LiteralPath $CapabilitiesRoot -Filter '*.winget' -File)
 $capabilityNames = @($capabilityFiles | ForEach-Object BaseName)
-if ($capabilityNames.Count -eq 0 -or $capabilityNames -notcontains 'base') {
-    throw 'Windows capabilities must contain base.winget.'
+$requiredCapabilities = @('base', 'development', 'gaming', 'preferences')
+foreach ($required in $requiredCapabilities) {
+    if ($capabilityNames -notcontains $required) {
+        throw "Windows capabilities are missing '$required.winget'."
+    }
 }
-foreach ($file in $capabilityFiles) {
-    $null = ConvertTo-DscValidationDocument `
-        -Content (Get-Content -LiteralPath $file.FullName -Raw) `
-        -ConfigurationPath $file.FullName
+if ($capabilityNames.Count -ne $requiredCapabilities.Count) {
+    throw "Unexpected Windows capabilities are present: $($capabilityNames -join ', ')."
 }
 
-$baseCapabilityPath = Join-Path $CapabilitiesRoot 'base.winget'
-$baseCapability = Get-Content -LiteralPath $baseCapabilityPath -Raw
-$spotifyResource = [regex]::Match(
-    $baseCapability,
-    '(?ms)^\s{2}- type: Microsoft\.WinGet/Package\s+name: Spotify\s+.*?(?=^\s{2}- type:|\z)'
-)
-if (-not $spotifyResource.Success) {
-    throw 'The base capability must declare Spotify.'
+foreach ($file in $capabilityFiles) {
+    $content = Get-Content -LiteralPath $file.FullName -Raw
+    $schemaLines = @($content -split "`r?`n" | Where-Object { $_ -match '^\$schema:' })
+    if ($schemaLines.Count -ne 1 -or $schemaLines[0] -ne $ExpectedSchema) {
+        throw "Windows capability '$($file.Name)' must contain exactly '$ExpectedSchema'."
+    }
+    if ($content -notmatch '(?m)^resources:\s*$') {
+        throw "Windows capability '$($file.Name)' does not declare resources."
+    }
+    if ($content -match '(?m)^\s+useLatest:') {
+        throw "Windows capability '$($file.Name)' must declare package presence without useLatest."
+    }
+
+    $resourceNames = @(
+        [regex]::Matches($content, '(?m)^\s{4}name:\s*(\S+)\s*$') |
+            ForEach-Object { $_.Groups[1].Value }
+    )
+    $duplicateNames = @(
+        $resourceNames |
+            Group-Object |
+            Where-Object Count -GT 1 |
+            Select-Object -ExpandProperty Name
+    )
+    if ($duplicateNames.Count -gt 0) {
+        throw "Windows capability '$($file.Name)' repeats resource names: $($duplicateNames -join ', ')."
+    }
 }
-if ($spotifyResource.Value -match '(?m)^\s+useLatest:') {
-    throw 'Spotify must not useLatest because its evergreen installer URL can temporarily disagree with the community manifest hash.'
+
+$base = Get-Content -LiteralPath (Join-Path $CapabilitiesRoot 'base.winget') -Raw
+if ($base -match 'Microsoft\.Windows/Registry|Microsoft\.DSC\.Transitional') {
+    throw 'The base capability must remain package-only.'
 }
-if ($baseCapability -match '(?m)^\s+name: DisableRecallForUser\s*$') {
-    throw 'The base capability must not duplicate the device-wide Recall policy in the access-controlled per-user Policies subtree.'
+
+$preferences = Get-Content -LiteralPath (Join-Path $CapabilitiesRoot 'preferences.winget') -Raw
+if ($preferences -match 'ClassicContextMenu|86ca1aa0-34aa-4e8b-a509-50c905bae2a2') {
+    throw 'The preferences capability must not restore the undocumented classic context-menu hack.'
 }
-if ($baseCapability -notmatch '(?m)^\s+name: DisableRecallForMachine\s*$') {
-    throw 'The base capability must retain the device-wide Recall policy.'
+if ($preferences -notmatch '(?m)^\s+name: DisableRecallForMachine\s*$') {
+    throw 'The optional preferences capability must retain the device-wide Recall policy.'
+}
+
+$development = Get-Content -LiteralPath (Join-Path $CapabilitiesRoot 'development.winget') -Raw
+if ($development -match 'WindowsWSL|Microsoft\.WSL|windows-wsl\.ps1') {
+    throw 'WSL installation is a documented prerequisite and must not return to Windows desired state.'
+}
+if ($development -notmatch '(?m)^\s+name: WindowsVSCode\s*$') {
+    throw 'The development capability must retain Windows VS Code integration.'
 }
 
 $profiles = @(Get-ChildItem -LiteralPath $ProfilesRoot -Filter '*.json' -File)
@@ -148,11 +124,8 @@ foreach ($file in $profiles) {
             throw "Windows profile '$($file.BaseName)' selects missing capability '$capability'."
         }
     }
-
-    $selectsDebloat = $selected -contains 'debloat'
-    $advertisesDebloat = $file.BaseName.EndsWith('-debloated')
-    if ($selectsDebloat -ne $advertisesDebloat) {
-        throw "Windows profile '$($file.BaseName)' must advertise destructive debloat selection with a -debloated suffix."
+    if (($selected -contains 'preferences') -and $selected[-1] -ne 'preferences') {
+        throw "Windows profile '$($file.BaseName)' must select optional preferences last."
     }
 }
 
