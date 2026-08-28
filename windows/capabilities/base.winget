@@ -61,11 +61,10 @@ resources:
     properties:
       id: Spotify.Spotify
       source: winget
-      useLatest: true
       installMode: silent
       acceptAgreements: true
     metadata:
-      description: Install Spotify
+      description: Install Spotify and allow its built-in updater to manage versions
 
   - type: Microsoft.Windows/Registry
     name: TaskbarAlignLeft
@@ -211,17 +210,6 @@ resources:
       description: Disable the per-user advertising identifier
 
   - type: Microsoft.Windows/Registry
-    name: DisableRecallForUser
-    properties:
-      keyPath: HKCU\Software\Policies\Microsoft\Windows\WindowsAI
-      valueName: DisableAIDataAnalysis
-      valueData:
-        DWord: 1
-      _exist: true
-    metadata:
-      description: Disable saving Recall snapshots for the current user
-
-  - type: Microsoft.Windows/Registry
     name: DisableRecallForMachine
     properties:
       keyPath: HKLM\Software\Policies\Microsoft\Windows\WindowsAI
@@ -232,7 +220,7 @@ resources:
     metadata:
       winget:
         securityContext: elevated
-      description: Disable saving Recall snapshots for the machine
+      description: Disable saving Recall snapshots for the device
 
   - type: Microsoft.DSC.Transitional/WindowsPowerShellScript
     name: WindowsTerminalFont

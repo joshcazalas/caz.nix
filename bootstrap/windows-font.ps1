@@ -178,6 +178,46 @@ function Test-MesloInstalled {
     return $true
 }
 
+function Install-VerifiedFontFile {
+    param(
+        [Parameter(Mandatory)][string]$SourcePath,
+        [Parameter(Mandatory)][string]$DestinationPath,
+        [Parameter(Mandatory)][string]$ExpectedSha256
+    )
+
+    if (-not (Test-Path -LiteralPath $SourcePath -PathType Leaf)) {
+        throw "The verified archive did not contain $(Split-Path -Leaf $SourcePath)."
+    }
+
+    $sourceHash = (Get-FileHash -LiteralPath $SourcePath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($sourceHash -ne $ExpectedSha256) {
+        throw "Verified font source $(Split-Path -Leaf $SourcePath) has SHA-256 $sourceHash; expected $ExpectedSha256."
+    }
+
+    if (Test-Path -LiteralPath $DestinationPath -PathType Leaf) {
+        $destinationHash = (Get-FileHash -LiteralPath $DestinationPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($destinationHash -eq $ExpectedSha256) {
+            Write-Host "$(Split-Path -Leaf $DestinationPath) already has the declared content; skipping replacement."
+            return $false
+        }
+    }
+
+    try {
+        Copy-Item -LiteralPath $SourcePath -Destination $DestinationPath -Force
+    }
+    catch {
+        $existingHash = if (Test-Path -LiteralPath $DestinationPath -PathType Leaf) {
+            (Get-FileHash -LiteralPath $DestinationPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        }
+        else {
+            'missing'
+        }
+        throw "Could not replace $(Split-Path -Leaf $DestinationPath). Existing SHA-256: $existingHash; desired SHA-256: $ExpectedSha256. Close applications using the font, sign out and back in if necessary, then retry. The existing file was not bypassed or accepted. $($_.Exception.Message)"
+    }
+
+    return $true
+}
+
 function Get-WindowsTerminalSettingsPaths {
     $stablePath = Join-Path $env:LOCALAPPDATA 'Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState\settings.json'
     $previewPath = Join-Path $env:LOCALAPPDATA 'Packages\Microsoft.WindowsTerminalPreview_8wekyb3d8bbwe\LocalState\settings.json'
@@ -284,13 +324,19 @@ namespace CazNix.FontInstaller {
         foreach ($font in $FontFiles) {
             $sourcePath = Join-Path $extractPath $font.File
             $destinationPath = Join-Path $fontDirectory $font.File
-            if (-not (Test-Path -LiteralPath $sourcePath)) {
-                throw "The verified archive did not contain $($font.File)."
+            $fontCopied = Install-VerifiedFontFile `
+                -SourcePath $sourcePath `
+                -DestinationPath $destinationPath `
+                -ExpectedSha256 $font.Sha256
+            $registeredPath = Get-ItemPropertyValue `
+                -LiteralPath $fontRegistry `
+                -Name $font.RegistryName `
+                -ErrorAction SilentlyContinue
+            $registrationChanged = [string]::IsNullOrWhiteSpace($registeredPath) -or $registeredPath -ne $destinationPath
+            if ($registrationChanged) {
+                New-ItemProperty -Path $fontRegistry -Name $font.RegistryName -Value $destinationPath -PropertyType String -Force | Out-Null
             }
-
-            Copy-Item -LiteralPath $sourcePath -Destination $destinationPath -Force
-            New-ItemProperty -Path $fontRegistry -Name $font.RegistryName -Value $destinationPath -PropertyType String -Force | Out-Null
-            if ([CazNix.FontInstaller.NativeMethods]::AddFontResource($destinationPath) -eq 0) {
+            if (($fontCopied -or $registrationChanged) -and [CazNix.FontInstaller.NativeMethods]::AddFontResource($destinationPath) -eq 0) {
                 Write-Warning "Windows copied $($font.File), but did not load it into the current session. A sign-out may be required."
             }
         }
@@ -422,6 +468,62 @@ if ($SelfTest) {
     }
     if ($parsed.profiles.defaults.font.face -ne $FontFamily) {
         throw 'Terminal JSONC self-test did not preserve the nested font value.'
+    }
+    $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) "caz-nix-font-self-test-$PID"
+    $sourcePath = Join-Path $tempRoot 'source.ttf'
+    $destinationPath = Join-Path $tempRoot 'destination.ttf'
+    New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
+    try {
+        [System.IO.File]::WriteAllText($sourcePath, 'content-identical font regression test')
+        Copy-Item -LiteralPath $sourcePath -Destination $destinationPath
+        $expectedHash = (Get-FileHash -LiteralPath $sourcePath -Algorithm SHA256).Hash.ToLowerInvariant()
+        $lock = [System.IO.File]::Open(
+            $destinationPath,
+            [System.IO.FileMode]::Open,
+            [System.IO.FileAccess]::Read,
+            [System.IO.FileShare]::Read
+        )
+        try {
+            $copied = Install-VerifiedFontFile `
+                -SourcePath $sourcePath `
+                -DestinationPath $destinationPath `
+                -ExpectedSha256 $expectedHash
+            if ($copied) {
+                throw 'The font helper replaced a content-identical destination.'
+            }
+        }
+        finally {
+            $lock.Dispose()
+        }
+
+        [System.IO.File]::WriteAllText($destinationPath, 'stale font content')
+        $lock = [System.IO.File]::Open(
+            $destinationPath,
+            [System.IO.FileMode]::Open,
+            [System.IO.FileAccess]::Read,
+            [System.IO.FileShare]::Read
+        )
+        $lockedMismatchRejected = $false
+        try {
+            $null = Install-VerifiedFontFile `
+                -SourcePath $sourcePath `
+                -DestinationPath $destinationPath `
+                -ExpectedSha256 $expectedHash
+        }
+        catch {
+            $lockedMismatchRejected = $_.Exception.Message -match 'Could not replace'
+        }
+        finally {
+            $lock.Dispose()
+        }
+        if (-not $lockedMismatchRejected) {
+            throw 'The font helper did not clearly reject an in-use destination with different content.'
+        }
+    }
+    finally {
+        if (Test-Path -LiteralPath $tempRoot) {
+            Remove-Item -LiteralPath $tempRoot -Recurse -Force
+        }
     }
     Write-Host 'Windows Terminal JSONC parser self-test passed.'
     return

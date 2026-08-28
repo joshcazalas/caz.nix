@@ -43,6 +43,13 @@ to the current WinGet package rather than reproducing an old binary. Bootstrap
 infrastructure has explicit minimum or rejected versions, and the font archive
 and installed font files are checksum-pinned.
 
+Spotify is intentionally declared as present without `useLatest`. Its WinGet
+manifest uses an evergreen vendor URL whose bytes can change before the
+community manifest receives the new hash. WinGet correctly refuses that stale
+download. Once installed, Spotify's own signed updater manages its version;
+the declaration still installs it when absent without weakening WinGet's hash
+verification.
+
 Chrome uses the stable consumer EXE package identity (`Google.Chrome.EXE`)
 rather than the separately cataloged enterprise MSI identity. This lets WinGet
 correlate an existing ordinary Chrome installation instead of treating it as a
@@ -135,9 +142,10 @@ supported managed editions. The optional debloat capability removes the
 current consumer Copilot Appx package, but the base profile does not claim a
 cross-edition Copilot enforcement guarantee.
 
-Recall snapshot saving is disabled through the current user and machine
-`DisableAIDataAnalysis` policy values. Changes to Recall policy require a
-restart before the feature reflects them.
+Recall snapshot saving is disabled through the device-scoped
+`DisableAIDataAnalysis` policy value. The device scope covers every user and
+avoids a redundant write to the access-controlled per-user Policies subtree.
+Changes to Recall policy require a restart before the feature reflects them.
 
 Some Explorer and taskbar preferences require one sign-out or Explorer restart
 before their UI reflects the registry state.
@@ -151,7 +159,10 @@ strict JSON and comments are not preserved; the backup retains the original.
 
 The MesloLGL archive is pinned to Nerd Fonts 3.4.0. Desired-state checks verify
 all four installed font files, their SHA-256 hashes, and their HKCU registration
-rather than accepting any font with the same family name.
+rather than accepting any font with the same family name. If a destination
+already has the declared hash, the helper preserves the file even when its
+registration needs repair; this also avoids trying to overwrite a font that a
+running application has memory-mapped.
 
 ## Exact taskbar pins
 

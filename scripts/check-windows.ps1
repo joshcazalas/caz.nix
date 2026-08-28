@@ -95,6 +95,25 @@ foreach ($file in $capabilityFiles) {
         -ConfigurationPath $file.FullName
 }
 
+$baseCapabilityPath = Join-Path $CapabilitiesRoot 'base.winget'
+$baseCapability = Get-Content -LiteralPath $baseCapabilityPath -Raw
+$spotifyResource = [regex]::Match(
+    $baseCapability,
+    '(?ms)^\s{2}- type: Microsoft\.WinGet/Package\s+name: Spotify\s+.*?(?=^\s{2}- type:|\z)'
+)
+if (-not $spotifyResource.Success) {
+    throw 'The base capability must declare Spotify.'
+}
+if ($spotifyResource.Value -match '(?m)^\s+useLatest:') {
+    throw 'Spotify must not useLatest because its evergreen installer URL can temporarily disagree with the community manifest hash.'
+}
+if ($baseCapability -match '(?m)^\s+name: DisableRecallForUser\s*$') {
+    throw 'The base capability must not duplicate the device-wide Recall policy in the access-controlled per-user Policies subtree.'
+}
+if ($baseCapability -notmatch '(?m)^\s+name: DisableRecallForMachine\s*$') {
+    throw 'The base capability must retain the device-wide Recall policy.'
+}
+
 $profiles = @(Get-ChildItem -LiteralPath $ProfilesRoot -Filter '*.json' -File)
 if ($profiles.Count -eq 0) {
     throw 'At least one Windows profile must be declared.'
