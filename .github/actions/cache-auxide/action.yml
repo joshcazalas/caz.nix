@@ -4,26 +4,31 @@ description: Restore, realise, and retain the Auxide package pinned by flake.loc
 runs:
   using: composite
   steps:
-    - name: Identify the pinned Auxide build
+    - name: Identify the exact Auxide derivation
       id: cache-key
       shell: bash
       run: |
-        auxide_revision="$(
-          jq -er '.nodes.auxide.locked.rev | select(test("^[0-9a-f]{40}$"))' flake.lock
+        auxide_derivation="$(
+          nix eval --raw \
+            .#nixosConfigurations.homeserver.config.services.auxide.package.drvPath
+        )"
+        auxide_derivation_hash="$(
+          printf '%s' "${auxide_derivation}" | sha256sum | awk '{print $1}'
         )"
         nix_version="$(nix --version | awk '{print $NF}')"
-        echo "auxide-revision=${auxide_revision}" >> "${GITHUB_OUTPUT}"
+        echo "Auxide derivation: ${auxide_derivation}"
+        echo "auxide-derivation-hash=${auxide_derivation_hash}" >> "${GITHUB_OUTPUT}"
         echo "nix-version=${nix_version}" >> "${GITHUB_OUTPUT}"
 
-    # The lock already fixes Auxide to an immutable commit. Keep its realised
-    # Nix output in GitHub's repository-local cache so ordinary caz.nix
-    # changes do not recompile the same Rust program. PR caches cannot feed
-    # main, so PRs only read; a main workflow seeds each new Auxide revision.
+    # Key on the resulting derivation rather than only Auxide's source commit:
+    # a transitive input or package override can change the build without
+    # changing that commit. PR caches cannot feed main, so PRs only read; a
+    # main workflow seeds each new Auxide derivation.
     - name: Restore the pinned Auxide build
       uses: nix-community/cache-nix-action@7df957e333c1e5da7721f60227dbba6d06080569 # v7.0.2
       with:
         primary-key: >-
-          nix-auxide-v1-${{ runner.os }}-${{ steps.cache-key.outputs.nix-version }}-${{ steps.cache-key.outputs.auxide-revision }}
+          nix-auxide-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.cache-key.outputs.nix-version }}-${{ steps.cache-key.outputs.auxide-derivation-hash }}
         save: ${{ github.event_name != 'pull_request' }}
         # Auxide's runtime closure is currently about 812 MiB. Retaining it
         # while capping the complete saved store at 2 GiB leaves ample room
