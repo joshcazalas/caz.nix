@@ -41,7 +41,9 @@ in a dedicated weekly PR. The expensive build and release jobs use GitHub's
 repository-local Actions cache to retain the Nix output for the exact Auxide
 commit recorded in `flake.lock`. The cache key includes both that commit and
 the installed Nix version, so ordinary configuration changes reuse Auxide
-without weakening the lock file's immutable build identity.
+without weakening the lock file's immutable build identity. A local composite
+action owns this policy so CI and release restore the same cache on their
+respective build runners without duplicating its implementation.
 
 Pull requests may restore the default branch's cache but do not write caches:
 their isolated entries cannot be promoted to `main` and would only consume the

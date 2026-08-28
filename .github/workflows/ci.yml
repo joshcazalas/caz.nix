@@ -62,37 +62,10 @@ jobs:
           extra_nix_config: |
             build-dir = /nix/build
 
-      - name: Identify the pinned Auxide build
-        id: auxide-cache
-        run: |
-          auxide_revision="$(
-            jq -er '.nodes.auxide.locked.rev | select(test("^[0-9a-f]{40}$"))' flake.lock
-          )"
-          nix_version="$(nix --version | awk '{print $NF}')"
-          echo "auxide-revision=${auxide_revision}" >> "${GITHUB_OUTPUT}"
-          echo "nix-version=${nix_version}" >> "${GITHUB_OUTPUT}"
-
-      # The lock already fixes Auxide to an immutable commit. Keep its realised
-      # Nix output in GitHub's repository-local cache so ordinary caz.nix
-      # changes do not recompile the same Rust program. PR caches cannot feed
-      # main, so PRs only read; a main workflow seeds each new Auxide revision.
-      - name: Restore the pinned Auxide build
-        uses: nix-community/cache-nix-action@7df957e333c1e5da7721f60227dbba6d06080569 # v7.0.2
-        with:
-          primary-key: >-
-            nix-auxide-v1-${{ runner.os }}-${{ steps.auxide-cache.outputs.nix-version }}-${{ steps.auxide-cache.outputs.auxide-revision }}
-          save: ${{ github.event_name != 'pull_request' }}
-          # Auxide's runtime closure is currently about 812 MiB. Retaining it
-          # while capping the complete saved store at 2 GiB leaves ample room
-          # for the Nix installation and several cache generations.
-          gc-max-store-size-linux: 2G
-
-      - name: Realise and retain the pinned Auxide package
-        run: |
-          mkdir -p "${RUNNER_TEMP}/nix-cache-roots"
-          nix build \
-            --out-link "${RUNNER_TEMP}/nix-cache-roots/auxide" \
-            .#nixosConfigurations.homeserver.config.services.auxide.package
+      # A composite action keeps the cache restore and this build on the same
+      # runner while sharing the policy with the release workflow.
+      - name: Cache the pinned Auxide build
+        uses: ./.github/actions/cache-auxide
 
       - name: Evaluate and build every declared output
         run: nix flake check --print-build-logs
