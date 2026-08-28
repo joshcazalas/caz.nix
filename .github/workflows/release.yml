@@ -43,6 +43,30 @@ jobs:
           extra_nix_config: |
             build-dir = /nix/build
 
+      - name: Identify the pinned Auxide build
+        id: auxide-cache
+        run: |
+          auxide_revision="$(
+            jq -er '.nodes.auxide.locked.rev | select(test("^[0-9a-f]{40}$"))' flake.lock
+          )"
+          nix_version="$(nix --version | awk '{print $NF}')"
+          echo "auxide-revision=${auxide_revision}" >> "${GITHUB_OUTPUT}"
+          echo "nix-version=${nix_version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Restore the pinned Auxide build
+        uses: nix-community/cache-nix-action@7df957e333c1e5da7721f60227dbba6d06080569 # v7.0.2
+        with:
+          primary-key: >-
+            nix-auxide-v1-${{ runner.os }}-${{ steps.auxide-cache.outputs.nix-version }}-${{ steps.auxide-cache.outputs.auxide-revision }}
+          gc-max-store-size-linux: 2G
+
+      - name: Realise and retain the pinned Auxide package
+        run: |
+          mkdir -p "${RUNNER_TEMP}/nix-cache-roots"
+          nix build \
+            --out-link "${RUNNER_TEMP}/nix-cache-roots/auxide" \
+            .#nixosConfigurations.homeserver.config.services.auxide.package
+
       # Linting and the full-history secret scan are deliberately not repeated
       # here. `main` requires the `Validate` check with strict mode enabled, so
       # a branch must be current with `main` before it can merge, and CI runs
