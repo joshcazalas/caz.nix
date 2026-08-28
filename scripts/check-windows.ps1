@@ -79,6 +79,11 @@ if (-not $falseResultRejected) {
 
 & (Join-Path $RepositoryRoot 'bootstrap\windows-font.ps1') -SelfTest
 
+$fontHelper = Get-Content -LiteralPath (Join-Path $RepositoryRoot 'bootstrap\windows-font.ps1') -Raw
+if ($fontHelper -match '\bGet-ItemPropertyValue\b') {
+    throw 'The font helper must inspect optional registry values without Get-ItemPropertyValue, which emits errors for missing properties.'
+}
+
 $jsonFiles = @(Get-ChildItem -LiteralPath $WindowsRoot -Filter '*.json' -File -Recurse)
 foreach ($file in $jsonFiles) {
     $null = Get-Content -LiteralPath $file.FullName -Raw | ConvertFrom-Json

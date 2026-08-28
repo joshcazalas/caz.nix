@@ -67,6 +67,25 @@ function Set-ObjectProperty {
     }
 }
 
+function Get-FontRegistryValue {
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$Name
+    )
+
+    $key = Get-ItemProperty -LiteralPath $Path -ErrorAction SilentlyContinue
+    if ($null -eq $key) {
+        return $null
+    }
+
+    $property = $key.PSObject.Properties[$Name]
+    if ($null -eq $property) {
+        return $null
+    }
+
+    return $property.Value
+}
+
 function ConvertFrom-TerminalSettingsJson {
     param([Parameter(Mandatory)][string]$Json)
 
@@ -166,10 +185,9 @@ function Test-MesloInstalled {
             return $false
         }
 
-        $registeredPath = Get-ItemPropertyValue `
-            -LiteralPath $fontRegistry `
-            -Name $font.RegistryName `
-            -ErrorAction SilentlyContinue
+        $registeredPath = Get-FontRegistryValue `
+            -Path $fontRegistry `
+            -Name $font.RegistryName
         if ([string]::IsNullOrWhiteSpace($registeredPath) -or $registeredPath -ne $path) {
             return $false
         }
@@ -328,10 +346,9 @@ namespace CazNix.FontInstaller {
                 -SourcePath $sourcePath `
                 -DestinationPath $destinationPath `
                 -ExpectedSha256 $font.Sha256
-            $registeredPath = Get-ItemPropertyValue `
-                -LiteralPath $fontRegistry `
-                -Name $font.RegistryName `
-                -ErrorAction SilentlyContinue
+            $registeredPath = Get-FontRegistryValue `
+                -Path $fontRegistry `
+                -Name $font.RegistryName
             $registrationChanged = [string]::IsNullOrWhiteSpace($registeredPath) -or $registeredPath -ne $destinationPath
             if ($registrationChanged) {
                 New-ItemProperty -Path $fontRegistry -Name $font.RegistryName -Value $destinationPath -PropertyType String -Force | Out-Null
