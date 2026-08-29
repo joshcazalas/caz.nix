@@ -177,8 +177,9 @@ checks, and live-generation rollback. See
 and [`docs/publication-checklist.md`](docs/publication-checklist.md)
 before changing repository visibility.
 
-Omit `--no-build` when you intentionally want to build both the full NixOS
-system closure and Home Manager generation, not merely evaluate them.
+Omit `--no-build` when you intentionally want to build every declared check,
+including the full NixOS system closure, Home Manager generation, and any NixOS
+integration tests, rather than merely evaluate them.
 
 ## License
 
