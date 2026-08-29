@@ -22,6 +22,7 @@ in
     ../../modules/nixos/storage.nix
     ../../modules/nixos/networking.nix
     ../../modules/nixos/network-policy.nix
+    ../../modules/nixos/game-stream-gateway.nix
     ../../modules/nixos/security.nix
     ../../modules/nixos/cloudflare-ddns.nix
     ../../modules/nixos/filesharing.nix

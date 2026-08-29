@@ -1,0 +1,69 @@
+# Security-critical applications and state for the generic game-stream host.
+
+$schema: https://raw.githubusercontent.com/PowerShell/DSC/main/schemas/2023/08/config/document.json
+metadata:
+  winget:
+    processor:
+      identifier: dscv3
+
+resources:
+  - type: Microsoft.WinGet/Package
+    name: Sunshine
+    properties:
+      id: LizardByte.Sunshine
+      source: winget
+      installMode: silent
+      acceptAgreements: true
+    metadata:
+      winget:
+        securityContext: elevated
+      description: Ensure the stable Sunshine host package is installed
+
+  - type: Microsoft.WinGet/Package
+    name: WireGuard
+    properties:
+      id: WireGuard.WireGuard
+      source: winget
+      installMode: silent
+      acceptAgreements: true
+    metadata:
+      winget:
+        securityContext: elevated
+      description: Ensure the official WireGuard Windows package is installed
+
+  - type: Microsoft.Windows/Registry
+    name: DisableLockScreenAppNotifications
+    properties:
+      keyPath: HKLM\Software\Policies\Microsoft\Windows\System
+      valueName: DisableLockScreenAppNotifications
+      valueData:
+        DWord: 1
+      _exist: true
+    metadata:
+      winget:
+        securityContext: elevated
+      description: Prevent a remotely visible lock screen from exposing app notifications
+
+  - type: Microsoft.DSC.Transitional/WindowsPowerShellScript
+    name: GameStreamHostPolicy
+    dependsOn:
+      - Sunshine
+      - WireGuard
+      - DisableLockScreenAppNotifications
+    properties:
+      getScript: |
+        $script = "${WinGetConfigRoot}\scripts\windows-game-stream.ps1"
+        $output = @(& powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $script -Role Host -Check 2>&1)
+        return @{ exitCode = $LASTEXITCODE; summary = ($output -join "`n") }
+      testScript: |
+        $script = "${WinGetConfigRoot}\scripts\windows-game-stream.ps1"
+        $null = & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $script -Role Host -Check
+        return ($LASTEXITCODE -eq 0)
+      setScript: |
+        $script = "${WinGetConfigRoot}\scripts\windows-game-stream.ps1"
+        & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $script -Role Host
+        if ($LASTEXITCODE -ne 0) { throw "Game-stream host helper failed with exit code $LASTEXITCODE." }
+    metadata:
+      winget:
+        securityContext: elevated
+      description: Apply the narrow tunnel, Sunshine, firewall, and enable-state policy

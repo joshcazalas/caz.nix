@@ -36,7 +36,14 @@ foreach ($file in $jsonFiles) {
 
 $capabilityFiles = @(Get-ChildItem -LiteralPath $CapabilitiesRoot -Filter '*.winget' -File)
 $capabilityNames = @($capabilityFiles | ForEach-Object BaseName)
-$requiredCapabilities = @('base', 'development', 'gaming', 'preferences')
+$requiredCapabilities = @(
+    'base',
+    'development',
+    'game-stream-client',
+    'game-stream-host',
+    'gaming',
+    'preferences'
+)
 foreach ($required in $requiredCapabilities) {
     if ($capabilityNames -notcontains $required) {
         throw "Windows capabilities are missing '$required.winget'."
@@ -106,8 +113,15 @@ foreach ($file in $profiles) {
 
     $profile = Get-Content -LiteralPath $file.FullName -Raw | ConvertFrom-Json
     $selected = @($profile.capabilities)
-    if ($selected.Count -eq 0 -or $selected[0] -ne 'base') {
+    $gameStreamProfile = $file.BaseName -in @('game-stream-host', 'game-stream-client')
+    if ($selected.Count -eq 0) {
+        throw "Windows profile '$($file.BaseName)' must select at least one capability."
+    }
+    if (-not $gameStreamProfile -and $selected[0] -ne 'base') {
         throw "Windows profile '$($file.BaseName)' must select base first."
+    }
+    if ($gameStreamProfile -and ($selected.Count -ne 1 -or $selected[0] -ne $file.BaseName)) {
+        throw "Windows profile '$($file.BaseName)' must select only its focused role capability."
     }
 
     $duplicates = @(
@@ -126,6 +140,56 @@ foreach ($file in $profiles) {
     }
     if (($selected -contains 'preferences') -and $selected[-1] -ne 'preferences') {
         throw "Windows profile '$($file.BaseName)' must select optional preferences last."
+    }
+}
+
+$hostCapability = Get-Content -LiteralPath (Join-Path $CapabilitiesRoot 'game-stream-host.winget') -Raw
+$clientCapability = Get-Content -LiteralPath (Join-Path $CapabilitiesRoot 'game-stream-client.winget') -Raw
+$gameStreamHelper = Get-Content -LiteralPath (Join-Path $RepositoryRoot 'bootstrap\windows-game-stream.ps1') -Raw
+$sessionArbiter = Get-Content -LiteralPath (Join-Path $RepositoryRoot 'bootstrap\windows-game-stream-session.ps1') -Raw
+foreach ($required in @(
+    'LizardByte.Sunshine',
+    'WireGuard.WireGuard',
+    'DisableLockScreenAppNotifications',
+    'GameStreamHostPolicy'
+)) {
+    if ($hostCapability -notmatch [regex]::Escape($required)) {
+        throw "The game-stream host capability is missing '$required'."
+    }
+}
+foreach ($required in @(
+    'MoonlightGameStreamingProject.Moonlight',
+    'WireGuard.WireGuard',
+    'GameStreamClientPolicy'
+)) {
+    if ($clientCapability -notmatch [regex]::Escape($required)) {
+        throw "The game-stream client capability is missing '$required'."
+    }
+}
+foreach ($required in @(
+    "MinimumSunshineVersion = [version]'2026.516.143833'",
+    "DangerousScriptExecution",
+    "origin_web_ui_allowed",
+    "global_prep_cmd",
+    "PersistentKeepalive = 25",
+    "SessionUnlock",
+    'WireGuardTunnel`$'
+)) {
+    if ($gameStreamHelper -notmatch [regex]::Escape($required)) {
+        throw "The game-stream helper is missing the '$required' guardrail."
+    }
+}
+if ($gameStreamHelper -match '(?im)^\s*(PrivateKey|PublicKey|Endpoint|Address|AllowedIPs)\s*=') {
+    throw 'The game-stream helper must not embed production WireGuard material.'
+}
+foreach ($required in @(
+    'WTSGetActiveConsoleSessionId',
+    'WTSQuerySessionInformationW',
+    'Remote play is unavailable while a non-remote Windows session is unlocked.',
+    "ValidateSet('Gate', 'Reconcile')"
+)) {
+    if ($sessionArbiter -notmatch [regex]::Escape($required)) {
+        throw "The game-stream session arbiter is missing the '$required' guardrail."
     }
 }
 

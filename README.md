@@ -123,6 +123,7 @@ bootstrap/windows.ps1             profile-aware Windows WinGet/DSC entry point
 windows/capabilities/             composable Windows desired-state documents
 windows/profiles/                 generic capability selections
 windows/README.md                 Windows setup, preferences, and limitations
+docs/game-streaming.md            declarative private streaming roles and ceremonies
 modules/nixos/                    storage, network, and service modules
 modules/nixos/cloudflare-ddns.nix scoped IPv4-only Cloudflare DNS updater
 secrets/                          sops-nix workflow for future runtime secrets
