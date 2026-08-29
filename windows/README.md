@@ -19,13 +19,23 @@ Profiles under [`profiles/`](profiles/) select capability documents under
 | `gaming` | `base`, `gaming` | Common applications and game launchers |
 | `workstation` | `base`, `development`, `gaming` | Development and gaming without UI preferences |
 | `workstation-preferences` | `base`, `development`, `gaming`, `preferences` | The workstation profile plus optional UI and privacy choices |
+| `game-stream-host` | `game-stream-host` | Focused Sunshine/WireGuard trusted shared-console host |
+| `game-stream-client` | `game-stream-client` | Focused Moonlight/WireGuard client role only |
 
 The capabilities are deliberately narrow:
 
 - `base`: Terminal, browsers, Discord, and Spotify;
 - `development`: user-scoped Windows VS Code and declared extensions;
 - `gaming`: Steam, the EA app, Ubisoft Connect, and Prism Launcher;
-- `preferences`: optional registry-backed UI and privacy choices.
+- `preferences`: optional registry-backed UI and privacy choices;
+- `game-stream-host`: Sunshine, official WireGuard, and a narrow trusted
+  shared-console host policy;
+- `game-stream-client`: Moonlight, official WireGuard, and narrow client policy.
+
+The two game-stream profiles deliberately do not inherit `base`: applying a
+focused infrastructure role must not install browsers, chat, media, launchers,
+or development tools. See [`../docs/game-streaming.md`](../docs/game-streaming.md)
+for their private input contract and manual ceremonies.
 
 Profile names describe behavior only. Select one at apply time and do not
 commit a mapping from profiles to physical machines. Keep `preferences` last

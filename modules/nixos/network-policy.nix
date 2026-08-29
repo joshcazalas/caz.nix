@@ -54,8 +54,8 @@ let
         "br-+"
       ];
   privateAcceptRules = concatMapStringsSep "\n" (source: ''
-    iptables -w -A nixos-fw -s ${source} -p tcp -m multiport --dports ${portList privateTCPPorts} -j nixos-fw-accept
-    iptables -w -A nixos-fw -s ${source} -p udp -m multiport --dports ${portList privateUDPPorts} -j nixos-fw-accept
+    iptables -w -A nixos-fw ${lib.optionalString config.homelab.gameStreamGateway.enable "! -i wg-game "}-s ${source} -p tcp -m multiport --dports ${portList privateTCPPorts} -j nixos-fw-accept
+    iptables -w -A nixos-fw ${lib.optionalString config.homelab.gameStreamGateway.enable "! -i wg-game "}-s ${source} -p udp -m multiport --dports ${portList privateUDPPorts} -j nixos-fw-accept
   '') privateIPv4Ranges;
 
   expectedPublicTCPPorts =
@@ -67,7 +67,9 @@ let
       80
       443
     ];
-  expectedPublicUDPPorts = [ ];
+  expectedPublicUDPPorts = lib.optionals config.homelab.gameStreamGateway.enable [
+    config.homelab.gameStreamGateway.listenPort
+  ];
 
   normalized = ports: lib.sort builtins.lessThan (unique ports);
 in

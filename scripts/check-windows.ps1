@@ -36,7 +36,14 @@ foreach ($file in $jsonFiles) {
 
 $capabilityFiles = @(Get-ChildItem -LiteralPath $CapabilitiesRoot -Filter '*.winget' -File)
 $capabilityNames = @($capabilityFiles | ForEach-Object BaseName)
-$requiredCapabilities = @('base', 'development', 'gaming', 'preferences')
+$requiredCapabilities = @(
+    'base',
+    'development',
+    'game-stream-client',
+    'game-stream-host',
+    'gaming',
+    'preferences'
+)
 foreach ($required in $requiredCapabilities) {
     if ($capabilityNames -notcontains $required) {
         throw "Windows capabilities are missing '$required.winget'."
@@ -106,8 +113,15 @@ foreach ($file in $profiles) {
 
     $profile = Get-Content -LiteralPath $file.FullName -Raw | ConvertFrom-Json
     $selected = @($profile.capabilities)
-    if ($selected.Count -eq 0 -or $selected[0] -ne 'base') {
+    $gameStreamProfile = $file.BaseName -in @('game-stream-host', 'game-stream-client')
+    if ($selected.Count -eq 0) {
+        throw "Windows profile '$($file.BaseName)' must select at least one capability."
+    }
+    if (-not $gameStreamProfile -and $selected[0] -ne 'base') {
         throw "Windows profile '$($file.BaseName)' must select base first."
+    }
+    if ($gameStreamProfile -and ($selected.Count -ne 1 -or $selected[0] -ne $file.BaseName)) {
+        throw "Windows profile '$($file.BaseName)' must select only its focused role capability."
     }
 
     $duplicates = @(
@@ -126,6 +140,100 @@ foreach ($file in $profiles) {
     }
     if (($selected -contains 'preferences') -and $selected[-1] -ne 'preferences') {
         throw "Windows profile '$($file.BaseName)' must select optional preferences last."
+    }
+}
+
+$hostCapability = Get-Content -LiteralPath (Join-Path $CapabilitiesRoot 'game-stream-host.winget') -Raw
+$clientCapability = Get-Content -LiteralPath (Join-Path $CapabilitiesRoot 'game-stream-client.winget') -Raw
+$gameStreamHelper = Get-Content -LiteralPath (Join-Path $RepositoryRoot 'bootstrap\windows-game-stream.ps1') -Raw
+foreach ($required in @(
+    'LizardByte.Sunshine',
+    'WireGuard.WireGuard',
+    'DisableLockScreenAppNotifications',
+    'GameStreamHostPolicy'
+)) {
+    if ($hostCapability -notmatch [regex]::Escape($required)) {
+        throw "The game-stream host capability is missing '$required'."
+    }
+}
+foreach ($required in @(
+    'MoonlightGameStreamingProject.Moonlight',
+    'WireGuard.WireGuard',
+    'GameStreamClientPolicy'
+)) {
+    if ($clientCapability -notmatch [regex]::Escape($required)) {
+        throw "The game-stream client capability is missing '$required'."
+    }
+}
+foreach ($required in @(
+    "MinimumSunshineVersion = [version]'2026.516.143833'",
+    "DangerousScriptExecution",
+    "origin_web_ui_allowed",
+    "global_prep_cmd",
+    "PersistentKeepalive = 25",
+    "sourceDigest",
+    "trusted-shared-console",
+    "Test-SunshineAlwaysAvailable",
+    "Remove-RetiredSessionPolicy",
+    "StartupType Automatic",
+    "StartupType Disabled",
+    "WireGuard tunnel service is not automatic and running",
+    '$rule.Direction',
+    '$rule.Profile',
+    '$interfaceAliases.Count',
+    'WireGuardTunnel`$'
+)) {
+    if ($gameStreamHelper -notmatch [regex]::Escape($required)) {
+        throw "The game-stream helper is missing the '$required' guardrail."
+    }
+}
+$dangerousScriptsOffset = $gameStreamHelper.IndexOf('Remove-ItemProperty')
+$enrollmentImportOffset = $gameStreamHelper.IndexOf(
+    'Import-WireGuardEnrollment -WireGuard $wireGuard -EnrollmentFile $enrollmentFile'
+)
+$tunnelStartOffset = $gameStreamHelper.IndexOf('Start-DpapiTunnelService -WireGuard $wireGuard')
+if (
+    $dangerousScriptsOffset -lt 0 -or
+    $enrollmentImportOffset -lt 0 -or
+    $tunnelStartOffset -lt 0 -or
+    $dangerousScriptsOffset -gt $enrollmentImportOffset -or
+    $dangerousScriptsOffset -gt $tunnelStartOffset
+) {
+    throw 'WireGuard Local System hooks must be disabled before enrollment import or tunnel start.'
+}
+$sunshineDisableOffset = $gameStreamHelper.IndexOf(
+    'Set-Service -Name $sunshineService.Name -StartupType Disabled'
+)
+$sunshineStopOffset = $gameStreamHelper.IndexOf('Stop-Service -Name $sunshineService.Name -Force')
+$sunshineSettingOffset = $gameStreamHelper.IndexOf('Set-SunshineSetting -Name upnp -Value disabled')
+$sunshineAutomaticOffset = $gameStreamHelper.IndexOf(
+    'Set-Service -Name $sunshineService.Name -StartupType Automatic'
+)
+$sunshineStartOffset = $gameStreamHelper.IndexOf('Start-Service -Name $sunshineService.Name')
+if (
+    @(
+        $sunshineDisableOffset,
+        $sunshineStopOffset,
+        $sunshineSettingOffset,
+        $sunshineAutomaticOffset,
+        $sunshineStartOffset
+    ) -contains -1 -or
+    $sunshineDisableOffset -gt $sunshineStopOffset -or
+    $sunshineStopOffset -gt $sunshineSettingOffset -or
+    $sunshineSettingOffset -gt $sunshineAutomaticOffset -or
+    $sunshineAutomaticOffset -gt $sunshineStartOffset
+) {
+    throw 'Sunshine must remain disabled and stopped until its managed settings are ready for restart.'
+}
+if ($gameStreamHelper -match '(?im)^\s*(PrivateKey|PublicKey|Endpoint|Address|AllowedIPs)\s*=') {
+    throw 'The game-stream helper must not embed production WireGuard material.'
+}
+foreach ($retiredHelper in @(
+    'bootstrap\windows-game-stream-session.ps1',
+    'bootstrap\windows-game-stream-control.ps1'
+)) {
+    if (Test-Path -LiteralPath (Join-Path $RepositoryRoot $retiredHelper)) {
+        throw "The retired game-stream session helper remains present: $retiredHelper"
     }
 }
 
