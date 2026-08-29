@@ -15,37 +15,54 @@ unhealthy live generation. It does not reboot automatically. See
 
 ## Continuous integration
 
-Every pull request and manual dispatch runs two independent jobs in parallel:
+Every pull request first classifies its changed paths, then runs independent
+validation jobs in parallel:
 
-- **Lint and scan** enforces Nix formatting, runs Deadnix, Statix, ShellCheck,
-  and Actionlint, then scans every reachable Git commit with Gitleaks and
-  redacts any match.
-- **Build** evaluates every declared flake output and builds both the NixOS
-  homeserver closure and the WSL Home Manager activation.
+- **Evaluate, lint, and scan** enforces Nix formatting, runs Deadnix, Statix,
+  ShellCheck, and Actionlint, scans every reachable Git commit with Gitleaks,
+  and evaluates every flake output with `nix flake check --no-build`.
+- **Build homeserver** realises the NixOS closure and is the only PR job that
+  restores the pinned Auxide cache.
+- **Build WSL home** realises the Home Manager activation and every `wsl-*`
+  assertion without paying Auxide-cache overhead.
+- **Run NixOS integration tests** builds every `game-stream-*` check when one
+  is declared and its inputs changed.
+- **Validate Windows configuration** parses and resolves the declarative
+  Windows profiles when their inputs changed.
 
-They share no work, so running them apart costs nothing and reports a
-formatting or ShellCheck mistake in well under a minute instead of behind a
-four-minute closure build.
+`scripts/build-ci-check-group.sh` assigns every declared flake check to one of
+the homeserver, WSL, or integration jobs. CI fails if a new check has not been
+classified, so splitting the builds cannot silently turn a declared check into
+evaluation-only coverage.
 
-A third job, `Validate`, passes only when both of those succeeded. It exists to
-carry the exact name `main` requires as a status check: the split therefore
-needs no branch-protection change, and a lint failure still blocks a merge just
-as it did when everything lived in one job.
+`scripts/classify-ci-changes.sh` maps known source paths to the components they
+can affect. Shared flake inputs fan out to every Nix job, manual dispatches run
+everything, and any unfamiliar path fails safe by selecting every component.
+Documentation and operational-only changes still run linting, scanning, and
+flake evaluation but avoid unrelated closure builds. A skipped component is
+acceptable only when the classifier explicitly selected `false` for it.
+
+The final `Validate` job passes only when classification and linting succeeded
+and every component job either succeeded or was deliberately skipped. It
+carries the exact name `main` requires as a status check, so component jobs may
+change without weakening the merge gate.
 
 Each bootstrapped checkout also uses the tracked `.githooks/pre-commit` hook to
 scan staged changes with the same pinned Gitleaks package. This is the fast
 local guardrail; CI's full-history scan remains the authoritative backstop.
 
 GitHub Actions are pinned to full commit hashes. Dependabot updates those pins
-in a dedicated weekly PR. The expensive build and release jobs use GitHub's
+in a dedicated weekly PR. The homeserver and release jobs use GitHub's
 repository-local Actions cache to retain the Nix output for the exact Auxide
-commit recorded in `flake.lock`. The cache key includes the evaluated package
-derivation, installed Nix version, runner OS, and architecture. Transitive input
-updates and package overrides therefore rotate the cache even if Auxide's source
-commit does not. Ordinary configuration changes still reuse Auxide without
-weakening the lock file's immutable build identity. A local composite action
-owns this policy so CI and release restore the same cache on their respective
-build runners without duplicating its implementation.
+commit recorded in `flake.lock`. The WSL and integration jobs do not consume
+Auxide and therefore do not pay its restore cost. The cache key includes the
+evaluated package derivation, installed Nix version, runner OS, and
+architecture. Transitive input updates and package overrides therefore rotate
+the cache even if Auxide's source commit does not. Ordinary configuration
+changes still reuse Auxide without weakening the lock file's immutable build
+identity. A local composite action owns this policy so CI and release restore
+the same cache on their respective build runners without duplicating its
+implementation.
 
 Pull requests may restore the default branch's cache but do not write caches:
 their isolated entries cannot be promoted to `main` and would only consume the
@@ -63,17 +80,23 @@ cache restore or save time erases the build-time improvement, remove the cache
 rather than increasing GitHub's free storage limit.
 
 The complete server closure exceeds the standard private runner's 14 GB disk.
-Before installing Nix, the build job conservatively reserves the runner's
-otherwise-unused `/mnt` space as a compressed `/nix` volume. It does not purge
-preinstalled runner tools, and Nix build temporaries are kept on that larger
-volume as well. The lint job reserves nothing, because it only realises the
-small development shell.
+Before installing Nix, each component build conservatively reserves the
+runner's otherwise-unused `/mnt` space as a compressed `/nix` volume. It does
+not purge preinstalled runner tools, and Nix build temporaries are kept on that
+larger volume as well. The lint job reserves nothing, because it only realises
+the small development shell and evaluates the remaining outputs without
+building them.
 
 Run the same checks locally with:
 
 ```bash
 nix develop --command ./scripts/check.sh
 nix develop --command ./scripts/secret-scan.sh
+nix flake check --no-build
+./scripts/build-ci-check-group.sh validate
+./scripts/build-ci-check-group.sh homeserver
+./scripts/build-ci-check-group.sh wsl
+./scripts/build-ci-check-group.sh integration
 nix flake check --print-build-logs
 ```
 

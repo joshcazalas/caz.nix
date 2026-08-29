@@ -12,11 +12,41 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Split from the build so a formatting or ShellCheck mistake is reported in
-  # well under a minute instead of behind a four-minute closure build. These
-  # two jobs share no work, so running them apart costs nothing.
+  changes:
+    name: Classify changes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      homeserver: ${{ steps.classify.outputs.homeserver }}
+      wsl: ${{ steps.classify.outputs.wsl }}
+      integration: ${{ steps.classify.outputs.integration }}
+      windows: ${{ steps.classify.outputs.windows }}
+
+    steps:
+      - name: Check out the complete history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Select affected components
+        id: classify
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          MERGE_SHA: ${{ github.sha }}
+        run: |
+          if [[ "${GITHUB_EVENT_NAME}" != pull_request ]]; then
+            ./scripts/classify-ci-changes.sh --all >> "${GITHUB_OUTPUT}"
+          else
+            git diff --no-renames --name-only --diff-filter=ACDMRTUXB -z "${BASE_SHA}" "${MERGE_SHA}" \
+              | ./scripts/classify-ci-changes.sh >> "${GITHUB_OUTPUT}"
+          fi
+
+  # Keep source diagnostics independent from the closure builds so formatting
+  # and ShellCheck failures still arrive quickly. The no-build check validates
+  # every flake output even when an unaffected component build is skipped.
   lint:
-    name: Lint and scan
+    name: Evaluate, lint, and scan
     runs-on: ubuntu-24.04
     timeout-minutes: 15
 
@@ -39,8 +69,16 @@ jobs:
       - name: Scan the complete Git history for secrets
         run: nix develop --command ./scripts/secret-scan.sh
 
-  build:
-    name: Build
+      - name: Evaluate every flake output
+        run: nix flake check --no-build
+
+      - name: Require every flake check to have a CI group
+        run: ./scripts/build-ci-check-group.sh validate
+
+  homeserver:
+    name: Build homeserver
+    needs: changes
+    if: needs.changes.outputs.homeserver == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
 
@@ -62,16 +100,72 @@ jobs:
           extra_nix_config: |
             build-dir = /nix/build
 
-      # A composite action keeps the cache restore and this build on the same
-      # runner while sharing the policy with the release workflow.
+      # Only the homeserver consumes Auxide. Keeping this restore out of the
+      # WSL and integration jobs avoids about 45-55 seconds of irrelevant work.
       - name: Cache the pinned Auxide build
         uses: ./.github/actions/cache-auxide
 
-      - name: Evaluate and build every declared output
-        run: nix flake check --print-build-logs
+      - name: Build the homeserver closure
+        run: ./scripts/build-ci-check-group.sh homeserver
+
+  wsl:
+    name: Build WSL home
+    needs: changes
+    if: needs.changes.outputs.wsl == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Reserve runner space for the Nix store
+        uses: wimpysworld/nothing-but-nix@687c797a730352432950c707ab493fcc951818d7 # v10
+        with:
+          hatchet-protocol: holster
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          extra_nix_config: |
+            build-dir = /nix/build
+
+      - name: Build the WSL activation and assertions
+        run: ./scripts/build-ci-check-group.sh wsl
+
+  integration:
+    name: Run NixOS integration tests
+    needs: changes
+    if: needs.changes.outputs.integration == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Reserve runner space for the Nix store
+        uses: wimpysworld/nothing-but-nix@687c797a730352432950c707ab493fcc951818d7 # v10
+        with:
+          hatchet-protocol: holster
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          extra_nix_config: |
+            build-dir = /nix/build
+
+      - name: Build the integration checks
+        run: ./scripts/build-ci-check-group.sh integration
 
   windows:
     name: Validate Windows configuration
+    needs: changes
+    if: needs.changes.outputs.windows == 'true'
     runs-on: windows-2025
     timeout-minutes: 20
 
@@ -107,16 +201,18 @@ jobs:
             }
           }
 
-  # `Validate` is the required status check on `main`. Keeping that exact name
-  # on a job that passes only when both real jobs passed means the split needs
-  # no branch-protection change, and a lint failure still blocks a merge just as
-  # it did when everything lived in one job. Renaming this would silently leave
-  # `main` waiting for a context that no longer reports.
+  # `Validate` is the required status check on `main`. It accepts a component
+  # job only when it succeeded or the classifier deliberately skipped it.
+  # Renaming this would silently leave `main` waiting for a context that no
+  # longer reports.
   validate:
     name: Validate
     needs:
+      - changes
       - lint
-      - build
+      - homeserver
+      - wsl
+      - integration
       - windows
     if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
@@ -125,9 +221,43 @@ jobs:
     steps:
       - name: Require every check to have succeeded
         env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
           LINT_RESULT: ${{ needs.lint.result }}
-          BUILD_RESULT: ${{ needs.build.result }}
+          HOMESERVER_SELECTED: ${{ needs.changes.outputs.homeserver }}
+          HOMESERVER_RESULT: ${{ needs.homeserver.result }}
+          WSL_SELECTED: ${{ needs.changes.outputs.wsl }}
+          WSL_RESULT: ${{ needs.wsl.result }}
+          INTEGRATION_SELECTED: ${{ needs.changes.outputs.integration }}
+          INTEGRATION_RESULT: ${{ needs.integration.result }}
+          WINDOWS_SELECTED: ${{ needs.changes.outputs.windows }}
           WINDOWS_RESULT: ${{ needs.windows.result }}
         run: |
-          echo "lint=${LINT_RESULT} build=${BUILD_RESULT} windows=${WINDOWS_RESULT}"
-          [[ "${LINT_RESULT}" == success && "${BUILD_RESULT}" == success && "${WINDOWS_RESULT}" == success ]]
+          echo "changes=${CHANGES_RESULT} lint=${LINT_RESULT} homeserver=${HOMESERVER_RESULT} wsl=${WSL_RESULT} integration=${INTEGRATION_RESULT} windows=${WINDOWS_RESULT}"
+
+          [[ "${CHANGES_RESULT}" == success && "${LINT_RESULT}" == success ]]
+
+          require_component_result() {
+            local name="$1"
+            local selected="$2"
+            local result="$3"
+
+            if [[ "${selected}" == true ]]; then
+              [[ "${result}" == success ]] || {
+                echo "${name} was selected but finished as ${result}." >&2
+                return 1
+              }
+            elif [[ "${selected}" == false ]]; then
+              [[ "${result}" == skipped ]] || {
+                echo "${name} was not selected but finished as ${result}." >&2
+                return 1
+              }
+            else
+              echo "${name} has invalid classifier output: ${selected@Q}." >&2
+              return 1
+            fi
+          }
+
+          require_component_result homeserver "${HOMESERVER_SELECTED}" "${HOMESERVER_RESULT}"
+          require_component_result wsl "${WSL_SELECTED}" "${WSL_RESULT}"
+          require_component_result integration "${INTEGRATION_SELECTED}" "${INTEGRATION_RESULT}"
+          require_component_result windows "${WINDOWS_SELECTED}" "${WINDOWS_RESULT}"
