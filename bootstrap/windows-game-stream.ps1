@@ -18,19 +18,16 @@ $MinimumSunshineVersion = [version]'2026.516.143833'
 $ManagedFirewallGroup = 'caz.nix game-stream host'
 $ManagedTcpRule = 'caz.nix-game-stream-host-tcp'
 $ManagedUdpRule = 'caz.nix-game-stream-host-udp'
-$SessionPolicyTaskName = 'caz.nix game-stream session arbiter'
 $StateRoot = Join-Path $env:ProgramData "caz.nix\game-stream-$($Role.ToLowerInvariant())"
 $StateFile = Join-Path $StateRoot 'desired-state.json'
-$SessionPolicyRoot = Join-Path $env:ProgramFiles 'caz.nix\game-stream-host'
-$SessionPolicySource = Join-Path $PSScriptRoot 'windows-game-stream-session.ps1'
-$SessionPolicyScript = Join-Path $SessionPolicyRoot 'windows-game-stream-session.ps1'
+$LegacySessionPolicyRoot = Join-Path $env:ProgramFiles 'caz.nix\game-stream-host'
+$LegacySessionPolicyTaskName = 'caz.nix game-stream session arbiter'
 $WireGuardConfigurationRoot = Join-Path $env:ProgramFiles 'WireGuard\Data\Configurations'
 $DpapiConfiguration = Join-Path $WireGuardConfigurationRoot "$TunnelName.conf.dpapi"
 $PlaintextConfiguration = Join-Path $WireGuardConfigurationRoot "$TunnelName.conf"
 $SunshineRoot = Join-Path $env:ProgramFiles 'Sunshine'
 $SunshineExecutable = Join-Path $SunshineRoot 'sunshine.exe'
 $SunshineConfiguration = Join-Path $SunshineRoot 'config\sunshine.conf'
-$SunshineApplications = Join-Path $SunshineRoot 'config\apps.json'
 $SunshineState = Join-Path $SunshineRoot 'config\sunshine_state.json'
 
 function Test-IsAdministrator {
@@ -285,45 +282,6 @@ function Test-MoonlightInstalled {
     return $false
 }
 
-function Get-RemoteAccountSid {
-    param([Parameter(Mandatory)][string]$AccountName)
-
-    $account = Get-LocalUser -Name $AccountName -ErrorAction SilentlyContinue
-    if ($null -eq $account -or -not $account.Enabled) {
-        throw 'The dedicated remote-play account must already exist and be enabled.'
-    }
-    if (-not (Test-RemoteAccountSidIsStandard -Sid $account.SID.Value)) {
-        throw 'The dedicated remote-play account must be enabled and belong only to the built-in Users group.'
-    }
-    return $account.SID.Value
-}
-
-function Test-RemoteAccountSidIsStandard {
-    param([Parameter(Mandatory)][string]$Sid)
-
-    try {
-        $securityIdentifier = [Security.Principal.SecurityIdentifier]::new($Sid)
-        $account = Get-LocalUser -SID $securityIdentifier -ErrorAction Stop
-        if (-not $account.Enabled) {
-            return $false
-        }
-        $memberOf = [Collections.Generic.List[string]]::new()
-        foreach ($group in @(Get-LocalGroup -ErrorAction Stop)) {
-            $isMember = @(
-                Get-LocalGroupMember -SID $group.SID -ErrorAction SilentlyContinue |
-                    Where-Object { $_.SID.Value -eq $account.SID.Value }
-            ).Count -gt 0
-            if ($isMember) {
-                $memberOf.Add($group.SID.Value)
-            }
-        }
-        return $memberOf.Count -eq 1 -and $memberOf[0] -eq 'S-1-5-32-545'
-    }
-    catch {
-        return $false
-    }
-}
-
 function Get-SunshineVersion {
     if (-not (Test-Path -LiteralPath $SunshineExecutable -PathType Leaf)) {
         return $null
@@ -390,281 +348,32 @@ function Set-SunshineSetting {
     [IO.File]::WriteAllLines($SunshineConfiguration, [string[]]$lines, $encoding)
 }
 
-function Get-SessionPolicyArguments {
-    param(
-        [Parameter(Mandatory)][ValidateSet('Gate', 'Reconcile')][string]$Mode,
-        [Parameter(Mandatory)][string]$RemoteAccountSid,
-        [Parameter(Mandatory)][string]$SunshineServiceName
-    )
-
-    return '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{0}" -Mode {1} -RemoteAccountSid {2} -SunshineServiceName "{3}"' -f `
-        $SessionPolicyScript, $Mode, $RemoteAccountSid, $SunshineServiceName
-}
-
-function Get-SunshineSessionPrepValue {
-    param(
-        [Parameter(Mandatory)][string]$RemoteAccountSid,
-        [Parameter(Mandatory)][string]$SunshineServiceName
-    )
-
-    $powerShell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-    $arguments = Get-SessionPolicyArguments `
-        -Mode Gate `
-        -RemoteAccountSid $RemoteAccountSid `
-        -SunshineServiceName $SunshineServiceName
-    $gate = [ordered]@{
-        do = '"{0}" {1}' -f $powerShell, $arguments
-        elevated = $false
-    }
-    return ConvertTo-Json -InputObject @($gate) -Compress
-}
-
-function Set-SessionPolicyAcl {
-    $null = & (Join-Path $env:SystemRoot 'System32\icacls.exe') `
-        $SessionPolicyRoot `
-        '/inheritance:r' `
-        '/grant:r' `
-        '*S-1-5-18:(OI)(CI)F' `
-        '*S-1-5-32-544:(OI)(CI)F' `
-        '*S-1-5-32-545:(OI)(CI)RX'
-    if ($LASTEXITCODE -ne 0) {
-        throw 'Could not restrict the session arbiter to administrator writes and standard-user execution.'
-    }
-}
-
-function Test-SessionPolicyAcl {
-    if (-not (Test-Path -LiteralPath $SessionPolicyRoot -PathType Container)) {
-        return $false
-    }
-    $acl = Get-Acl -LiteralPath $SessionPolicyRoot
-    if (-not $acl.AreAccessRulesProtected) {
-        return $false
-    }
-    $rules = $acl.GetAccessRules(
-        $true,
-        $false,
-        [Security.Principal.SecurityIdentifier]
-    )
-    $allowedSids = @('S-1-5-18', 'S-1-5-32-544', 'S-1-5-32-545')
-    foreach ($rule in $rules) {
-        if (
-            $rule.AccessControlType -eq [Security.AccessControl.AccessControlType]::Allow -and
-            $rule.IdentityReference.Value -notin $allowedSids
-        ) {
-            return $false
-        }
-    }
-    foreach ($sid in @('S-1-5-18', 'S-1-5-32-544')) {
-        if (@($rules | Where-Object {
-            $_.AccessControlType -eq [Security.AccessControl.AccessControlType]::Allow -and
-            $_.IdentityReference.Value -eq $sid -and
-            ($_.FileSystemRights -band [Security.AccessControl.FileSystemRights]::FullControl) -eq
-                [Security.AccessControl.FileSystemRights]::FullControl
-        }).Count -eq 0) {
-            return $false
-        }
-    }
-    $usersRule = @($rules | Where-Object {
-        $_.AccessControlType -eq [Security.AccessControl.AccessControlType]::Allow -and
-        $_.IdentityReference.Value -eq 'S-1-5-32-545'
-    })
-    $writeRights = (
-        [Security.AccessControl.FileSystemRights]::WriteData -bor
-        [Security.AccessControl.FileSystemRights]::AppendData -bor
-        [Security.AccessControl.FileSystemRights]::WriteExtendedAttributes -bor
-        [Security.AccessControl.FileSystemRights]::WriteAttributes -bor
-        [Security.AccessControl.FileSystemRights]::Delete -bor
-        [Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles -bor
-        [Security.AccessControl.FileSystemRights]::ChangePermissions -bor
-        [Security.AccessControl.FileSystemRights]::TakeOwnership
-    )
-    return (
-        $usersRule.Count -gt 0 -and
-        @($usersRule | Where-Object {
-            ($_.FileSystemRights -band [Security.AccessControl.FileSystemRights]::ReadAndExecute) -eq
-                [Security.AccessControl.FileSystemRights]::ReadAndExecute -and
-            ($_.FileSystemRights -band $writeRights) -eq 0
-        }).Count -eq $usersRule.Count
-    )
-}
-
-function Register-SessionPolicyTask {
-    param(
-        [Parameter(Mandatory)][string]$RemoteAccountSid,
-        [Parameter(Mandatory)][string]$SunshineServiceName
-    )
-
-    $taskService = New-Object -ComObject 'Schedule.Service'
-    $taskService.Connect()
-    $rootFolder = $taskService.GetFolder('\')
-    $definition = $taskService.NewTask(0)
-    $definition.RegistrationInfo.Description = 'Fail-closed Sunshine availability based on the active Windows console session.'
-    $definition.Principal.UserId = 'SYSTEM'
-    $definition.Principal.LogonType = 5
-    $definition.Principal.RunLevel = 1
-    $definition.Settings.Enabled = $true
-    $definition.Settings.Hidden = $true
-    $definition.Settings.StartWhenAvailable = $true
-    $definition.Settings.DisallowStartIfOnBatteries = $false
-    $definition.Settings.StopIfGoingOnBatteries = $false
-    $definition.Settings.ExecutionTimeLimit = 'PT1M'
-    $definition.Settings.MultipleInstances = 2
-
-    $null = $definition.Triggers.Create(8)
-    $null = $definition.Triggers.Create(9)
-    foreach ($stateChange in @(1, 2, 7, 8)) {
-        $trigger = $definition.Triggers.Create(11)
-        $trigger.StateChange = $stateChange
-    }
-
-    $action = $definition.Actions.Create(0)
-    $action.Path = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-    $action.Arguments = Get-SessionPolicyArguments `
-        -Mode Reconcile `
-        -RemoteAccountSid $RemoteAccountSid `
-        -SunshineServiceName $SunshineServiceName
-    $null = $rootFolder.RegisterTaskDefinition(
-        $SessionPolicyTaskName,
-        $definition,
-        6,
-        'SYSTEM',
-        $null,
-        5,
-        $null
-    )
-}
-
-function Test-NoSunshinePrepExclusions {
-    if (-not (Test-Path -LiteralPath $SunshineApplications -PathType Leaf)) {
-        return $true
-    }
-    try {
-        $applications = Get-Content -LiteralPath $SunshineApplications -Raw | ConvertFrom-Json
-        foreach ($application in @($applications.apps)) {
-            if ($application.'exclude-global-prep-cmd' -eq $true) {
-                return $false
-            }
-        }
-        return $true
-    }
-    catch {
-        return $false
-    }
-}
-
-function Enable-SessionPolicy {
-    param(
-        [Parameter(Mandatory)][string]$RemoteAccountSid,
-        [Parameter(Mandatory)][System.ServiceProcess.ServiceController]$SunshineService
-    )
-
-    Stop-Service -Name $SunshineService.Name -Force -ErrorAction SilentlyContinue
-    Set-Service -Name $SunshineService.Name -StartupType Disabled
-    if (-not (Test-NoSunshinePrepExclusions)) {
-        throw 'Every Sunshine application must inherit the global remote-play session gate.'
-    }
-    if (-not (Test-Path -LiteralPath $SessionPolicySource -PathType Leaf)) {
-        throw 'The staged game-stream session arbiter is unavailable.'
-    }
-    $null = New-Item -ItemType Directory -Path $SessionPolicyRoot -Force
-    Copy-Item -LiteralPath $SessionPolicySource -Destination $SessionPolicyScript -Force
-    Set-SessionPolicyAcl
-    Set-SunshineSetting `
-        -Name global_prep_cmd `
-        -Value (Get-SunshineSessionPrepValue `
-            -RemoteAccountSid $RemoteAccountSid `
-            -SunshineServiceName $SunshineService.Name)
-    Register-SessionPolicyTask `
-        -RemoteAccountSid $RemoteAccountSid `
-        -SunshineServiceName $SunshineService.Name
-    Set-Service -Name $SunshineService.Name -StartupType Automatic
-    & $SessionPolicyScript `
-        -Mode Reconcile `
-        -RemoteAccountSid $RemoteAccountSid `
-        -SunshineServiceName $SunshineService.Name
-}
-
-function Disable-SessionPolicy {
-    param([Parameter(Mandatory)][System.ServiceProcess.ServiceController]$SunshineService)
-
-    Unregister-ScheduledTask -TaskName $SessionPolicyTaskName -Confirm:$false -ErrorAction SilentlyContinue
+function Remove-RetiredSessionPolicy {
+    Unregister-ScheduledTask `
+        -TaskName $LegacySessionPolicyTaskName `
+        -Confirm:$false `
+        -ErrorAction SilentlyContinue
     Set-SunshineSetting -Name global_prep_cmd -Value '[]'
-    Stop-Service -Name $SunshineService.Name -Force -ErrorAction SilentlyContinue
-    Set-Service -Name $SunshineService.Name -StartupType Disabled
-    Remove-Item -LiteralPath $SessionPolicyRoot -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $LegacySessionPolicyRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-function Test-SessionPolicy {
-    param(
-        [Parameter(Mandatory)][string]$RemoteAccountSid,
-        [Parameter(Mandatory)][System.ServiceProcess.ServiceController]$SunshineService
+function Test-RetiredSessionPolicyAbsent {
+    return (
+        $null -eq (Get-ScheduledTask -TaskName $LegacySessionPolicyTaskName -ErrorAction SilentlyContinue) -and
+        -not (Test-Path -LiteralPath $LegacySessionPolicyRoot) -and
+        (Get-SunshineSetting -Name global_prep_cmd) -eq '[]'
     )
-
-    if (
-        -not (Test-Path -LiteralPath $SessionPolicySource -PathType Leaf) -or
-        -not (Test-Path -LiteralPath $SessionPolicyScript -PathType Leaf) -or
-        -not (Test-SessionPolicyAcl) -or
-        (Get-FileHash -LiteralPath $SessionPolicySource -Algorithm SHA256).Hash -ne
-            (Get-FileHash -LiteralPath $SessionPolicyScript -Algorithm SHA256).Hash
-    ) {
-        return $false
-    }
-    if (
-        (Get-SunshineSetting -Name global_prep_cmd) -ne
-            (Get-SunshineSessionPrepValue `
-                -RemoteAccountSid $RemoteAccountSid `
-                -SunshineServiceName $SunshineService.Name) -or
-        -not (Test-NoSunshinePrepExclusions)
-    ) {
-        return $false
-    }
-
-    $service = Get-CimInstance Win32_Service -Filter "Name='$($SunshineService.Name)'"
-    if ($null -eq $service -or $service.StartMode -ne 'Auto') {
-        return $false
-    }
-
-    try {
-        $taskService = New-Object -ComObject 'Schedule.Service'
-        $taskService.Connect()
-        $taskXml = $taskService.GetFolder('\').GetTask($SessionPolicyTaskName).Xml
-        $requiredFragments = @(
-            '<BootTrigger',
-            '<LogonTrigger',
-            '<StateChange>ConsoleConnect</StateChange>',
-            '<StateChange>ConsoleDisconnect</StateChange>',
-            '<StateChange>SessionLock</StateChange>',
-            '<StateChange>SessionUnlock</StateChange>',
-            [Security.SecurityElement]::Escape($SessionPolicyScript),
-            $RemoteAccountSid,
-            [Security.SecurityElement]::Escape($SunshineService.Name)
-        )
-        foreach ($fragment in $requiredFragments) {
-            if (-not $taskXml.Contains($fragment)) {
-                return $false
-            }
-        }
-    }
-    catch {
-        return $false
-    }
-    return $true
 }
 
-function Test-SessionPolicyDisabled {
+function Test-SunshineAlwaysAvailable {
     param([Parameter(Mandatory)][System.ServiceProcess.ServiceController]$SunshineService)
 
     $service = Get-CimInstance Win32_Service -Filter "Name='$($SunshineService.Name)'"
-    if (
-        $null -eq $service -or
-        $service.StartMode -ne 'Disabled' -or
-        $SunshineService.Status -ne 'Stopped' -or
-        (Get-SunshineSetting -Name global_prep_cmd) -ne '[]' -or
-        (Test-Path -LiteralPath $SessionPolicyRoot)
-    ) {
-        return $false
-    }
-    return $null -eq (Get-ScheduledTask -TaskName $SessionPolicyTaskName -ErrorAction SilentlyContinue)
+    return (
+        $null -ne $service -and
+        $service.StartMode -eq 'Auto' -and
+        $SunshineService.Status -eq 'Running'
+    )
 }
 
 function Get-SunshineInboundRules {
@@ -753,17 +462,16 @@ function Test-SunshineFirewall {
 
 function Save-DesiredState {
     param(
-        [Parameter(Mandatory)][string]$RemotePlay,
-        [AllowNull()][string]$RemoteAccountSid,
-        [AllowNull()][string]$SourceCommit
+        [AllowNull()][string]$SourceCommit,
+        [Parameter(Mandatory)][string]$SourceDigest
     )
 
     Initialize-StateRoot
     [ordered]@{
         role = $Role.ToLowerInvariant()
-        remotePlay = $RemotePlay
-        remoteAccountSid = $RemoteAccountSid
+        sessionModel = if ($Role -eq 'Host') { 'trusted-shared-console' } else { 'not-applicable' }
         sourceCommit = $SourceCommit
+        sourceDigest = $SourceDigest
     } | ConvertTo-Json | Set-Content -LiteralPath $StateFile -Encoding UTF8
 }
 
@@ -839,7 +547,10 @@ function Test-Configuration {
     $drift = [Collections.Generic.List[string]]::new()
     $warnings = [Collections.Generic.List[string]]::new()
     $state = Get-DesiredState
-    $sourceCommit = if ($null -ne $state) { $state.sourceCommit } else { $null }
+    $stateProperties = if ($null -ne $state) { @($state.PSObject.Properties.Name) } else { @() }
+    $sourceCommit = if ($stateProperties -contains 'sourceCommit') { $state.sourceCommit } else { $null }
+    $expectedSourceDigest = [Environment]::GetEnvironmentVariable('CAZ_GAME_STREAM_SOURCE_DIGEST')
+    $expectedSessionModel = if ($Role -eq 'Host') { 'trusted-shared-console' } else { 'not-applicable' }
 
     $wireGuard = Get-WireGuardCommand
     $wg = Get-WgCommand
@@ -880,11 +591,22 @@ function Test-Configuration {
         $manual.Add('a declarative role apply is required')
     }
     elseif (
+        $stateProperties -notcontains 'role' -or
+        $stateProperties -notcontains 'sessionModel' -or
+        $stateProperties -notcontains 'sourceCommit' -or
+        $stateProperties -notcontains 'sourceDigest' -or
         $state.role -ne $Role.ToLowerInvariant() -or
-        $state.remotePlay -notin @('Enabled', 'Disabled') -or
-        $state.sourceCommit -notmatch '^[0-9a-f]{40}$'
+        $state.sessionModel -ne $expectedSessionModel -or
+        $state.sourceCommit -notmatch '^[0-9a-f]{40}$' -or
+        $state.sourceDigest -notmatch '^[0-9a-f]{64}$'
     ) {
         $drift.Add('stored desired-state metadata is invalid or belongs to another role')
+    }
+    elseif (
+        $expectedSourceDigest -notmatch '^[0-9a-f]{64}$' -or
+        $state.sourceDigest -ne $expectedSourceDigest
+    ) {
+        $drift.Add('staged game-stream source bytes differ from the applied source digest')
     }
     elseif (-not (Test-StateAcl)) {
         $drift.Add('administrator-only desired-state ACL differs')
@@ -905,42 +627,23 @@ function Test-Configuration {
         ) {
             $drift.Add('Sunshine security-critical network settings differ')
         }
-        if ($null -ne $state -and $null -ne $wg) {
+        if ($null -ne $wg) {
             $peerRoute = Get-TunnelPeerRoute -Wg $wg
             if ($null -ne $peerRoute -and -not (Test-SunshineFirewall -RemoteAddress $peerRoute)) {
                 $drift.Add('Sunshine firewall rules are broad or differ from the enrolled client route')
-            }
-            if (
-                [string]::IsNullOrWhiteSpace($state.remoteAccountSid) -or
-                -not (Test-RemoteAccountSidIsStandard -Sid $state.remoteAccountSid)
-            ) {
-                $manual.Add('dedicated standard remote-play account selection is required')
             }
         }
         $sunshineService = Get-SunshineService
         if ($null -eq $sunshineService) {
             $drift.Add('Sunshine service is absent')
         }
-        elseif (
-            $null -ne $state -and
-            -not [string]::IsNullOrWhiteSpace($state.remoteAccountSid)
-        ) {
-            if (
-                $state.remotePlay -eq 'Enabled' -and
-                -not (Test-SessionPolicy `
-                    -RemoteAccountSid $state.remoteAccountSid `
-                    -SunshineService $sunshineService)
-            ) {
-                $drift.Add('Sunshine unattended session arbitration differs')
-            }
-            if (
-                $state.remotePlay -eq 'Disabled' -and
-                -not (Test-SessionPolicyDisabled -SunshineService $sunshineService)
-            ) {
-                $drift.Add('Sunshine is not fail-closed while remote play is disabled')
-            }
+        elseif (-not (Test-SunshineAlwaysAvailable -SunshineService $sunshineService)) {
+            $drift.Add('Sunshine is not configured as an always-running automatic service')
         }
-        $warnings.Add('headless display, power, lock-screen capture, and session-switch disconnect behavior still require pilot evidence')
+        if (-not (Test-RetiredSessionPolicyAbsent)) {
+            $drift.Add('retired session-control machinery remains installed')
+        }
+        $warnings.Add('headless display, power, reboot, Windows login, and shared-console behavior still require pilot evidence')
     }
 
     if ($drift.Count -gt 0) {
@@ -997,28 +700,22 @@ if ($null -eq $peerRoute -or -not (Test-TunnelKeepalive -Wg $wg)) {
     throw 'The active tunnel must contain one opposite-role /32 and PersistentKeepalive = 25.'
 }
 
-$remotePlay = [Environment]::GetEnvironmentVariable('CAZ_GAME_STREAM_REMOTE_PLAY')
-if ($remotePlay -notin @('Enabled', 'Disabled')) {
-    $remotePlay = 'Disabled'
-}
 $sourceCommit = [Environment]::GetEnvironmentVariable('CAZ_GAME_STREAM_SOURCE_COMMIT')
 if ($sourceCommit -notmatch '^[0-9a-fA-F]{40}$') {
     throw 'The reviewed source commit is missing or invalid.'
 }
 $sourceCommit = $sourceCommit.ToLowerInvariant()
-$remoteAccountSid = $null
+$sourceDigest = [Environment]::GetEnvironmentVariable('CAZ_GAME_STREAM_SOURCE_DIGEST')
+if ($sourceDigest -notmatch '^[0-9a-fA-F]{64}$') {
+    throw 'The staged game-stream source digest is missing or invalid.'
+}
+$sourceDigest = $sourceDigest.ToLowerInvariant()
 
 if ($Role -eq 'Host') {
     $sunshineVersion = Get-SunshineVersion
     if ($null -eq $sunshineVersion -or $sunshineVersion -lt $MinimumSunshineVersion) {
         throw "Sunshine $MinimumSunshineVersion or later stable is required."
     }
-    $remoteAccount = [Environment]::GetEnvironmentVariable('CAZ_GAME_STREAM_REMOTE_ACCOUNT')
-    if ([string]::IsNullOrWhiteSpace($remoteAccount)) {
-        throw 'Manual ceremony required: select the existing dedicated standard remote-play account.'
-    }
-    $remoteAccountSid = Get-RemoteAccountSid -AccountName $remoteAccount
-
     Set-SunshineSetting -Name upnp -Value disabled
     Set-SunshineSetting -Name origin_web_ui_allowed -Value pc
     Set-SunshineSetting -Name address_family -Value ipv4
@@ -1028,19 +725,19 @@ if ($Role -eq 'Host') {
     if ($null -eq $sunshineService) {
         throw 'Sunshine is installed, but its Windows service is unavailable.'
     }
-    if ($remotePlay -eq 'Enabled') {
-        Enable-SessionPolicy `
-            -RemoteAccountSid $remoteAccountSid `
-            -SunshineService $sunshineService
+    Remove-RetiredSessionPolicy
+    Set-Service -Name $sunshineService.Name -StartupType Automatic
+    if ((Get-Service -Name $sunshineService.Name).Status -ne 'Running') {
+        Start-Service -Name $sunshineService.Name
     }
-    else {
-        Disable-SessionPolicy -SunshineService $sunshineService
+    $sunshineService = Get-Service -Name $sunshineService.Name
+    if (-not (Test-SunshineAlwaysAvailable -SunshineService $sunshineService)) {
+        throw 'Sunshine could not be configured as an always-running automatic service.'
     }
 }
 
 Save-DesiredState `
-    -RemotePlay $remotePlay `
-    -RemoteAccountSid $remoteAccountSid `
-    -SourceCommit $sourceCommit
+    -SourceCommit $sourceCommit `
+    -SourceDigest $sourceDigest
 
 Write-Host "Applied declarative game-stream-$($Role.ToLowerInvariant()) security state."

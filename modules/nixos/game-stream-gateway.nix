@@ -8,6 +8,7 @@ let
   cfg = config.homelab.gameStreamGateway;
   interfaceName = "wg-game";
   policyChain = "caz-game-stream";
+  guardChain = "caz-game-stream-guard";
   secretName = "game-stream-gateway/config";
   productionConfiguration = cfg._testConfigFile == null;
   configurationFile =
@@ -19,6 +20,7 @@ let
       pkgs.coreutils
       pkgs.gawk
       pkgs.gnugrep
+      pkgs.gnused
       pkgs.iproute2
       pkgs.iptables
       pkgs.wireguard-tools
@@ -41,6 +43,7 @@ let
       interface_name="$3"
       listen_port="$4"
       policy_chain=${lib.escapeShellArg policyChain}
+      guard_chain=${lib.escapeShellArg guardChain}
 
       interface_values() {
         local wanted="$1"
@@ -173,11 +176,52 @@ let
       }
 
       remove_policy() {
+        if iptables -w -L "$policy_chain" >/dev/null 2>&1; then
+          iptables -w -F "$policy_chain"
+          iptables -w -A "$policy_chain" -j DROP
+        fi
+      }
+
+      ensure_guard() {
+        local duplicate_line
+        local expected_jump="-A FORWARD -i $interface_name -j $guard_chain"
+
+        if ! iptables -w -L "$guard_chain" >/dev/null 2>&1; then
+          iptables -w -N "$guard_chain"
+        fi
+        # Install the deny rule first, then remove only rules below it. The
+        # live chain is never empty and cannot return to broader forwarding.
+        iptables -w -I "$guard_chain" 1 -j DROP
+        while [[ $(iptables -w -S "$guard_chain" | grep -c "^-A $guard_chain ") -gt 1 ]]; do
+          iptables -w -D "$guard_chain" 2
+        done
+
+        iptables -w -I FORWARD 1 -i "$interface_name" -j "$guard_chain"
+        while [[ $(iptables -w -S FORWARD | grep -c "^$expected_jump$") -gt 1 ]]; do
+          duplicate_line=$(iptables -w -S FORWARD | awk -v expected="$expected_jump" '
+            $1 == "-A" { rule_number++ }
+            $0 == expected { duplicate = rule_number }
+            END { print duplicate }
+          ')
+          iptables -w -D FORWARD "$duplicate_line"
+        done
         while iptables -w -C FORWARD -i "$interface_name" -j "$policy_chain" >/dev/null 2>&1; do
           iptables -w -D FORWARD -i "$interface_name" -j "$policy_chain"
         done
-        iptables -w -F "$policy_chain" >/dev/null 2>&1 || true
-        iptables -w -X "$policy_chain" >/dev/null 2>&1 || true
+
+        if ! iptables -w -L "$policy_chain" >/dev/null 2>&1; then
+          iptables -w -N "$policy_chain"
+        fi
+        iptables -w -F "$policy_chain"
+        iptables -w -A "$policy_chain" -j DROP
+      }
+
+      activate_policy() {
+        # The leading DROP remains effective until both steady-state rules
+        # exist. Removing it is the atomic commit point for the rebuilt policy.
+        iptables -w -A "$guard_chain" -j "$policy_chain"
+        iptables -w -A "$guard_chain" -j DROP
+        iptables -w -D "$guard_chain" 1
       }
 
       apply_policy() {
@@ -189,8 +233,10 @@ let
         host_address="''${allowed_ips[0]}"
         client_address="''${allowed_ips[1]}"
 
-        remove_policy
-        iptables -w -N "$policy_chain"
+        ensure_guard
+        # An empty policy returns to the guard's unconditional DROP, so a
+        # failed or interrupted rebuild remains fail closed.
+        iptables -w -F "$policy_chain"
         iptables -w -A "$policy_chain" -m conntrack --ctstate INVALID -j DROP
         iptables -w -A "$policy_chain" \
           -s "$host_address" -d "$client_address" \
@@ -204,7 +250,49 @@ let
           -p udp -m multiport --dports 47998:48000,48002,48010 \
           -m conntrack --ctstate NEW,ESTABLISHED,RELATED -j ACCEPT
         iptables -w -A "$policy_chain" -j DROP
-        iptables -w -I FORWARD 1 -i "$interface_name" -j "$policy_chain"
+        activate_policy
+      }
+
+      policy_is_exact() {
+        local host_address="$1"
+        local client_address="$2"
+        local first_forward_rule
+        local first_guard_rule
+        local last_guard_rule
+        local first_policy_rule
+        local last_policy_rule
+
+        iptables -w -C "$guard_chain" -j "$policy_chain" >/dev/null 2>&1 || return 1
+        iptables -w -C "$guard_chain" -j DROP >/dev/null 2>&1 || return 1
+        iptables -w -C "$policy_chain" -m conntrack --ctstate INVALID -j DROP >/dev/null 2>&1 || return 1
+        iptables -w -C "$policy_chain" \
+          -s "$host_address" -d "$client_address" \
+          -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT >/dev/null 2>&1 || return 1
+        iptables -w -C "$policy_chain" \
+          -s "$client_address" -d "$host_address" \
+          -p tcp -m multiport --dports 47984,47989,48010 \
+          -m conntrack --ctstate NEW,ESTABLISHED,RELATED -j ACCEPT >/dev/null 2>&1 || return 1
+        iptables -w -C "$policy_chain" \
+          -s "$client_address" -d "$host_address" \
+          -p udp -m multiport --dports 47998:48000,48002,48010 \
+          -m conntrack --ctstate NEW,ESTABLISHED,RELATED -j ACCEPT >/dev/null 2>&1 || return 1
+        iptables -w -C "$policy_chain" -j DROP >/dev/null 2>&1 || return 1
+
+        [[ $(iptables -w -S "$guard_chain" | grep -c "^-A $guard_chain ") -eq 2 ]] || return 1
+        [[ $(iptables -w -S "$policy_chain" | grep -c "^-A $policy_chain ") -eq 5 ]] || return 1
+        [[ $(iptables -w -S FORWARD | grep -c "^-A FORWARD -i $interface_name -j $guard_chain$") -eq 1 ]] || return 1
+        [[ $(iptables -w -S FORWARD | grep -c "^-A FORWARD -i $interface_name -j $policy_chain$") -eq 0 ]] || return 1
+
+        first_forward_rule=$(iptables -w -S FORWARD | sed -n '2p')
+        first_guard_rule=$(iptables -w -S "$guard_chain" | sed -n '2p')
+        last_guard_rule=$(iptables -w -S "$guard_chain" | tail -n 1)
+        first_policy_rule=$(iptables -w -S "$policy_chain" | sed -n '2p')
+        last_policy_rule=$(iptables -w -S "$policy_chain" | tail -n 1)
+        [[ "$first_forward_rule" == "-A FORWARD -i $interface_name -j $guard_chain" ]] || return 1
+        [[ "$first_guard_rule" == "-A $guard_chain -j $policy_chain" ]] || return 1
+        [[ "$last_guard_rule" == "-A $guard_chain -j DROP" ]] || return 1
+        [[ "$first_policy_rule" == "-A $policy_chain -m conntrack --ctstate INVALID -j DROP" ]] || return 1
+        [[ "$last_policy_rule" == "-A $policy_chain -j DROP" ]]
       }
 
       report_status() {
@@ -241,8 +329,8 @@ let
           echo "drifted: WireGuard listener differs from the reviewed port"
           exit 10
         fi
-        if ! iptables -w -C FORWARD -i "$interface_name" -j "$policy_chain" >/dev/null 2>&1; then
-          echo "drifted: narrow forwarding policy is absent"
+        if ! policy_is_exact "''${configured_routes[0]}" "''${configured_routes[1]}"; then
+          echo "drifted: exact fail-closed forwarding policy differs"
           exit 10
         fi
 
@@ -340,9 +428,36 @@ in
       # before the repository's broad RFC1918 accepts can classify it as LAN.
       extraCommands = lib.mkBefore ''
         iptables -w -I nixos-fw 1 -i ${interfaceName} -j nixos-fw-log-refuse
+        iptables -w -N ${guardChain} 2>/dev/null || true
+        iptables -w -I ${guardChain} 1 -j DROP
+        while [ "$(iptables -w -S ${guardChain} | grep -c '^-A ${guardChain} ')" -gt 1 ]; do
+          iptables -w -D ${guardChain} 2
+        done
+        iptables -w -I FORWARD 1 -i ${interfaceName} -j ${guardChain}
+        while [ "$(iptables -w -S FORWARD | grep -c '^-A FORWARD -i ${interfaceName} -j ${guardChain}$')" -gt 1 ]; do
+          duplicate_line=$(iptables -w -S FORWARD | ${pkgs.gawk}/bin/awk '
+            $1 == "-A" { rule_number++ }
+            $0 == "-A FORWARD -i ${interfaceName} -j ${guardChain}" { duplicate = rule_number }
+            END { print duplicate }
+          ')
+          iptables -w -D FORWARD "$duplicate_line"
+        done
+        while iptables -w -C FORWARD -i ${interfaceName} -j ${policyChain} 2>/dev/null; do
+          iptables -w -D FORWARD -i ${interfaceName} -j ${policyChain}
+        done
+        iptables -w -N ${policyChain} 2>/dev/null || true
+        iptables -w -F ${policyChain}
+        iptables -w -A ${policyChain} -j DROP
       '';
       extraStopCommands = lib.mkAfter ''
         iptables -w -D nixos-fw -i ${interfaceName} -j nixos-fw-log-refuse 2>/dev/null || true
+        # Deliberately retain the FORWARD guard after the general firewall is
+        # stopped. The WireGuard service has an independent lifecycle, so
+        # removing this jump would turn a firewall stop into a tunnel bypass.
+        if iptables -w -L ${policyChain} >/dev/null 2>&1; then
+          iptables -w -F ${policyChain}
+          iptables -w -A ${policyChain} -j DROP
+        fi
       '';
     };
 

@@ -70,7 +70,10 @@ It drops all tunnel traffic to the gateway and LAN. Forwarding permits only
 the client role to reach the host role on TCP `47984`, `47989`, and `48010`
 and UDP `47998-48000`, `48002`, and `48010`; the host may return only
 established traffic. WireGuard's exact `AllowedIPs` rejects spoofed role
-sources.
+sources. A persistent guard chain drops tunnel forwarding while the exact
+role policy is absent, stopped, or being rebuilt. The guard remains when the
+general firewall service stops, so neither service lifecycle can make tunnel
+traffic fall through to broader forwarding rules.
 
 After deployment, this report prints counts and compliance categories without
 printing keys, endpoints, addresses, or peer mappings:
@@ -90,9 +93,8 @@ Generate each Windows enrollment outside the repository. Each file must have:
 - `PersistentKeepalive = 25`;
 - no default, LAN, DNS, table, save, or command-hook directive.
 
-Review the source commit before applying. The host account named below is an
-example role label, not a committed mapping; create the real dedicated
-standard account manually and supply its local name only on the intended host.
+Review the source commit before applying. No device, person, Windows account,
+or private network value is selected in the repository.
 
 ```powershell
 $commit = git rev-parse HEAD
@@ -102,8 +104,6 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -File .\bootstrap\windows.ps1 `
   -Profile game-stream-host `
   -GameStreamEnrollmentFile C:\private\game-stream-host.conf `
-  -GameStreamRemoteAccount game-stream `
-  -GameStreamRemotePlay Disabled `
   -SourceCommit $commit
 
 # Intended Windows client only.
@@ -131,39 +131,19 @@ The host policy:
 - disables installer-created or other broad Sunshine inbound rules;
 - permits only the enrolled client `/32`, the `game-stream` interface, the
   Sunshine executable, and the exact streaming ports;
-- requires the selected remote account to be enabled and belong only to the
-  built-in Users group;
-- rejects Sunshine applications that bypass its global session gate;
-- keeps Sunshine disabled by default until the unattended policy is explicitly
-  enabled.
+- removes retired session-arbiter, handoff-control, and Sunshine preparation
+  command state;
+- configures Sunshine as an automatic, running service so the shared console is
+  available without a per-session setup step;
+- records a digest of the exact profile, capability, and helper bytes being
+  applied; and
+- records `trusted-shared-console` as the deliberate Windows session model.
 
-After local credentials and pairing are complete, enable the unattended policy
-once by reapplying the host role with the same account. The DPAPI tunnel is
-reused; no plaintext enrollment file is needed:
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass `
-  -File .\bootstrap\windows.ps1 `
-  -Profile game-stream-host `
-  -GameStreamRemoteAccount game-stream `
-  -GameStreamRemotePlay Enabled `
-  -SourceCommit $commit
-```
-
-`Enabled` does not mean that the primary desktop is continuously streamable.
-It installs a SYSTEM session-arbiter task and a per-stream Sunshine gate. At
-boot, logon, console switch, lock, and unlock, the arbiter reconciles Sunshine:
-
-- no signed-in console user or a locked console: available;
-- the selected remote account unlocked: available;
-- any other account unlocked: stopped and unavailable;
-- unknown session state or an arbiter error: stopped (fail closed).
-
-Every Sunshine application also inherits a prep command that aborts launch
-when a non-remote account is unlocked. Reapply with `-GameStreamRemotePlay
-Disabled` to unregister the arbiter, remove its installed script, clear its
-Sunshine prep command, disable the Sunshine service, and leave the WireGuard
-tunnel enrolled for later reuse.
+There is no remote mode, idle detector, user-switch hook, scheduled session
+task, or per-play handoff. The WireGuard tunnel and Sunshine service start
+automatically. Subject to the pilot-proven display, power, reboot, and Windows
+login behavior, an enrolled and paired client can connect without anyone first
+preparing the host.
 
 Check without installing, importing, or changing state:
 
@@ -175,48 +155,41 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
 ```
 
 Compliance output uses `compliant`, `drifted`, `manual ceremony required`, or
-`environmental warning`. Reports include only the generic role and reviewed
-source commit. They never print keys, endpoints, addresses, account names, or
-peer mappings.
+`environmental warning`. It verifies the applied source digest but reports only
+the generic role and reviewed source commit. It never prints keys, endpoints,
+addresses, peer mappings, or the source digest.
 
-## Windows identity boundary
+## Trusted shared-console boundary
 
-V1 selects one existing, dedicated local standard account for the remote-play
-session. Its only local-group membership may be the built-in Users group. Do
-not place personal credentials or secrets in its profile, and grant
-game-library access only where the pilot proves it is needed. The role records
-the account SID and reports drift if the account becomes disabled or gains
-another local-group membership; it does not create the account, know a
-person's identity, broaden filesystem ACLs, or change another user's files.
+V1 deliberately exposes the PC's single active Windows console. Sunshine
+follows that console, and Moonlight pairing is host-wide rather than tied to a
+Windows account. A paired user can therefore view and control the login screen
+or whichever account is active, including the main account, subject to what the
+pilot proves on the actual hardware. This behavior follows Sunshine's
+documented [Windows service model](https://github.com/LizardByte/Sunshine/blob/master/tools/sunshinesvc.cpp).
 
-A separate Windows account is necessary but is not, by itself, a hard
-Sunshine session boundary. Sunshine controls the active Windows console, and
-Moonlight pairing is host-wide rather than tied to a Windows login. The
-supported availability signal is therefore Windows session state, not an idle
-timer: treat an unlocked primary session as active, and configure Windows to
-lock normally when the owner is done. A remote player can connect when the
-primary session is locked or signed out, select the dedicated account at the
-Windows sign-in screen, and authenticate with that account's credentials.
+This is a trust model, not account isolation. Anyone who controls both an
+enrolled WireGuard client and its paired Moonlight state can act through the
+active Windows session. If that session is an administrator account, they have
+the same ordinary desktop access that account has. Treat the Windows login
+credential, WireGuard key, and Moonlight pairing as sensitive credentials, and
+revoke both network enrollment and pairing when a client is lost or retired.
 
-Sunshine's Windows service follows the active console session, while Windows
-reports lock/unlock and console-switch state through WTS and Task Scheduler.
-The declarative arbiter stops Sunshine for an unlocked non-remote account; the
-global prep command is a second check before Sunshine launches any stream.
-Unlocking or switching to the primary account has priority and must disconnect
-the remote stream. These mechanisms are based on the documented
-[Sunshine service model](https://github.com/LizardByte/Sunshine/blob/master/tools/sunshinesvc.cpp),
-[prep-command failure behavior](https://docs.lizardbyte.dev/projects/sunshine/latest/md_docs_2getting__started.html),
-and Windows [session lock flags](https://learn.microsoft.com/windows/win32/api/wtsapi32/ns-wtsapi32-wtsinfoex_level1_w)
-and [session-state task triggers](https://learn.microsoft.com/windows/win32/api/taskschd/ne-taskschd-task_session_state_change_type).
+The configuration does not try to infer whether the local owner is active. A
+local player and a remote player would share the same display, audio, and input;
+they must coordinate who is using the PC. Stopping Sunshine is an available
+manual emergency action, but the declarative check will correctly report that
+as drift because the intended v1 state is always available.
 
-The pilot must still prove that connection startup, lock-screen capture, fast
-user switching, unlock, sleep, and reboot never expose a frame from an unlocked
-primary desktop. Until that passes, this is a fail-closed candidate design,
-not a proven hard boundary. If Sunshine reconnects across a console switch or
-shows the primary desktop before the arbiter stops it, use a dedicated VM or
-physical host. Do not weaken the gate or expose RDP, WinRM, SMB, or Sunshine's
-Web UI to make the shared-PC design work. The host role also enables Microsoft's
-device policy to [suppress lock-screen app notifications](https://learn.microsoft.com/windows/client-management/mdm/policy-csp-windowslogon#disablelockscreenappnotifications).
+Signing out of email, browsers, messaging, password managers, or other private
+applications before adopting this model is useful personal hygiene, but it is
+not an enforced security boundary. Requiring purchase confirmation in game
+stores is similarly independent of this repository. If future requirements
+need technical separation from the main account, the next architecture should
+be a dedicated VM or physical host rather than session-detection scripts on the
+shared console. Do not expose RDP, WinRM, SMB, or Sunshine's Web UI to make this
+design work. The host role also enables Microsoft's device policy to
+[suppress lock-screen app notifications](https://learn.microsoft.com/windows/client-management/mdm/policy-csp-windowslogon#disablelockscreenappnotifications).
 
 ## Manual ceremonies and pilot-owned state
 
@@ -224,15 +197,16 @@ These remain deliberate manual steps:
 
 - generating keys and private enrollment files;
 - router UDP forwarding;
-- creating the standard Windows session and local credentials;
+- deciding how the trusted remote user will unlock or sign into the shared
+  Windows account;
 - Sunshine Web UI credentials and Moonlight PIN pairing;
 - game-account sign-in, MFA, and licenses;
 - EDID/dummy-plug handling;
-- configuring an ordinary Windows automatic-lock timeout appropriate for the
-  primary user;
-- recording tested power, display, reboot, lock, unlock, and session-switch
-  behavior;
+- signing out of sensitive applications and enabling purchase confirmation as
+  desired for this shared device;
+- recording tested power, display, reboot, login-screen, and simultaneous local
+  and remote behavior;
 - two-step revocation: remove the WireGuard enrollment and Sunshine pairing.
 
-Do not add declarative power/display or account ACL changes until the pilot has
-shown exactly which settings are necessary.
+Do not add declarative power/display changes until the pilot has shown exactly
+which settings are necessary.

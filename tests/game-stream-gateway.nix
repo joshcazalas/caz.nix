@@ -205,7 +205,9 @@ pkgs.testers.runNixOSTest {
     client.wait_for_unit("wg-quick-wg-test.service")
     client.wait_for_unit("client-test-listener.service")
 
-    gateway.succeed("iptables -w -C FORWARD -i wg-game -j caz-game-stream")
+    gateway.succeed("iptables -w -C FORWARD -i wg-game -j caz-game-stream-guard")
+    gateway.succeed("iptables -w -C caz-game-stream-guard -j caz-game-stream")
+    gateway.succeed("iptables -w -C caz-game-stream-guard -j DROP")
     gateway.succeed("iptables -w -C nixos-fw -i wg-game -j nixos-fw-log-refuse")
     gateway.succeed(
       "iptables -w -C caz-game-stream -s ${clientAddress}/32 -d ${hostAddress}/32 "
@@ -226,6 +228,40 @@ pkgs.testers.runNixOSTest {
     )
     client.fail("curl --fail --silent --connect-timeout 2 http://${hostAddress}:9999/")
     host.fail("curl --fail --silent --connect-timeout 2 http://${clientAddress}:7777/")
+
+    # Stopping or interrupting the policy updater must retain a persistent
+    # FORWARD guard and deny tunnel traffic until the exact policy is restored.
+    gateway.succeed("systemctl stop game-stream-gateway-policy.service")
+    gateway.succeed("iptables -w -C FORWARD -i wg-game -j caz-game-stream-guard")
+    gateway.succeed("iptables -w -C caz-game-stream -j DROP")
+    client.fail("curl --fail --silent --connect-timeout 2 http://${hostAddress}:47989/")
+    gateway.succeed("systemctl start game-stream-gateway-policy.service")
+    client.wait_until_succeeds(
+      "curl --fail --silent --max-time 5 http://${hostAddress}:47989/ >/dev/null"
+    )
+
+    # Even the transient empty-chain state of an interrupted rebuild returns
+    # to the guard's DROP instead of falling through to broader forwarding.
+    gateway.succeed("iptables -w -F caz-game-stream")
+    client.fail("curl --fail --silent --connect-timeout 2 http://${hostAddress}:47989/")
+    gateway.succeed("systemctl restart game-stream-gateway-policy.service")
+    client.wait_until_succeeds(
+      "curl --fail --silent --max-time 5 http://${hostAddress}:47989/ >/dev/null"
+    )
+    gateway.succeed(
+      "caz-game-stream-gateway report ${gatewayFixture} wg-game ${toString listenerPort}"
+    )
+
+    # The tunnel has an independent lifecycle, so stopping the general NixOS
+    # firewall must retain the dedicated forwarding guard and fail closed.
+    gateway.succeed("systemctl stop firewall.service")
+    gateway.succeed("iptables -w -C FORWARD -i wg-game -j caz-game-stream-guard")
+    client.fail("curl --fail --silent --connect-timeout 2 http://${hostAddress}:47989/")
+    gateway.succeed("systemctl start firewall.service")
+    gateway.succeed("systemctl start game-stream-gateway-policy.service")
+    client.wait_until_succeeds(
+      "curl --fail --silent --max-time 5 http://${hostAddress}:47989/ >/dev/null"
+    )
 
     # Temporarily add the gateway /32 to the client peer only to prove that
     # gateway-local input is refused even if a client tries to add a route.

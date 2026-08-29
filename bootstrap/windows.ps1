@@ -9,11 +9,6 @@ param(
 
     [string]$GameStreamEnrollmentFile,
 
-    [string]$GameStreamRemoteAccount,
-
-    [ValidateSet('Enabled', 'Disabled')]
-    [string]$GameStreamRemotePlay = 'Disabled',
-
     [ValidatePattern('^[0-9a-fA-F]{40}$')]
     [string]$SourceCommit
 )
@@ -202,6 +197,39 @@ function Get-ReviewedSourceCommit {
     throw 'Game-stream profiles require -SourceCommit with the reviewed 40-character Git commit when git.exe is unavailable.'
 }
 
+function Get-GameStreamSourceDigest {
+    param([Parameter(Mandatory)][string[]]$Capabilities)
+
+    $files = [Collections.Generic.List[string]]::new()
+    $files.Add((Join-Path $SourceProfilesRoot "$Profile.json"))
+    foreach ($capability in $Capabilities) {
+        $files.Add((Join-Path $SourceCapabilitiesRoot "$capability.winget"))
+    }
+    $files.Add((Join-Path $PSScriptRoot 'windows-game-stream.ps1'))
+
+    $manifest = [Text.StringBuilder]::new()
+    foreach ($path in @($files | Sort-Object)) {
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+            throw "A game-stream source file is missing: $path"
+        }
+        $relativePath = $path.Substring($RepositoryRoot.Length).TrimStart([char[]]'\/')
+        $fileDigest = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+        $null = $manifest.Append($relativePath.Replace('\', '/'))
+        $null = $manifest.Append("`0")
+        $null = $manifest.Append($fileDigest)
+        $null = $manifest.Append("`n")
+    }
+
+    $sha256 = [Security.Cryptography.SHA256]::Create()
+    try {
+        $bytes = [Text.Encoding]::UTF8.GetBytes($manifest.ToString())
+        return ([BitConverter]::ToString($sha256.ComputeHash($bytes))).Replace('-', '').ToLowerInvariant()
+    }
+    finally {
+        $sha256.Dispose()
+    }
+}
+
 function Stage-Configuration {
     param([Parameter(Mandatory)][string[]]$Capabilities)
 
@@ -241,14 +269,6 @@ function Stage-Configuration {
             throw "The game-stream role helper is missing: $helper"
         }
         Copy-Item -LiteralPath $helper -Destination $StagedScriptsRoot -Force
-
-        if ($Capabilities -contains 'game-stream-host') {
-            $sessionHelper = Join-Path $PSScriptRoot 'windows-game-stream-session.ps1'
-            if (-not (Test-Path -LiteralPath $sessionHelper -PathType Leaf)) {
-                throw "The game-stream session helper is missing: $sessionHelper"
-            }
-            Copy-Item -LiteralPath $sessionHelper -Destination $StagedScriptsRoot -Force
-        }
 
         if (-not [string]::IsNullOrWhiteSpace($GameStreamEnrollmentFile)) {
             if (-not (Test-Path -LiteralPath $GameStreamEnrollmentFile -PathType Leaf)) {
@@ -299,8 +319,6 @@ try {
         $capabilities -contains 'game-stream-client'
     if (-not $gameStreamRole -and (
         -not [string]::IsNullOrWhiteSpace($GameStreamEnrollmentFile) -or
-        -not [string]::IsNullOrWhiteSpace($GameStreamRemoteAccount) -or
-        $GameStreamRemotePlay -ne 'Disabled' -or
         -not [string]::IsNullOrWhiteSpace($SourceCommit)
     )) {
         throw 'Game-stream inputs are accepted only by a game-stream host or client profile.'
@@ -308,10 +326,6 @@ try {
     if ($Check -and -not [string]::IsNullOrWhiteSpace($GameStreamEnrollmentFile)) {
         throw '-Check is read-only and cannot consume a game-stream enrollment file.'
     }
-    if ($capabilities -contains 'game-stream-client' -and -not [string]::IsNullOrWhiteSpace($GameStreamRemoteAccount)) {
-        throw '-GameStreamRemoteAccount applies only to the game-stream-host profile.'
-    }
-
     # WSL paths are UNC paths from Windows. Stage inputs locally and launch
     # WinGet from a native working directory.
     Set-Location -LiteralPath $env:SystemRoot
@@ -356,9 +370,8 @@ try {
         else {
             $null
         }
-        $env:CAZ_GAME_STREAM_REMOTE_ACCOUNT = $GameStreamRemoteAccount
-        $env:CAZ_GAME_STREAM_REMOTE_PLAY = $GameStreamRemotePlay
         $env:CAZ_GAME_STREAM_SOURCE_COMMIT = if ($Check) { $null } else { Get-ReviewedSourceCommit }
+        $env:CAZ_GAME_STREAM_SOURCE_DIGEST = Get-GameStreamSourceDigest -Capabilities $capabilities
     }
 
     foreach ($capability in $capabilities) {

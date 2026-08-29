@@ -146,7 +146,6 @@ foreach ($file in $profiles) {
 $hostCapability = Get-Content -LiteralPath (Join-Path $CapabilitiesRoot 'game-stream-host.winget') -Raw
 $clientCapability = Get-Content -LiteralPath (Join-Path $CapabilitiesRoot 'game-stream-client.winget') -Raw
 $gameStreamHelper = Get-Content -LiteralPath (Join-Path $RepositoryRoot 'bootstrap\windows-game-stream.ps1') -Raw
-$sessionArbiter = Get-Content -LiteralPath (Join-Path $RepositoryRoot 'bootstrap\windows-game-stream-session.ps1') -Raw
 foreach ($required in @(
     'LizardByte.Sunshine',
     'WireGuard.WireGuard',
@@ -172,7 +171,11 @@ foreach ($required in @(
     "origin_web_ui_allowed",
     "global_prep_cmd",
     "PersistentKeepalive = 25",
-    "SessionUnlock",
+    "sourceDigest",
+    "trusted-shared-console",
+    "Test-SunshineAlwaysAvailable",
+    "Remove-RetiredSessionPolicy",
+    "StartupType Automatic",
     'WireGuardTunnel`$'
 )) {
     if ($gameStreamHelper -notmatch [regex]::Escape($required)) {
@@ -182,14 +185,12 @@ foreach ($required in @(
 if ($gameStreamHelper -match '(?im)^\s*(PrivateKey|PublicKey|Endpoint|Address|AllowedIPs)\s*=') {
     throw 'The game-stream helper must not embed production WireGuard material.'
 }
-foreach ($required in @(
-    'WTSGetActiveConsoleSessionId',
-    'WTSQuerySessionInformationW',
-    'Remote play is unavailable while a non-remote Windows session is unlocked.',
-    "ValidateSet('Gate', 'Reconcile')"
+foreach ($retiredHelper in @(
+    'bootstrap\windows-game-stream-session.ps1',
+    'bootstrap\windows-game-stream-control.ps1'
 )) {
-    if ($sessionArbiter -notmatch [regex]::Escape($required)) {
-        throw "The game-stream session arbiter is missing the '$required' guardrail."
+    if (Test-Path -LiteralPath (Join-Path $RepositoryRoot $retiredHelper)) {
+        throw "The retired game-stream session helper remains present: $retiredHelper"
     }
 }
 

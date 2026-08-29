@@ -66,4 +66,4 @@ resources:
     metadata:
       winget:
         securityContext: elevated
-      description: Apply the narrow tunnel, Sunshine, firewall, and enable-state policy
+      description: Apply the narrow tunnel, Sunshine, firewall, and trusted shared-console baseline
