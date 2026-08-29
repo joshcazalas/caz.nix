@@ -123,14 +123,8 @@ Every push to `main` creates one release named:
 caz.nix-YYYY.MM.DD-g<12-character-commit>
 ```
 
-The release job builds every declared output but deliberately does not repeat
-linting or the full-history secret scan. `main` requires the `Validate` check
-in strict mode, so a branch must be current with `main` before it can merge and
-CI runs against the merge result: the tree that lands is the exact tree that was
-already linted and scanned. Administrators are held to that rule and force
-pushes are blocked, so no commit reaches `main` around it. **Relaxing strict
-mode, admin enforcement, or force-push protection means restoring those steps
-in `release.yml`.**
+The release job builds every declared output from the resulting `main` commit.
+It does not repeat linting or the full-history secret scan.
 
 The UTC date is pleasant to scan, and the commit suffix makes the tag unique
 and traceable if several changes land on one day. A release contains:
@@ -159,9 +153,8 @@ private repositories.
 
 After the sanitized history becomes `main` and the repository becomes public:
 
-1. require the `CI / Validate` check before merging to `main`, in strict mode
-   and with administrators included — the release job trusts this instead of
-   linting and scanning `main` a second time;
+1. require the `CI / Validate` check before merging to `main`, with
+   administrators included;
 2. require pull requests and block force pushes to `main`;
 3. enable GitHub secret scanning and push protection;
 4. enable immutable releases before the first public release;
