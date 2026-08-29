@@ -41,8 +41,10 @@ resources:
         return @{ exitCode = $LASTEXITCODE; summary = ($output -join "`n") }
       testScript: |
         $script = "${WinGetConfigRoot}\scripts\windows-game-stream.ps1"
-        $null = & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $script -Role Client -Check
-        return ($LASTEXITCODE -eq 0)
+        $output = @(& powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $script -Role Client -Check 2>&1)
+        $exitCode = $LASTEXITCODE
+        if ($exitCode -eq 30) { Write-Warning ($output -join "`n") }
+        return ($exitCode -in @(0, 30))
       setScript: |
         $script = "${WinGetConfigRoot}\scripts\windows-game-stream.ps1"
         & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $script -Role Client
