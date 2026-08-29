@@ -434,18 +434,26 @@ function Test-SunshineFirewall {
     }
     foreach ($name in $expected.Keys) {
         $rule = Get-NetFirewallRule -Name $name -ErrorAction SilentlyContinue
-        if ($null -eq $rule -or $rule.Enabled -ne 'True' -or $rule.Action -ne 'Allow') {
+        if (
+            $null -eq $rule -or
+            $rule.Enabled -ne 'True' -or
+            $rule.Action -ne 'Allow' -or
+            $rule.Direction -ne 'Inbound' -or
+            $rule.Profile -ne 'Any'
+        ) {
             return $false
         }
         $application = $rule | Get-NetFirewallApplicationFilter
         $address = $rule | Get-NetFirewallAddressFilter
         $interface = $rule | Get-NetFirewallInterfaceFilter
         $port = $rule | Get-NetFirewallPortFilter
+        $interfaceAliases = @($interface.InterfaceAlias)
         if (
             $application.Program -ine $SunshineExecutable -or
             @($address.RemoteAddress).Count -ne 1 -or
             @($address.RemoteAddress)[0] -ine $RemoteAddress -or
-            @($interface.InterfaceAlias) -notcontains $TunnelName -or
+            $interfaceAliases.Count -ne 1 -or
+            $interfaceAliases[0] -ine $TunnelName -or
             $port.Protocol -ine $expected[$name].Protocol -or
             (Compare-Object @($port.LocalPort | Sort-Object) @($expected[$name].Ports | Sort-Object))
         ) {
@@ -566,18 +574,31 @@ function Test-Configuration {
     if (Test-Path -LiteralPath $PlaintextConfiguration -PathType Leaf) {
         $drift.Add('plaintext WireGuard configuration remains in the managed configuration directory')
     }
-    if ($null -eq (Get-Service -Name $TunnelServiceName -ErrorAction SilentlyContinue)) {
+    $tunnelService = Get-Service -Name $TunnelServiceName -ErrorAction SilentlyContinue
+    if ($null -eq $tunnelService) {
         $manual.Add('WireGuard tunnel service enrollment is required')
     }
-    elseif ($null -ne $wg) {
-        if ($null -eq (Get-TunnelPeerRoute -Wg $wg)) {
-            $drift.Add('tunnel route is not one exact opposite-role IPv4 /32')
+    else {
+        $tunnelServiceConfiguration = Get-CimInstance `
+            Win32_Service `
+            -Filter "Name='$TunnelServiceName'"
+        if (
+            $null -eq $tunnelServiceConfiguration -or
+            $tunnelServiceConfiguration.StartMode -ne 'Auto' -or
+            $tunnelService.Status -ne 'Running'
+        ) {
+            $drift.Add('WireGuard tunnel service is not automatic and running')
         }
-        if (-not (Test-TunnelKeepalive -Wg $wg)) {
-            $drift.Add('tunnel keepalive differs from 25 seconds')
-        }
-        if (-not (Test-TunnelHandshakeHealthy -Wg $wg)) {
-            $warnings.Add('gateway handshake is absent or stale')
+        if ($null -ne $wg) {
+            if ($null -eq (Get-TunnelPeerRoute -Wg $wg)) {
+                $drift.Add('tunnel route is not one exact opposite-role IPv4 /32')
+            }
+            if (-not (Test-TunnelKeepalive -Wg $wg)) {
+                $drift.Add('tunnel keepalive differs from 25 seconds')
+            }
+            if (-not (Test-TunnelHandshakeHealthy -Wg $wg)) {
+                $warnings.Add('gateway handshake is absent or stale')
+            }
         }
     }
     $dangerousScripts = Get-ItemPropertyValue `
@@ -670,6 +691,15 @@ $wireGuard = Get-WireGuardCommand
 if ($null -eq $wireGuard) {
     throw 'The official WireGuard package must be installed before applying this role.'
 }
+
+# Disable Local System configuration hooks before any existing or newly
+# imported tunnel can be started during convergence.
+$null = New-Item -ItemType Directory -Path 'HKLM:\Software\WireGuard' -Force
+Remove-ItemProperty `
+    -LiteralPath 'HKLM:\Software\WireGuard' `
+    -Name DangerousScriptExecution `
+    -ErrorAction SilentlyContinue
+
 $enrollmentFile = [Environment]::GetEnvironmentVariable('CAZ_GAME_STREAM_ENROLLMENT_FILE')
 if (-not [string]::IsNullOrWhiteSpace($enrollmentFile)) {
     try {
@@ -684,12 +714,6 @@ if (-not (Test-Path -LiteralPath $DpapiConfiguration -PathType Leaf)) {
     throw 'Manual ceremony required: provide the one-time local WireGuard enrollment file.'
 }
 Start-DpapiTunnelService -WireGuard $wireGuard
-
-$null = New-Item -ItemType Directory -Path 'HKLM:\Software\WireGuard' -Force
-Remove-ItemProperty `
-    -LiteralPath 'HKLM:\Software\WireGuard' `
-    -Name DangerousScriptExecution `
-    -ErrorAction SilentlyContinue
 
 $wg = Get-WgCommand
 if ($null -eq $wg) {
@@ -716,20 +740,26 @@ if ($Role -eq 'Host') {
     if ($null -eq $sunshineVersion -or $sunshineVersion -lt $MinimumSunshineVersion) {
         throw "Sunshine $MinimumSunshineVersion or later stable is required."
     }
-    Set-SunshineSetting -Name upnp -Value disabled
-    Set-SunshineSetting -Name origin_web_ui_allowed -Value pc
-    Set-SunshineSetting -Name address_family -Value ipv4
-    Set-SunshineFirewall -RemoteAddress $peerRoute
-
     $sunshineService = Get-SunshineService
     if ($null -eq $sunshineService) {
         throw 'Sunshine is installed, but its Windows service is unavailable.'
     }
+
+    # Keep Sunshine fail closed while its on-disk configuration and firewall
+    # policy change. A clean restart is required for those settings to become
+    # the running process state.
+    Set-Service -Name $sunshineService.Name -StartupType Disabled
+    if ((Get-Service -Name $sunshineService.Name).Status -ne 'Stopped') {
+        Stop-Service -Name $sunshineService.Name -Force
+    }
+
+    Set-SunshineSetting -Name upnp -Value disabled
+    Set-SunshineSetting -Name origin_web_ui_allowed -Value pc
+    Set-SunshineSetting -Name address_family -Value ipv4
+    Set-SunshineFirewall -RemoteAddress $peerRoute
     Remove-RetiredSessionPolicy
     Set-Service -Name $sunshineService.Name -StartupType Automatic
-    if ((Get-Service -Name $sunshineService.Name).Status -ne 'Running') {
-        Start-Service -Name $sunshineService.Name
-    }
+    Start-Service -Name $sunshineService.Name
     $sunshineService = Get-Service -Name $sunshineService.Name
     if (-not (Test-SunshineAlwaysAvailable -SunshineService $sunshineService)) {
         throw 'Sunshine could not be configured as an always-running automatic service.'

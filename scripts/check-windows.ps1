@@ -176,11 +176,54 @@ foreach ($required in @(
     "Test-SunshineAlwaysAvailable",
     "Remove-RetiredSessionPolicy",
     "StartupType Automatic",
+    "StartupType Disabled",
+    "WireGuard tunnel service is not automatic and running",
+    '$rule.Direction',
+    '$rule.Profile',
+    '$interfaceAliases.Count',
     'WireGuardTunnel`$'
 )) {
     if ($gameStreamHelper -notmatch [regex]::Escape($required)) {
         throw "The game-stream helper is missing the '$required' guardrail."
     }
+}
+$dangerousScriptsOffset = $gameStreamHelper.IndexOf('Remove-ItemProperty')
+$enrollmentImportOffset = $gameStreamHelper.IndexOf(
+    'Import-WireGuardEnrollment -WireGuard $wireGuard -EnrollmentFile $enrollmentFile'
+)
+$tunnelStartOffset = $gameStreamHelper.IndexOf('Start-DpapiTunnelService -WireGuard $wireGuard')
+if (
+    $dangerousScriptsOffset -lt 0 -or
+    $enrollmentImportOffset -lt 0 -or
+    $tunnelStartOffset -lt 0 -or
+    $dangerousScriptsOffset -gt $enrollmentImportOffset -or
+    $dangerousScriptsOffset -gt $tunnelStartOffset
+) {
+    throw 'WireGuard Local System hooks must be disabled before enrollment import or tunnel start.'
+}
+$sunshineDisableOffset = $gameStreamHelper.IndexOf(
+    'Set-Service -Name $sunshineService.Name -StartupType Disabled'
+)
+$sunshineStopOffset = $gameStreamHelper.IndexOf('Stop-Service -Name $sunshineService.Name -Force')
+$sunshineSettingOffset = $gameStreamHelper.IndexOf('Set-SunshineSetting -Name upnp -Value disabled')
+$sunshineAutomaticOffset = $gameStreamHelper.IndexOf(
+    'Set-Service -Name $sunshineService.Name -StartupType Automatic'
+)
+$sunshineStartOffset = $gameStreamHelper.IndexOf('Start-Service -Name $sunshineService.Name')
+if (
+    @(
+        $sunshineDisableOffset,
+        $sunshineStopOffset,
+        $sunshineSettingOffset,
+        $sunshineAutomaticOffset,
+        $sunshineStartOffset
+    ) -contains -1 -or
+    $sunshineDisableOffset -gt $sunshineStopOffset -or
+    $sunshineStopOffset -gt $sunshineSettingOffset -or
+    $sunshineSettingOffset -gt $sunshineAutomaticOffset -or
+    $sunshineAutomaticOffset -gt $sunshineStartOffset
+) {
+    throw 'Sunshine must remain disabled and stopped until its managed settings are ready for restart.'
 }
 if ($gameStreamHelper -match '(?im)^\s*(PrivateKey|PublicKey|Endpoint|Address|AllowedIPs)\s*=') {
     throw 'The game-stream helper must not embed production WireGuard material.'

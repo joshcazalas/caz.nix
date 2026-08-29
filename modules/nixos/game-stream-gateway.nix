@@ -81,6 +81,29 @@ let
         ' "$configuration_file"
       }
 
+      peer_values_at() {
+        local peer_number="$1"
+        local wanted="$2"
+        awk -F= -v peer_number="$peer_number" -v wanted="$wanted" '
+          function trim(value) {
+            sub(/^[[:space:]]+/, "", value)
+            sub(/[[:space:]]+$/, "", value)
+            return value
+          }
+          /^[[:space:]]*\[Peer\][[:space:]]*$/ {
+            current_peer++
+            in_peer = current_peer == peer_number
+            next
+          }
+          /^[[:space:]]*\[/ { in_peer = 0; next }
+          in_peer && index($0, "=") {
+            key = trim($1)
+            value = substr($0, index($0, "=") + 1)
+            if (tolower(key) == tolower(wanted)) print trim(value)
+          }
+        ' "$configuration_file"
+      }
+
       validate_key() {
         local key="$1"
         local decoded_length
@@ -105,6 +128,14 @@ let
       }
 
       validate_configuration() {
+        local peer_number
+        local -a public_keys=()
+        local -a allowed_ips=()
+        local -a peer_public_keys
+        local -a peer_allowed_ips
+        local -a peer_preshared_keys
+        local -a peer_keepalives
+
         [[ -r "$configuration_file" ]] || die "the opaque configuration is unavailable"
         [[ "$interface_name" =~ ^[a-zA-Z0-9_=+.-]{1,15}$ ]] || die "the interface name is invalid"
         [[ "$listen_port" =~ ^[0-9]+$ ]] || die "the listener port is invalid"
@@ -139,8 +170,6 @@ let
         mapfile -t interface_addresses < <(interface_values Address)
         mapfile -t private_keys < <(interface_values PrivateKey)
         mapfile -t configured_ports < <(interface_values ListenPort)
-        mapfile -t public_keys < <(peer_values PublicKey)
-        mapfile -t allowed_ips < <(peer_values AllowedIPs)
 
         [[ ''${#interface_addresses[@]} -eq 1 ]] ||
           die "the gateway interface must have one address"
@@ -151,16 +180,40 @@ let
         if [[ ''${#private_keys[@]} -ne 1 ]] || ! validate_key "''${private_keys[0]}"; then
           die "the gateway private key is missing or malformed"
         fi
-        [[ ''${#public_keys[@]} -eq 2 ]] ||
-          die "each role peer must contain one public key"
+        for peer_number in 1 2; do
+          mapfile -t peer_public_keys < <(peer_values_at "$peer_number" PublicKey)
+          mapfile -t peer_allowed_ips < <(peer_values_at "$peer_number" AllowedIPs)
+          mapfile -t peer_preshared_keys < <(peer_values_at "$peer_number" PresharedKey)
+          mapfile -t peer_keepalives < <(peer_values_at "$peer_number" PersistentKeepalive)
+
+          [[ ''${#peer_public_keys[@]} -eq 1 ]] ||
+            die "each role peer must contain exactly one public key"
+          [[ ''${#peer_allowed_ips[@]} -eq 1 ]] ||
+            die "each role peer must contain exactly one route"
+          [[ ''${#peer_preshared_keys[@]} -le 1 ]] ||
+            die "a role peer repeats its optional preshared key"
+          [[ ''${#peer_keepalives[@]} -le 1 ]] ||
+            die "a role peer repeats its optional keepalive"
+          if [[ ''${#peer_preshared_keys[@]} -eq 1 ]]; then
+            validate_key "''${peer_preshared_keys[0]}" ||
+              die "a role peer preshared key is malformed"
+          fi
+          if [[ ''${#peer_keepalives[@]} -eq 1 ]]; then
+            if ! [[ "''${peer_keepalives[0]}" =~ ^[0-9]+$ ]] ||
+              (( 10#''${peer_keepalives[0]} > 65535 )); then
+              die "a role peer keepalive is invalid"
+            fi
+          fi
+
+          public_keys+=("''${peer_public_keys[0]}")
+          allowed_ips+=("''${peer_allowed_ips[0]}")
+        done
+
         for key in "''${public_keys[@]}"; do
           validate_key "$key" || die "a role peer public key is malformed"
         done
         [[ "''${public_keys[0]}" != "''${public_keys[1]}" ]] ||
           die "the host and client role public keys must be distinct"
-        [[ ''${#allowed_ips[@]} -eq 2 ]] ||
-          die "each role peer must declare one exact route"
-
         for address in "''${allowed_ips[@]}"; do
           if [[ "$address" == *,* ]] || ! validate_exact_ipv4_route "$address"; then
             die "each role peer route must be one exact IPv4 /32"
@@ -448,6 +501,12 @@ in
         iptables -w -N ${policyChain} 2>/dev/null || true
         iptables -w -F ${policyChain}
         iptables -w -A ${policyChain} -j DROP
+        # At initial boot the tunnel is not active yet and the policy service
+        # applies later. During reload/restart the live interface is restored
+        # here because PartOf does not propagate a systemd reload.
+        if ${pkgs.wireguard-tools}/bin/wg show ${interfaceName} >/dev/null 2>&1; then
+          ${lib.getExe gatewayControl} apply ${configurationFile} ${interfaceName} ${toString cfg.listenPort}
+        fi
       '';
       extraStopCommands = lib.mkAfter ''
         iptables -w -D nixos-fw -i ${interfaceName} -j nixos-fw-log-refuse 2>/dev/null || true

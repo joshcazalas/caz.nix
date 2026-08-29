@@ -55,6 +55,21 @@ let
     AllowedIPs = ${clientAddress}/32
   '';
 
+  malformedPeerFixture = pkgs.writeText "wg-game-malformed-peer-test.conf" ''
+    [Interface]
+    Address = ${gatewayAddress}/32
+    PrivateKey = ${fixtureKeys.gateway}
+    ListenPort = ${toString listenerPort}
+
+    [Peer]
+    PublicKey = ${hostPublicKey}
+    PublicKey = ${clientPublicKey}
+    AllowedIPs = ${hostAddress}/32
+
+    [Peer]
+    AllowedIPs = ${clientAddress}/32
+  '';
+
   commonNode = {
     networking = {
       firewall.enable = true;
@@ -226,6 +241,9 @@ pkgs.testers.runNixOSTest {
     gateway.succeed(
       "caz-game-stream-gateway report ${gatewayFixture} wg-game ${toString listenerPort}"
     )
+    gateway.fail(
+      "caz-game-stream-gateway validate ${malformedPeerFixture} wg-game ${toString listenerPort}"
+    )
     client.fail("curl --fail --silent --connect-timeout 2 http://${hostAddress}:9999/")
     host.fail("curl --fail --silent --connect-timeout 2 http://${clientAddress}:7777/")
 
@@ -261,6 +279,16 @@ pkgs.testers.runNixOSTest {
     gateway.succeed("systemctl start game-stream-gateway-policy.service")
     client.wait_until_succeeds(
       "curl --fail --silent --max-time 5 http://${hostAddress}:47989/ >/dev/null"
+    )
+
+    # A normal firewall reload must reapply the narrow policy after its
+    # fail-closed guard reset instead of leaving the oneshot active but stale.
+    gateway.succeed("systemctl reload firewall.service")
+    client.wait_until_succeeds(
+      "curl --fail --silent --max-time 5 http://${hostAddress}:47989/ >/dev/null"
+    )
+    gateway.succeed(
+      "caz-game-stream-gateway report ${gatewayFixture} wg-game ${toString listenerPort}"
     )
 
     # Temporarily add the gateway /32 to the client peer only to prove that
