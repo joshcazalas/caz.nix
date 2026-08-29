@@ -50,4 +50,4 @@ resources:
     metadata:
       winget:
         securityContext: elevated
-      description: Import and verify the narrow DPAPI-backed client tunnel
+      description: Import and verify the independently keyed narrow DPAPI-backed client tunnel

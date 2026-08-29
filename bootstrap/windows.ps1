@@ -206,6 +206,7 @@ function Get-GameStreamSourceDigest {
         $files.Add((Join-Path $SourceCapabilitiesRoot "$capability.winget"))
     }
     $files.Add((Join-Path $PSScriptRoot 'windows-game-stream.ps1'))
+    $files.Add((Join-Path $PSScriptRoot 'game-stream-setup.ps1'))
 
     $manifest = [Text.StringBuilder]::new()
     foreach ($path in @($files | Sort-Object)) {

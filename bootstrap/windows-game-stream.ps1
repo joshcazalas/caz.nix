@@ -16,8 +16,10 @@ $TunnelName = 'game-stream'
 $TunnelServiceName = "WireGuardTunnel`$$TunnelName"
 $MinimumSunshineVersion = [version]'2026.516.143833'
 $ManagedFirewallGroup = 'caz.nix game-stream host'
-$ManagedTcpRule = 'caz.nix-game-stream-host-tcp'
-$ManagedUdpRule = 'caz.nix-game-stream-host-udp'
+$ManagedTunnelTcpRule = 'caz.nix-game-stream-host-tunnel-tcp'
+$ManagedTunnelUdpRule = 'caz.nix-game-stream-host-tunnel-udp'
+$ManagedLanTcpRule = 'caz.nix-game-stream-host-lan-tcp'
+$ManagedLanUdpRule = 'caz.nix-game-stream-host-lan-udp'
 $StateRoot = Join-Path $env:ProgramData "caz.nix\game-stream-$($Role.ToLowerInvariant())"
 $StateFile = Join-Path $StateRoot 'desired-state.json'
 $LegacySessionPolicyRoot = Join-Path $env:ProgramFiles 'caz.nix\game-stream-host'
@@ -108,6 +110,64 @@ function Test-ExactIpv4Route {
     return $true
 }
 
+function Test-Ipv4RouteWithPrefix {
+    param(
+        [Parameter(Mandatory)][string]$Route,
+        [Parameter(Mandatory)][ValidateRange(0, 32)][int]$Prefix
+    )
+
+    if ($Route -notmatch "^(?<address>(\d{1,3}\.){3}\d{1,3})/$Prefix$") {
+        return $false
+    }
+    [uint64]$addressValue = 0
+    foreach ($octet in $Matches.address.Split('.')) {
+        if ([int]$octet -gt 255) {
+            return $false
+        }
+        $addressValue = ($addressValue * 256) + [int]$octet
+    }
+    if ($Prefix -lt 32) {
+        [uint64]$blockSize = [Math]::Pow(2, 32 - $Prefix)
+        if (($addressValue % $blockSize) -ne 0) {
+            return $false
+        }
+    }
+    return $true
+}
+
+function ConvertTo-Ipv4RouteInteger {
+    param([Parameter(Mandatory)][string]$Route)
+
+    [uint64]$value = 0
+    foreach ($octet in (($Route -split '/', 2)[0]).Split('.')) {
+        $value = ($value * 256) + [int]$octet
+    }
+    return $value
+}
+
+function Test-WireGuardKey {
+    param([Parameter(Mandatory)][string]$Key)
+
+    if ($Key -notmatch '^[A-Za-z0-9+/]{43}=$') {
+        return $false
+    }
+    try {
+        return [Convert]::FromBase64String($Key).Length -eq 32
+    }
+    catch {
+        return $false
+    }
+}
+
+function Test-RolePeerRoute {
+    param([Parameter(Mandatory)][string]$Route)
+
+    if ($Role -eq 'Host') {
+        return Test-Ipv4RouteWithPrefix -Route $Route -Prefix 28
+    }
+    return Test-ExactIpv4Route -Route $Route
+}
+
 function Assert-SafeEnrollment {
     param([Parameter(Mandatory)][string]$Path)
 
@@ -117,6 +177,32 @@ function Assert-SafeEnrollment {
     $content = Get-Content -LiteralPath $Path -Raw
     if ($content -match '(?im)^\s*(SaveConfig|DNS|Table|PreUp|PostUp|PreDown|PostDown)\s*=') {
         throw 'The enrollment contains a forbidden WireGuard directive.'
+    }
+    $currentSection = ''
+    foreach ($line in ($content -split "`r?`n")) {
+        if ($line -match '^\s*($|[#;])') {
+            continue
+        }
+        if ($line -match '^\s*\[(?<section>Interface|Peer)\]\s*$') {
+            $currentSection = $Matches.section
+            continue
+        }
+        if ($line -notmatch '^\s*(?<key>[^=]+?)\s*=') {
+            throw 'The enrollment contains an unsupported line.'
+        }
+        $key = $Matches.key.Trim()
+        $allowedKeys = if ($currentSection -eq 'Interface') {
+            @('Address', 'PrivateKey')
+        }
+        elseif ($currentSection -eq 'Peer') {
+            @('PublicKey', 'AllowedIPs', 'Endpoint', 'PersistentKeepalive')
+        }
+        else {
+            @()
+        }
+        if ($key -notin $allowedKeys) {
+            throw "The enrollment contains unsupported directive '$key'."
+        }
     }
     if (@([regex]::Matches($content, '(?im)^\s*\[Interface\]\s*$')).Count -ne 1) {
         throw 'The enrollment must contain exactly one Interface section.'
@@ -135,21 +221,35 @@ function Assert-SafeEnrollment {
     if ($addresses.Count -ne 1 -or -not (Test-ExactIpv4Route -Route $addresses[0])) {
         throw 'The enrollment interface must use one exact IPv4 /32.'
     }
-    if ($privateKeys.Count -ne 1 -or [string]::IsNullOrWhiteSpace($privateKeys[0])) {
-        throw 'The enrollment must contain one private key.'
+    if ($privateKeys.Count -ne 1 -or -not (Test-WireGuardKey -Key $privateKeys[0])) {
+        throw 'The enrollment must contain one valid private key.'
     }
-    if ($publicKeys.Count -ne 1 -or [string]::IsNullOrWhiteSpace($publicKeys[0])) {
-        throw 'The enrollment must contain one gateway public key.'
+    if ($publicKeys.Count -ne 1 -or -not (Test-WireGuardKey -Key $publicKeys[0])) {
+        throw 'The enrollment must contain one valid gateway public key.'
     }
     if (
         $allowedIps.Count -ne 1 -or
         $allowedIps[0] -match ',' -or
-        -not (Test-ExactIpv4Route -Route $allowedIps[0])
+        -not (Test-RolePeerRoute -Route $allowedIps[0])
     ) {
-        throw 'The enrollment must route only the opposite game-stream role IPv4 /32.'
+        $expectedRoute = if ($Role -eq 'Host') { 'client-role IPv4 /28' } else { 'host IPv4 /32' }
+        throw "The enrollment must route only the $expectedRoute."
     }
-    if ($endpoints.Count -ne 1 -or [string]::IsNullOrWhiteSpace($endpoints[0])) {
-        throw 'The enrollment must contain one gateway endpoint.'
+    $interfaceAddress = ConvertTo-Ipv4RouteInteger -Route $addresses[0]
+    $peerRouteAddress = ConvertTo-Ipv4RouteInteger -Route $allowedIps[0]
+    if (
+        ($Role -eq 'Host' -and $interfaceAddress -ge $peerRouteAddress -and $interfaceAddress -lt ($peerRouteAddress + 16)) -or
+        ($Role -eq 'Client' -and $interfaceAddress -eq $peerRouteAddress)
+    ) {
+        throw 'The enrollment interface address and peer route overlap.'
+    }
+    if (
+        $endpoints.Count -ne 1 -or
+        $endpoints[0] -notmatch '^[A-Za-z0-9.-]+:[1-9][0-9]{0,4}$' -or
+        [int]($endpoints[0] -replace '^.*:', '') -lt 1 -or
+        [int]($endpoints[0] -replace '^.*:', '') -gt 65535
+    ) {
+        throw 'The enrollment must contain one valid gateway HOST:PORT endpoint.'
     }
     if ($keepalives.Count -ne 1 -or $keepalives[0] -ne '25') {
         throw 'The enrollment must declare PersistentKeepalive = 25.'
@@ -234,7 +334,7 @@ function Get-TunnelPeerRoute {
         return $null
     }
     $fields = @($output[0] -split '\s+' | Where-Object { $_ })
-    if ($fields.Count -ne 2 -or $fields[1] -match ',' -or -not (Test-ExactIpv4Route -Route $fields[1])) {
+    if ($fields.Count -ne 2 -or $fields[1] -match ',' -or -not (Test-RolePeerRoute -Route $fields[1])) {
         return $null
     }
     return $fields[1]
@@ -393,15 +493,22 @@ function Get-SunshineInboundRules {
 function Set-SunshineFirewall {
     param([Parameter(Mandatory)][string]$RemoteAddress)
 
+    $managedRules = @(
+        $ManagedTunnelTcpRule,
+        $ManagedTunnelUdpRule,
+        $ManagedLanTcpRule,
+        $ManagedLanUdpRule
+    )
     foreach ($rule in @(Get-SunshineInboundRules)) {
-        if ($rule.Name -notin @($ManagedTcpRule, $ManagedUdpRule) -and $rule.Enabled -eq 'True') {
+        if ($rule.Name -notin $managedRules -and $rule.Enabled -eq 'True') {
             Disable-NetFirewallRule -Name $rule.Name
         }
     }
-    Remove-NetFirewallRule -Name $ManagedTcpRule -ErrorAction SilentlyContinue
-    Remove-NetFirewallRule -Name $ManagedUdpRule -ErrorAction SilentlyContinue
+    foreach ($name in $managedRules) {
+        Remove-NetFirewallRule -Name $name -ErrorAction SilentlyContinue
+    }
 
-    $common = @{
+    $tunnelCommon = @{
         DisplayGroup = $ManagedFirewallGroup
         Direction = 'Inbound'
         Action = 'Allow'
@@ -412,25 +519,78 @@ function Set-SunshineFirewall {
         InterfaceAlias = $TunnelName
     }
     $null = New-NetFirewallRule `
-        @common `
-        -Name $ManagedTcpRule `
-        -DisplayName 'Game stream host TCP from enrolled client' `
+        @tunnelCommon `
+        -Name $ManagedTunnelTcpRule `
+        -DisplayName 'Game stream host TCP from enrolled tunnel clients' `
         -Protocol TCP `
         -LocalPort 47984, 47989, 48010
     $null = New-NetFirewallRule `
-        @common `
-        -Name $ManagedUdpRule `
-        -DisplayName 'Game stream host UDP from enrolled client' `
+        @tunnelCommon `
+        -Name $ManagedTunnelUdpRule `
+        -DisplayName 'Game stream host UDP from enrolled tunnel clients' `
         -Protocol UDP `
         -LocalPort 47998-48000, 48002, 48010
+
+    $lanCommon = @{
+        DisplayGroup = $ManagedFirewallGroup
+        Direction = 'Inbound'
+        Action = 'Allow'
+        Enabled = 'True'
+        Profile = 'Private'
+        Program = $SunshineExecutable
+        RemoteAddress = 'LocalSubnet4'
+        InterfaceType = @('Wired', 'Wireless')
+    }
+    $null = New-NetFirewallRule `
+        @lanCommon `
+        -Name $ManagedLanTcpRule `
+        -DisplayName 'Game stream host TCP from the private local subnet' `
+        -Protocol TCP `
+        -LocalPort 47984, 47989, 48010
+    $null = New-NetFirewallRule `
+        @lanCommon `
+        -Name $ManagedLanUdpRule `
+        -DisplayName 'Game stream host UDP and discovery from the private local subnet' `
+        -Protocol UDP `
+        -LocalPort 5353, 47998-48000, 48002, 48010
 }
 
 function Test-SunshineFirewall {
     param([Parameter(Mandatory)][string]$RemoteAddress)
 
     $expected = @{
-        $ManagedTcpRule = @{ Protocol = 'TCP'; Ports = @('47984', '47989', '48010') }
-        $ManagedUdpRule = @{ Protocol = 'UDP'; Ports = @('47998-48000', '48002', '48010') }
+        $ManagedTunnelTcpRule = @{
+            Protocol = 'TCP'
+            Ports = @('47984', '47989', '48010')
+            Profile = 'Any'
+            RemoteAddress = $RemoteAddress
+            InterfaceAlias = $TunnelName
+            InterfaceType = @('Any')
+        }
+        $ManagedTunnelUdpRule = @{
+            Protocol = 'UDP'
+            Ports = @('47998-48000', '48002', '48010')
+            Profile = 'Any'
+            RemoteAddress = $RemoteAddress
+            InterfaceAlias = $TunnelName
+            InterfaceType = @('Any')
+        }
+        $ManagedLanTcpRule = @{
+            Protocol = 'TCP'
+            Ports = @('47984', '47989', '48010')
+            Profile = 'Private'
+            RemoteAddress = 'LocalSubnet4'
+            InterfaceAlias = 'Any'
+            InterfaceType = @('Wired', 'Wireless')
+        }
+        $ManagedLanUdpRule = @{
+            Protocol = 'UDP'
+            Ports = @('5353', '47998-48000', '48002', '48010')
+            Profile = 'Private'
+            RemoteAddress = 'LocalSubnet4'
+            InterfaceAlias = 'Any'
+            InterfaceType = @('Wired', 'Wireless')
+        }
     }
     foreach ($name in $expected.Keys) {
         $rule = Get-NetFirewallRule -Name $name -ErrorAction SilentlyContinue
@@ -439,21 +599,24 @@ function Test-SunshineFirewall {
             $rule.Enabled -ne 'True' -or
             $rule.Action -ne 'Allow' -or
             $rule.Direction -ne 'Inbound' -or
-            $rule.Profile -ne 'Any'
+            $rule.Profile -ne $expected[$name].Profile
         ) {
             return $false
         }
         $application = $rule | Get-NetFirewallApplicationFilter
         $address = $rule | Get-NetFirewallAddressFilter
         $interface = $rule | Get-NetFirewallInterfaceFilter
+        $interfaceType = $rule | Get-NetFirewallInterfaceTypeFilter
         $port = $rule | Get-NetFirewallPortFilter
         $interfaceAliases = @($interface.InterfaceAlias)
+        $interfaceTypes = @($interfaceType.InterfaceType)
         if (
             $application.Program -ine $SunshineExecutable -or
             @($address.RemoteAddress).Count -ne 1 -or
-            @($address.RemoteAddress)[0] -ine $RemoteAddress -or
+            @($address.RemoteAddress)[0] -ine $expected[$name].RemoteAddress -or
             $interfaceAliases.Count -ne 1 -or
-            $interfaceAliases[0] -ine $TunnelName -or
+            $interfaceAliases[0] -ine $expected[$name].InterfaceAlias -or
+            (Compare-Object @($interfaceTypes | Sort-Object) @($expected[$name].InterfaceType | Sort-Object)) -or
             $port.Protocol -ine $expected[$name].Protocol -or
             (Compare-Object @($port.LocalPort | Sort-Object) @($expected[$name].Ports | Sort-Object))
         ) {
@@ -461,11 +624,22 @@ function Test-SunshineFirewall {
         }
     }
     foreach ($rule in @(Get-SunshineInboundRules)) {
-        if ($rule.Name -notin @($ManagedTcpRule, $ManagedUdpRule) -and $rule.Enabled -eq 'True') {
+        if ($rule.Name -notin @($expected.Keys) -and $rule.Enabled -eq 'True') {
             return $false
         }
     }
     return $true
+}
+
+function Test-PrivateLanActive {
+    return @(
+        Get-NetConnectionProfile -ErrorAction SilentlyContinue |
+            Where-Object {
+                $_.NetworkCategory -eq 'Private' -and
+                $_.InterfaceAlias -ne $TunnelName -and
+                $_.IPv4Connectivity -ne 'Disconnected'
+            }
+    ).Count -gt 0
 }
 
 function Save-DesiredState {
@@ -591,7 +765,8 @@ function Test-Configuration {
         }
         if ($null -ne $wg) {
             if ($null -eq (Get-TunnelPeerRoute -Wg $wg)) {
-                $drift.Add('tunnel route is not one exact opposite-role IPv4 /32')
+                $expectedRoute = if ($Role -eq 'Host') { 'client-role IPv4 /28' } else { 'host IPv4 /32' }
+                $drift.Add("tunnel route is not the exact $expectedRoute")
             }
             if (-not (Test-TunnelKeepalive -Wg $wg)) {
                 $drift.Add('tunnel keepalive differs from 25 seconds')
@@ -651,8 +826,11 @@ function Test-Configuration {
         if ($null -ne $wg) {
             $peerRoute = Get-TunnelPeerRoute -Wg $wg
             if ($null -ne $peerRoute -and -not (Test-SunshineFirewall -RemoteAddress $peerRoute)) {
-                $drift.Add('Sunshine firewall rules are broad or differ from the enrolled client route')
+                $drift.Add('Sunshine firewall rules differ from the narrow tunnel and private-LAN policy')
             }
+        }
+        if (-not (Test-PrivateLanActive)) {
+            $warnings.Add('no active Private Windows network exists; direct LAN streaming remains closed')
         }
         $sunshineService = Get-SunshineService
         if ($null -eq $sunshineService) {
@@ -721,7 +899,8 @@ if ($null -eq $wg) {
 }
 $peerRoute = Get-TunnelPeerRoute -Wg $wg
 if ($null -eq $peerRoute -or -not (Test-TunnelKeepalive -Wg $wg)) {
-    throw 'The active tunnel must contain one opposite-role /32 and PersistentKeepalive = 25.'
+    $expectedRoute = if ($Role -eq 'Host') { 'one client-role /28' } else { 'one host /32' }
+    throw "The active tunnel must contain $expectedRoute and PersistentKeepalive = 25."
 }
 
 $sourceCommit = [Environment]::GetEnvironmentVariable('CAZ_GAME_STREAM_SOURCE_COMMIT')

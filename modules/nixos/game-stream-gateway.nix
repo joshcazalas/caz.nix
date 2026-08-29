@@ -128,6 +128,7 @@ let
       }
 
       validate_configuration() {
+        local peer_count
         local peer_number
         local -a public_keys=()
         local -a allowed_ips=()
@@ -164,8 +165,9 @@ let
 
         [[ $(grep -Eic '^[[:space:]]*\[Interface\][[:space:]]*$' "$configuration_file") -eq 1 ]] ||
           die "the opaque configuration must contain one interface"
-        [[ $(grep -Eic '^[[:space:]]*\[Peer\][[:space:]]*$' "$configuration_file") -eq 2 ]] ||
-          die "the opaque configuration must contain exactly two role peers"
+        peer_count=$(grep -Eic '^[[:space:]]*\[Peer\][[:space:]]*$' "$configuration_file")
+        (( peer_count >= 1 )) ||
+          die "the opaque configuration must contain the host peer"
 
         mapfile -t interface_addresses < <(interface_values Address)
         mapfile -t private_keys < <(interface_values PrivateKey)
@@ -180,7 +182,7 @@ let
         if [[ ''${#private_keys[@]} -ne 1 ]] || ! validate_key "''${private_keys[0]}"; then
           die "the gateway private key is missing or malformed"
         fi
-        for peer_number in 1 2; do
+        for ((peer_number = 1; peer_number <= peer_count; peer_number++)); do
           mapfile -t peer_public_keys < <(peer_values_at "$peer_number" PublicKey)
           mapfile -t peer_allowed_ips < <(peer_values_at "$peer_number" AllowedIPs)
           mapfile -t peer_preshared_keys < <(peer_values_at "$peer_number" PresharedKey)
@@ -212,15 +214,15 @@ let
         for key in "''${public_keys[@]}"; do
           validate_key "$key" || die "a role peer public key is malformed"
         done
-        [[ "''${public_keys[0]}" != "''${public_keys[1]}" ]] ||
-          die "the host and client role public keys must be distinct"
+        [[ $(printf '%s\n' "''${public_keys[@]}" | sort --unique | wc -l) -eq "$peer_count" ]] ||
+          die "the host and client public keys must be distinct"
         for address in "''${allowed_ips[@]}"; do
           if [[ "$address" == *,* ]] || ! validate_exact_ipv4_route "$address"; then
             die "each role peer route must be one exact IPv4 /32"
           fi
         done
-        [[ "''${allowed_ips[0]}" != "''${allowed_ips[1]}" ]] ||
-          die "the host and client role routes must be distinct"
+        [[ $(printf '%s\n' "''${allowed_ips[@]}" | sort --unique | wc -l) -eq "$peer_count" ]] ||
+          die "the host and client routes must be distinct"
         for address in "''${allowed_ips[@]}"; do
           [[ "$address" != "''${interface_addresses[0]}" ]] ||
             die "a role peer route must not equal the gateway address"
@@ -278,37 +280,43 @@ let
       }
 
       apply_policy() {
+        local client_address
         validate_configuration
         mapfile -t allowed_ips < <(peer_values AllowedIPs)
 
         # The encrypted file has a fixed, documented role order: host first,
-        # client second. No key, endpoint, address, or mapping is printed.
+        # followed by zero or more independently keyed clients. No key,
+        # endpoint, address, or mapping is printed.
         host_address="''${allowed_ips[0]}"
-        client_address="''${allowed_ips[1]}"
 
         ensure_guard
         # An empty policy returns to the guard's unconditional DROP, so a
         # failed or interrupted rebuild remains fail closed.
         iptables -w -F "$policy_chain"
         iptables -w -A "$policy_chain" -m conntrack --ctstate INVALID -j DROP
-        iptables -w -A "$policy_chain" \
-          -s "$host_address" -d "$client_address" \
-          -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-        iptables -w -A "$policy_chain" \
-          -s "$client_address" -d "$host_address" \
-          -p tcp -m multiport --dports 47984,47989,48010 \
-          -m conntrack --ctstate NEW,ESTABLISHED,RELATED -j ACCEPT
-        iptables -w -A "$policy_chain" \
-          -s "$client_address" -d "$host_address" \
-          -p udp -m multiport --dports 47998:48000,48002,48010 \
-          -m conntrack --ctstate NEW,ESTABLISHED,RELATED -j ACCEPT
+        for client_address in "''${allowed_ips[@]:1}"; do
+          iptables -w -A "$policy_chain" \
+            -s "$host_address" -d "$client_address" \
+            -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+          iptables -w -A "$policy_chain" \
+            -s "$client_address" -d "$host_address" \
+            -p tcp -m multiport --dports 47984,47989,48010 \
+            -m conntrack --ctstate NEW,ESTABLISHED,RELATED -j ACCEPT
+          iptables -w -A "$policy_chain" \
+            -s "$client_address" -d "$host_address" \
+            -p udp -m multiport --dports 47998:48000,48002,48010 \
+            -m conntrack --ctstate NEW,ESTABLISHED,RELATED -j ACCEPT
+        done
         iptables -w -A "$policy_chain" -j DROP
         activate_policy
       }
 
       policy_is_exact() {
         local host_address="$1"
-        local client_address="$2"
+        shift
+        local client_address
+        local client_count="$#"
+        local expected_policy_rules=$((2 + (client_count * 3)))
         local first_forward_rule
         local first_guard_rule
         local last_guard_rule
@@ -318,21 +326,23 @@ let
         iptables -w -C "$guard_chain" -j "$policy_chain" >/dev/null 2>&1 || return 1
         iptables -w -C "$guard_chain" -j DROP >/dev/null 2>&1 || return 1
         iptables -w -C "$policy_chain" -m conntrack --ctstate INVALID -j DROP >/dev/null 2>&1 || return 1
-        iptables -w -C "$policy_chain" \
-          -s "$host_address" -d "$client_address" \
-          -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT >/dev/null 2>&1 || return 1
-        iptables -w -C "$policy_chain" \
-          -s "$client_address" -d "$host_address" \
-          -p tcp -m multiport --dports 47984,47989,48010 \
-          -m conntrack --ctstate NEW,ESTABLISHED,RELATED -j ACCEPT >/dev/null 2>&1 || return 1
-        iptables -w -C "$policy_chain" \
-          -s "$client_address" -d "$host_address" \
-          -p udp -m multiport --dports 47998:48000,48002,48010 \
-          -m conntrack --ctstate NEW,ESTABLISHED,RELATED -j ACCEPT >/dev/null 2>&1 || return 1
+        for client_address in "$@"; do
+          iptables -w -C "$policy_chain" \
+            -s "$host_address" -d "$client_address" \
+            -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT >/dev/null 2>&1 || return 1
+          iptables -w -C "$policy_chain" \
+            -s "$client_address" -d "$host_address" \
+            -p tcp -m multiport --dports 47984,47989,48010 \
+            -m conntrack --ctstate NEW,ESTABLISHED,RELATED -j ACCEPT >/dev/null 2>&1 || return 1
+          iptables -w -C "$policy_chain" \
+            -s "$client_address" -d "$host_address" \
+            -p udp -m multiport --dports 47998:48000,48002,48010 \
+            -m conntrack --ctstate NEW,ESTABLISHED,RELATED -j ACCEPT >/dev/null 2>&1 || return 1
+        done
         iptables -w -C "$policy_chain" -j DROP >/dev/null 2>&1 || return 1
 
         [[ $(iptables -w -S "$guard_chain" | grep -c "^-A $guard_chain ") -eq 2 ]] || return 1
-        [[ $(iptables -w -S "$policy_chain" | grep -c "^-A $policy_chain ") -eq 5 ]] || return 1
+        [[ $(iptables -w -S "$policy_chain" | grep -c "^-A $policy_chain ") -eq "$expected_policy_rules" ]] || return 1
         [[ $(iptables -w -S FORWARD | grep -c "^-A FORWARD -i $interface_name -j $guard_chain$") -eq 1 ]] || return 1
         [[ $(iptables -w -S FORWARD | grep -c "^-A FORWARD -i $interface_name -j $policy_chain$") -eq 0 ]] || return 1
 
@@ -362,14 +372,14 @@ let
           echo "drifted: effective gateway address differs from the opaque configuration"
           exit 10
         fi
-        if [[ $(wg show "$interface_name" peers | wc -l) -ne 2 ]]; then
-          echo "drifted: WireGuard peer count differs from the two generic roles"
+        if [[ $(wg show "$interface_name" peers | wc -l) -ne ''${#configured_routes[@]} ]]; then
+          echo "drifted: WireGuard peer count differs from the enrolled roles"
           exit 10
         fi
         mapfile -t expected_routes < <(printf '%s\n' "''${configured_routes[@]}" | sort)
         mapfile -t effective_routes < <(wg show "$interface_name" allowed-ips | awk '{ print $2 }' | sort)
         if [[ "''${effective_routes[*]}" != "''${expected_routes[*]}" ]]; then
-          echo "drifted: effective peer routes differ from the two exact role routes"
+          echo "drifted: effective peer routes differ from the exact enrolled routes"
           exit 10
         fi
         for route in "''${expected_routes[@]}"; do
@@ -382,7 +392,7 @@ let
           echo "drifted: WireGuard listener differs from the reviewed port"
           exit 10
         fi
-        if ! policy_is_exact "''${configured_routes[0]}" "''${configured_routes[1]}"; then
+        if ! policy_is_exact "''${configured_routes[@]}"; then
           echo "drifted: exact fail-closed forwarding policy differs"
           exit 10
         fi
@@ -399,7 +409,7 @@ let
           echo "environmental warning: no role peer has a recent handshake"
           exit 30
         fi
-        echo "compliant: gateway interface, peer count, listener, and narrow forwarding policy"
+        echo "compliant: gateway interface, enrolled peers, listener, and narrow forwarding policy"
       }
 
       case "$action" in

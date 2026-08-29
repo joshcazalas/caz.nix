@@ -108,6 +108,8 @@
             ++ (with pkgs; [
               age
               sops
+              util-linux
+              wireguard-tools
             ]);
         };
 
@@ -131,6 +133,23 @@
           inherit pkgs;
           inherit (inputs) sops-nix;
         };
+        game-stream-enrollment =
+          pkgs.runCommand "game-stream-enrollment-test"
+            {
+              nativeBuildInputs = with pkgs; [
+                coreutils
+                gnugrep
+                gnused
+                jq
+                util-linux
+              ];
+            }
+            ''
+              export TMPDIR="$TMPDIR/game-stream-enrollment"
+              mkdir -p "$TMPDIR"
+              ${pkgs.bash}/bin/bash ${./tests/game-stream-enrollment.sh} ${self}
+              touch "$out"
+            '';
         wsl-home = self.homeConfigurations."${settings.user.name}@wsl".activationPackage;
         wsl-aws-profiles = pkgs.runCommand "check-wsl-aws-profiles" { } ''
           aws_config=${wslHome.config.home.file."${wslHome.config.home.homeDirectory}/.aws/config".source}

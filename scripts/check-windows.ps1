@@ -146,6 +146,7 @@ foreach ($file in $profiles) {
 $hostCapability = Get-Content -LiteralPath (Join-Path $CapabilitiesRoot 'game-stream-host.winget') -Raw
 $clientCapability = Get-Content -LiteralPath (Join-Path $CapabilitiesRoot 'game-stream-client.winget') -Raw
 $gameStreamHelper = Get-Content -LiteralPath (Join-Path $RepositoryRoot 'bootstrap\windows-game-stream.ps1') -Raw
+$gameStreamSetup = Get-Content -LiteralPath (Join-Path $RepositoryRoot 'bootstrap\game-stream-setup.ps1') -Raw
 foreach ($required in @(
     'LizardByte.Sunshine',
     'WireGuard.WireGuard',
@@ -181,11 +182,38 @@ foreach ($required in @(
     '$rule.Direction',
     '$rule.Profile',
     '$interfaceAliases.Count',
+    'LocalSubnet4',
+    "InterfaceType = @('Wired', 'Wireless')",
+    'client-role IPv4 /28',
     'WireGuardTunnel`$'
 )) {
     if ($gameStreamHelper -notmatch [regex]::Escape($required)) {
         throw "The game-stream helper is missing the '$required' guardrail."
     }
+}
+foreach ($required in @(
+    'caz.nix/game-stream-request/v1',
+    'caz.nix/game-stream-enrollment/v1',
+    'caz.nix/game-stream-local-state/v1',
+    'Ensure-WireGuardTools',
+    'Set-AdministratorOnlyAcl',
+    'Write-PublicRequest',
+    'ResetEnrollment',
+    'Invoke-RoleConfiguration'
+)) {
+    if ($gameStreamSetup -notmatch [regex]::Escape($required)) {
+        throw "The game-stream setup orchestrator is missing '$required'."
+    }
+}
+$publicRequestFunction = [regex]::Match(
+    $gameStreamSetup,
+    '(?s)function Write-PublicRequest \{(?<body>.*?)\n\}'
+)
+if (
+    -not $publicRequestFunction.Success -or
+    $publicRequestFunction.Groups['body'].Value -match 'privateKey'
+) {
+    throw 'The public enrollment request must never contain the locally generated private key.'
 }
 $dangerousScriptsOffset = $gameStreamHelper.IndexOf('Remove-ItemProperty')
 $enrollmentImportOffset = $gameStreamHelper.IndexOf(
