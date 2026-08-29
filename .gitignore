@@ -4,4 +4,6 @@ result
 secrets/*.plain.yaml
 secrets/*.decrypted.yaml
 secrets/*.key
+*.game-stream-request.json
+*.game-stream-enrollment.json
 .release/

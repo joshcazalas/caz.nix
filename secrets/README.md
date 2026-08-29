@@ -49,9 +49,12 @@ hostnames do not. Jellyfin and Samba manage user password hashes in their own
 state and do not belong in this repository.
 
 When the private game-stream gateway is enabled, its complete `wg-quick`
-document is stored as the single multiline `gameStreamGatewayConfig` value.
-That opaque value contains all real tunnel addresses, keys, and role-peer
-mappings. The public module validates and consumes it only from the runtime
-SOPS path; never split those values into public Nix settings.
+document and opaque client-allocation metadata are stored together as the
+single multiline `gameStreamGatewayConfig` value. Manage that value with
+`scripts/game-stream-enrollment.sh`; it keeps every Windows private key on its
+originating device and passes the gateway private key to SOPS through a
+restricted file. The value contains all real tunnel addresses, keys,
+endpoints, and peer mappings. The public module validates and consumes it only
+from the runtime SOPS path; never split those values into public Nix settings.
 
 Reference: <https://github.com/Mic92/sops-nix>

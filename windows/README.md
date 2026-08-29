@@ -19,8 +19,8 @@ Profiles under [`profiles/`](profiles/) select capability documents under
 | `gaming` | `base`, `gaming` | Common applications and game launchers |
 | `workstation` | `base`, `development`, `gaming` | Development and gaming without UI preferences |
 | `workstation-preferences` | `base`, `development`, `gaming`, `preferences` | The workstation profile plus optional UI and privacy choices |
-| `game-stream-host` | `game-stream-host` | Focused Sunshine/WireGuard trusted shared-console host |
-| `game-stream-client` | `game-stream-client` | Focused Moonlight/WireGuard client role only |
+| `game-stream-host` | `game-stream-host` | Focused Sunshine/WireGuard shared-console host with private-LAN streaming |
+| `game-stream-client` | `game-stream-client` | Focused Moonlight/WireGuard independently keyed client role |
 
 The capabilities are deliberately narrow:
 
@@ -28,14 +28,16 @@ The capabilities are deliberately narrow:
 - `development`: user-scoped Windows VS Code and declared extensions;
 - `gaming`: Steam, the EA app, Ubisoft Connect, and Prism Launcher;
 - `preferences`: optional registry-backed UI and privacy choices;
-- `game-stream-host`: Sunshine, official WireGuard, and a narrow trusted
-  shared-console host policy;
-- `game-stream-client`: Moonlight, official WireGuard, and narrow client policy.
+- `game-stream-host`: Sunshine, official WireGuard, a narrow remote-client
+  subnet, and direct streaming from the trusted Windows `Private` LAN only;
+- `game-stream-client`: Moonlight, official WireGuard, an independently
+  generated device key, and a route only to the host tunnel `/32`.
 
 The two game-stream profiles deliberately do not inherit `base`: applying a
 focused infrastructure role must not install browsers, chat, media, launchers,
 or development tools. See [`../docs/game-streaming.md`](../docs/game-streaming.md)
-for their private input contract and manual ceremonies.
+for the rerunnable prepare/enroll/apply workflow, private input contract, and
+manual ceremonies. Do not hand-author Windows WireGuard documents.
 
 Profile names describe behavior only. Select one at apply time and do not
 commit a mapping from profiles to physical machines. Keep `preferences` last
