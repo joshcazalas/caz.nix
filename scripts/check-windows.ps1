@@ -147,11 +147,15 @@ $hostCapability = Get-Content -LiteralPath (Join-Path $CapabilitiesRoot 'game-st
 $clientCapability = Get-Content -LiteralPath (Join-Path $CapabilitiesRoot 'game-stream-client.winget') -Raw
 $gameStreamHelper = Get-Content -LiteralPath (Join-Path $RepositoryRoot 'bootstrap\windows-game-stream.ps1') -Raw
 $gameStreamSetup = Get-Content -LiteralPath (Join-Path $RepositoryRoot 'bootstrap\game-stream-setup.ps1') -Raw
+$windowsBootstrap = Get-Content -LiteralPath (Join-Path $RepositoryRoot 'bootstrap\windows.ps1') -Raw
+$wslLauncher = Get-Content -LiteralPath (Join-Path $RepositoryRoot 'bootstrap\windows.sh') -Raw
 foreach ($required in @(
     'LizardByte.Sunshine',
     'WireGuard.WireGuard',
     'DisableLockScreenAppNotifications',
-    'GameStreamHostPolicy'
+    'GameStreamHostPolicy',
+    'game-stream-context.json',
+    'PSNativeCommandUseErrorActionPreference'
 )) {
     if ($hostCapability -notmatch [regex]::Escape($required)) {
         throw "The game-stream host capability is missing '$required'."
@@ -160,7 +164,8 @@ foreach ($required in @(
 foreach ($required in @(
     'MoonlightGameStreamingProject.Moonlight',
     'WireGuard.WireGuard',
-    'GameStreamClientPolicy'
+    'GameStreamClientPolicy',
+    'game-stream-context.json'
 )) {
     if ($clientCapability -notmatch [regex]::Escape($required)) {
         throw "The game-stream client capability is missing '$required'."
@@ -176,8 +181,14 @@ foreach ($required in @(
     "trusted-shared-console",
     "Test-SunshineAlwaysAvailable",
     "Remove-RetiredSessionPolicy",
+    "PSObject.Properties['DisplayName']",
+    "Set-MoonlightFirewall",
+    "Test-MoonlightFirewall",
+    "caz.nix-game-stream-client-lan",
+    "caz.nix-game-stream-client-tunnel",
     "StartupType Automatic",
     "StartupType Disabled",
+    'Group = $ManagedFirewallGroup',
     "WireGuard tunnel service is not automatic and running",
     '$rule.Direction',
     '$rule.Profile',
@@ -185,11 +196,61 @@ foreach ($required in @(
     'LocalSubnet4',
     "InterfaceType = @('Wired', 'Wireless')",
     'client-role IPv4 /28',
-    'WireGuardTunnel`$'
+    'WireGuardTunnel`$',
+    "ValidateSet('Lan', 'Remote')",
+    '[string]$SourceDigest',
+    'stage = $Stage.ToLowerInvariant()'
 )) {
     if ($gameStreamHelper -notmatch [regex]::Escape($required)) {
         throw "The game-stream helper is missing the '$required' guardrail."
     }
+}
+foreach ($required in @(
+    '$StagedGameStreamContext',
+    'game-stream-context.json',
+    'ConvertTo-Json',
+    'Get-GameStreamSourceDigest -Capabilities $capabilities'
+)) {
+    if ($windowsBootstrap -notmatch [regex]::Escape($required)) {
+        throw "The Windows bootstrap is missing the '$required' staged-context guardrail."
+    }
+}
+if (
+    $windowsBootstrap -match 'CAZ_GAME_STREAM_' -or
+    $gameStreamHelper -match 'CAZ_GAME_STREAM_' -or
+    $hostCapability -match 'CAZ_GAME_STREAM_' -or
+    $clientCapability -match 'CAZ_GAME_STREAM_'
+) {
+    throw 'Game-stream state must cross the WinGet elevation boundary through the staged context, not process environment variables.'
+}
+foreach ($required in @(
+    'powershell.exe',
+    'wslpath -w',
+    'git -C',
+    "rev-parse --verify 'HEAD^{commit}'",
+    '-GameStreamStage',
+    'stage=${stage:-lan}'
+)) {
+    if ($wslLauncher -notmatch [regex]::Escape($required)) {
+        throw "The WSL Windows launcher is missing '$required'."
+    }
+}
+if ($wslLauncher -match 'git\.exe|\.ssh') {
+    throw 'The WSL Windows launcher must not depend on Windows Git or Windows SSH state.'
+}
+$configurationTestFunction = [regex]::Match(
+    $gameStreamHelper,
+    '(?s)function Test-Configuration \{(?<body>.*?)\n\}'
+)
+if (
+    -not $configurationTestFunction.Success -or
+    [regex]::Matches(
+        $configurationTestFunction.Groups['body'].Value,
+        'Get-TunnelPeerRoute -Wg \$wg'
+    ).Count -ne 1 -or
+    $configurationTestFunction.Groups['body'].Value -notmatch '\$tunnelReady -and \$null -ne \$wg'
+) {
+    throw 'The game-stream check must query wg.exe only behind the ready tunnel-service guard.'
 }
 foreach ($required in @(
     'caz.nix/game-stream-request/v1',
@@ -217,7 +278,7 @@ if (
 }
 $dangerousScriptsOffset = $gameStreamHelper.IndexOf('Remove-ItemProperty')
 $enrollmentImportOffset = $gameStreamHelper.IndexOf(
-    'Import-WireGuardEnrollment -WireGuard $wireGuard -EnrollmentFile $enrollmentFile'
+    'Import-WireGuardEnrollment -WireGuard $wireGuard -EnrollmentFile $EnrollmentFile'
 )
 $tunnelStartOffset = $gameStreamHelper.IndexOf('Start-DpapiTunnelService -WireGuard $wireGuard')
 if (

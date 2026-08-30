@@ -16,6 +16,12 @@ Applying one of these roles is always explicit. Merely evaluating the flake or
 checking out this repository does not run WinGet, install software, create an
 account, open a port, generate a key, or enroll a peer.
 
+The host and client lifecycles are intentionally staged. The `Lan` stage
+installs and secures Sunshine on the host and installs Moonlight on each client
+without requiring WireGuard enrollment. The `Remote` stage is enabled only
+after that pilot and requires the independent tunnel enrollment described
+below.
+
 The declarative layer does not prove that a route is playable. Issue #63's
 local, external, negative-access, performance, headless-display, session, and
 revocation tests remain required before treating the pilot as complete.
@@ -85,12 +91,49 @@ client peers, distinct keys, and distinct exact peer `/32` routes. It rejects
 `PreUp`/`PostUp`/`PreDown`/`PostDown` hook. The decrypted file is mode `0400`
 under `/run/secrets`; it never enters the Nix store.
 
-## Rerunnable enrollment workflow
+## WSL-first LAN pilot
 
-Run the Windows commands from PowerShell as Administrator. `Prepare` installs
-WireGuard through WinGet if necessary, generates the device key locally, and
-writes a public request. Repeating it reproduces the same request instead of
-silently rotating the key.
+Run the Windows host profile from the repository in WSL. Linux Git supplies the
+reviewed commit, `wslpath` supplies the Windows path, and native Windows
+PowerShell and WinGet perform the Windows work:
+
+```bash
+cd ~/develop/caz.nix
+./bootstrap/windows.sh game-stream-host
+./bootstrap/windows.sh game-stream-host --check
+```
+
+Approve the Windows UAC prompt. The first command is rerunnable and does not
+generate a WireGuard key, create a tunnel, decrypt SOPS, or require an enrollment
+response. It disables broad installer-created Sunshine firewall rules and opens
+only the required Sunshine ports from `LocalSubnet4` on active Windows `Private`
+wired or wireless networks.
+
+On each Windows client, run the matching LAN stage from that device's WSL
+checkout:
+
+```bash
+./bootstrap/windows.sh game-stream-client
+./bootstrap/windows.sh game-stream-client --check
+```
+
+This installs Moonlight through WinGet, disables the installer's unrestricted
+inbound application rule, and replaces it with a program-scoped rule limited to
+`LocalSubnet4` on `Private` wired or wireless networks. It records the client
+role without creating or starting a WireGuard tunnel. The host and client
+commands both default to `Lan`; selecting `--stage remote` is always explicit.
+
+Create the Sunshine Web UI credential at `https://localhost:47990`, pair a local
+Moonlight client, and prove video, audio, input, display, and game launching over
+the host's ordinary LAN address. Keep the gateway disabled and router port
+closed during this stage.
+
+## Rerunnable remote enrollment workflow
+
+Only after the LAN pilot passes, run the enrollment Windows commands from
+PowerShell as Administrator. `Prepare` installs WireGuard through WinGet if
+necessary, generates the device key locally, and writes a public request.
+Repeating it reproduces the same request instead of silently rotating the key.
 
 ```powershell
 # On the living-room host:
@@ -151,18 +194,22 @@ endpoint, assigned address, narrow route, and request ID—but never either
 device's private key or the gateway private key.
 
 Copy the appropriate response back to the device that created its matching
-request, then apply it:
+request, then apply it. When Windows Git is intentionally absent, obtain the
+commit once with `git rev-parse HEAD` in WSL and paste that 40-character value
+as `REVIEWED_SOURCE_COMMIT` below:
 
 ```powershell
 # Host:
 .\bootstrap\game-stream-setup.ps1 `
   -Role Host `
-  -Enroll "$env:USERPROFILE\Downloads\host.game-stream-enrollment.json"
+  -Enroll "$env:USERPROFILE\Downloads\host.game-stream-enrollment.json" `
+  -SourceCommit REVIEWED_SOURCE_COMMIT
 
 # Client:
 .\bootstrap\game-stream-setup.ps1 `
   -Role Client `
-  -Enroll "$env:USERPROFILE\Downloads\client.game-stream-enrollment.json"
+  -Enroll "$env:USERPROFILE\Downloads\client.game-stream-enrollment.json" `
+  -SourceCommit REVIEWED_SOURCE_COMMIT
 ```
 
 The wrapper composes the WireGuard document only inside its restricted local
@@ -171,19 +218,31 @@ DPAPI conversion, and removes the plaintext configuration and response after
 success. A failed run retains only the restricted recovery material needed for
 a safe rerun.
 
-Normal convergence no longer needs an enrollment input:
+Normal remote-stage convergence no longer needs an enrollment input. From WSL,
+the preferred commands are:
+
+```bash
+./bootstrap/windows.sh game-stream-host --stage remote
+./bootstrap/windows.sh game-stream-client --stage remote
+
+./bootstrap/windows.sh game-stream-host --stage remote --check
+./bootstrap/windows.sh game-stream-client --stage remote --check
+```
+
+The equivalent direct PowerShell commands remain available:
 
 ```powershell
-.\bootstrap\game-stream-setup.ps1 -Role Host
-.\bootstrap\game-stream-setup.ps1 -Role Client
+.\bootstrap\game-stream-setup.ps1 -Role Host -SourceCommit REVIEWED_SOURCE_COMMIT
+.\bootstrap\game-stream-setup.ps1 -Role Client -SourceCommit REVIEWED_SOURCE_COMMIT
 
 .\bootstrap\game-stream-setup.ps1 -Role Host -Check
 .\bootstrap\game-stream-setup.ps1 -Role Client -Check
 ```
 
-The underlying profile records the reviewed Git commit. A normal clone derives
-it from Git. If the source was copied without `.git` metadata, pass the exact
-reviewed 40-character commit with `-SourceCommit` on apply or enrollment runs.
+The underlying profile records both the Git provenance commit and a digest of
+the exact staged source bytes. The WSL launcher supplies the commit with Linux
+Git. A direct PowerShell apply or enrollment requires `-SourceCommit` when
+Windows Git is intentionally absent; Windows SSH keys are never required.
 
 WinGet or Microsoft App Installer repair remains a manual prerequisite when
 `winget.exe` itself is unavailable. No setup script downloads an unreviewed

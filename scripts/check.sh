@@ -16,9 +16,13 @@ statix check .
 
 echo "==> Linting shell scripts"
 mapfile -d '' shell_files < <(
-  find bootstrap scripts .githooks -type f \( -name '*.sh' -o -perm -u+x \) -print0
+  find bootstrap scripts -type f -name '*.sh' -print0
+  find .githooks -type f -perm -u+x -print0
 )
 shellcheck "${shell_files[@]}"
+
+echo "==> Testing the WSL-to-Windows launcher"
+./scripts/test-windows-launcher.sh
 
 echo "==> Linting GitHub Actions workflows"
 # GitHub supports `concurrency.queue`, but actionlint 1.7.12 does not know

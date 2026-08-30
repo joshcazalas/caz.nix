@@ -53,19 +53,34 @@ resources:
     properties:
       getScript: |
         $script = "${WinGetConfigRoot}\scripts\windows-game-stream.ps1"
-        $output = @(& powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $script -Role Host -Check 2>&1)
+        $context = Get-Content -LiteralPath "${WinGetConfigRoot}\game-stream-context.json" -Raw | ConvertFrom-Json
+        $arguments = @('-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', $script, '-Role', 'Host', '-Stage', $context.stage, '-SourceDigest', $context.sourceDigest, '-Check')
+        $PSNativeCommandUseErrorActionPreference = $false
+        $output = @(& powershell.exe @arguments 2>&1)
         return @{ exitCode = $LASTEXITCODE; summary = ($output -join "`n") }
       testScript: |
         $script = "${WinGetConfigRoot}\scripts\windows-game-stream.ps1"
-        $output = @(& powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $script -Role Host -Check 2>&1)
+        $context = Get-Content -LiteralPath "${WinGetConfigRoot}\game-stream-context.json" -Raw | ConvertFrom-Json
+        $arguments = @('-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', $script, '-Role', 'Host', '-Stage', $context.stage, '-SourceDigest', $context.sourceDigest, '-Check')
+        $PSNativeCommandUseErrorActionPreference = $false
+        $output = @(& powershell.exe @arguments 2>&1)
         $exitCode = $LASTEXITCODE
-        if ($exitCode -eq 30) { Write-Warning ($output -join "`n") }
+        if ($exitCode -in @(20, 30)) { Write-Warning ($output -join "`n") }
+        if ($context.stage -eq 'Lan') { return ($exitCode -in @(0, 20, 30)) }
         return ($exitCode -in @(0, 30))
       setScript: |
         $script = "${WinGetConfigRoot}\scripts\windows-game-stream.ps1"
-        & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $script -Role Host
-        if ($LASTEXITCODE -ne 0) { throw "Game-stream host helper failed with exit code $LASTEXITCODE." }
+        $context = Get-Content -LiteralPath "${WinGetConfigRoot}\game-stream-context.json" -Raw | ConvertFrom-Json
+        $arguments = @('-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', $script, '-Role', 'Host', '-Stage', $context.stage, '-SourceCommit', $context.sourceCommit, '-SourceDigest', $context.sourceDigest)
+        if (-not [string]::IsNullOrWhiteSpace($context.enrollmentFile)) { $arguments += @('-EnrollmentFile', $context.enrollmentFile) }
+        $PSNativeCommandUseErrorActionPreference = $false
+        $ErrorActionPreference = 'Continue'
+        $output = @(& powershell.exe @arguments 2>&1)
+        $exitCode = $LASTEXITCODE
+        $ErrorActionPreference = 'Stop'
+        if ($exitCode -ne 0) { throw "Game-stream host helper failed with exit code $exitCode.`n$($output -join "`n")" }
+        $output | Write-Host
     metadata:
       winget:
         securityContext: elevated
-      description: Apply the narrow tunnel, private-LAN Sunshine firewall, and trusted shared-console baseline
+      description: Apply the selected LAN or remote host stage and trusted shared-console baseline

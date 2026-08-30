@@ -89,8 +89,9 @@ else
         integration=true
         ;;
 
-      windows/* | scripts/check-windows.ps1 | bootstrap/windows.ps1 | bootstrap/windows-vscode.ps1 | \
-        bootstrap/game-stream-setup.ps1 | bootstrap/windows-game-stream.ps1)
+      windows/* | scripts/check-windows.ps1 | scripts/test-windows-launcher.sh | bootstrap/windows.sh | \
+        bootstrap/windows.ps1 | bootstrap/windows-vscode.ps1 | bootstrap/game-stream-setup.ps1 | \
+        bootstrap/windows-game-stream.ps1)
         windows=true
         ;;
 
