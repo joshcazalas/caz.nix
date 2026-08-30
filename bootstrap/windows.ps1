@@ -9,6 +9,9 @@ param(
 
     [string]$GameStreamEnrollmentFile,
 
+    [ValidateSet('Lan', 'Remote')]
+    [string]$GameStreamStage = 'Remote',
+
     [ValidatePattern('^[0-9a-fA-F]{40}$')]
     [string]$SourceCommit
 )
@@ -25,6 +28,7 @@ $SourceProfilesRoot = Join-Path $SourceWindowsRoot 'profiles'
 $StagingRoot = Join-Path $env:LOCALAPPDATA "caz.nix\windows\$Profile"
 $StagedCapabilitiesRoot = Join-Path $StagingRoot 'capabilities'
 $StagedScriptsRoot = Join-Path $StagedCapabilitiesRoot 'scripts'
+$StagedGameStreamContext = Join-Path $StagedCapabilitiesRoot 'game-stream-context.json'
 $StagedSecretsRoot = Join-Path $StagingRoot 'secrets'
 $StagedGameStreamEnrollment = Join-Path $StagedSecretsRoot 'game-stream.conf'
 
@@ -287,7 +291,8 @@ function Stage-Configuration {
 function Assert-WinGetConfigurationReadable {
     param(
         [Parameter(Mandatory)][string]$WinGet,
-        [Parameter(Mandatory)][string]$ConfigurationPath
+        [Parameter(Mandatory)][string]$ConfigurationPath,
+        [switch]$EnableConfiguration
     )
 
     foreach ($attempt in 1, 2) {
@@ -296,7 +301,16 @@ function Assert-WinGetConfigurationReadable {
             return
         }
         if ($attempt -eq 1) {
-            Write-Warning "WinGet could not initialize '$ConfigurationPath'; retrying once."
+            if ($EnableConfiguration) {
+                Write-Host 'Enabling the WinGet Configuration components required by this profile...'
+                & $WinGet configure --enable
+                if ($LASTEXITCODE -ne 0) {
+                    throw 'WinGet could not enable Configuration components. Microsoft Store access is required for this one-time bootstrap.'
+                }
+            }
+            else {
+                Write-Warning "WinGet could not initialize '$ConfigurationPath' during a read-only check; retrying once without changing feature state."
+            }
         }
     }
 
@@ -318,6 +332,12 @@ try {
     $gameStreamRole =
         $capabilities -contains 'game-stream-host' -or
         $capabilities -contains 'game-stream-client'
+    if (
+        -not $gameStreamRole -and
+        $PSBoundParameters.ContainsKey('GameStreamStage')
+    ) {
+        throw '-GameStreamStage is accepted only by a game-stream host or client profile.'
+    }
     if (-not $gameStreamRole -and (
         -not [string]::IsNullOrWhiteSpace($GameStreamEnrollmentFile) -or
         -not [string]::IsNullOrWhiteSpace($SourceCommit)
@@ -362,7 +382,7 @@ try {
     Stage-Configuration -Capabilities $capabilities
 
     if ($gameStreamRole) {
-        $env:CAZ_GAME_STREAM_ENROLLMENT_FILE = if (
+        $stagedEnrollmentFile = if (
             -not $Check -and
             (Test-Path -LiteralPath $StagedGameStreamEnrollment -PathType Leaf)
         ) {
@@ -371,15 +391,22 @@ try {
         else {
             $null
         }
-        $env:CAZ_GAME_STREAM_SOURCE_COMMIT = if ($Check) { $null } else { Get-ReviewedSourceCommit }
-        $env:CAZ_GAME_STREAM_SOURCE_DIGEST = Get-GameStreamSourceDigest -Capabilities $capabilities
+        [ordered]@{
+            stage = $GameStreamStage
+            enrollmentFile = $stagedEnrollmentFile
+            sourceCommit = if ($Check) { $null } else { Get-ReviewedSourceCommit }
+            sourceDigest = Get-GameStreamSourceDigest -Capabilities $capabilities
+        } |
+            ConvertTo-Json |
+            Set-Content -LiteralPath $StagedGameStreamContext -Encoding UTF8
     }
 
     foreach ($capability in $capabilities) {
         $configurationPath = Join-Path $StagedCapabilitiesRoot "$capability.winget"
         Assert-WinGetConfigurationReadable `
             -WinGet $winGet `
-            -ConfigurationPath $configurationPath
+            -ConfigurationPath $configurationPath `
+            -EnableConfiguration:(-not $Check)
     }
 
     $testFailures = @()

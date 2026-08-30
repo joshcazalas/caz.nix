@@ -37,19 +37,33 @@ resources:
     properties:
       getScript: |
         $script = "${WinGetConfigRoot}\scripts\windows-game-stream.ps1"
-        $output = @(& powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $script -Role Client -Check 2>&1)
+        $context = Get-Content -LiteralPath "${WinGetConfigRoot}\game-stream-context.json" -Raw | ConvertFrom-Json
+        $arguments = @('-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', $script, '-Role', 'Client', '-Stage', $context.stage, '-SourceDigest', $context.sourceDigest, '-Check')
+        $PSNativeCommandUseErrorActionPreference = $false
+        $output = @(& powershell.exe @arguments 2>&1)
         return @{ exitCode = $LASTEXITCODE; summary = ($output -join "`n") }
       testScript: |
         $script = "${WinGetConfigRoot}\scripts\windows-game-stream.ps1"
-        $output = @(& powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $script -Role Client -Check 2>&1)
+        $context = Get-Content -LiteralPath "${WinGetConfigRoot}\game-stream-context.json" -Raw | ConvertFrom-Json
+        $arguments = @('-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', $script, '-Role', 'Client', '-Stage', $context.stage, '-SourceDigest', $context.sourceDigest, '-Check')
+        $PSNativeCommandUseErrorActionPreference = $false
+        $output = @(& powershell.exe @arguments 2>&1)
         $exitCode = $LASTEXITCODE
         if ($exitCode -eq 30) { Write-Warning ($output -join "`n") }
         return ($exitCode -in @(0, 30))
       setScript: |
         $script = "${WinGetConfigRoot}\scripts\windows-game-stream.ps1"
-        & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $script -Role Client
-        if ($LASTEXITCODE -ne 0) { throw "Game-stream client helper failed with exit code $LASTEXITCODE." }
+        $context = Get-Content -LiteralPath "${WinGetConfigRoot}\game-stream-context.json" -Raw | ConvertFrom-Json
+        $arguments = @('-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', $script, '-Role', 'Client', '-Stage', $context.stage, '-SourceCommit', $context.sourceCommit, '-SourceDigest', $context.sourceDigest)
+        if (-not [string]::IsNullOrWhiteSpace($context.enrollmentFile)) { $arguments += @('-EnrollmentFile', $context.enrollmentFile) }
+        $PSNativeCommandUseErrorActionPreference = $false
+        $ErrorActionPreference = 'Continue'
+        $output = @(& powershell.exe @arguments 2>&1)
+        $exitCode = $LASTEXITCODE
+        $ErrorActionPreference = 'Stop'
+        if ($exitCode -ne 0) { throw "Game-stream client helper failed with exit code $exitCode.`n$($output -join "`n")" }
+        $output | Write-Host
     metadata:
       winget:
         securityContext: elevated
-      description: Import and verify the independently keyed narrow DPAPI-backed client tunnel
+      description: Apply the selected LAN or independently keyed remote client stage

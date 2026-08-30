@@ -121,13 +121,20 @@ but it does not reinstall the system components or modify the Windows host.
 Open a fresh Ubuntu terminal so Bash loads the new generation. If Docker group
 membership was added, first run `wsl.exe --shutdown` from PowerShell.
 
-From Windows PowerShell, apply one of the generic profiles documented in
-[`../windows/README.md`](../windows/README.md). The default `workstation`
-profile installs common applications, VS Code, declared extensions, and game
-launchers. UI and privacy preferences are available through the explicit
-`workstation-preferences` profile. Windows font selection and WSL feature
-installation remain short one-time prerequisites. Home Manager intentionally
-has no Windows-side activation effects.
+From this WSL checkout, apply one of the Windows profiles documented in
+[`../windows/README.md`](../windows/README.md):
+
+```bash
+./bootstrap/windows.sh workstation
+```
+
+The launcher invokes native Windows PowerShell and WinGet through supported WSL
+interoperability. It does not install Linux PowerShell, Windows Git, or Windows
+SSH keys. The default `workstation` profile installs common applications, VS
+Code, declared extensions, and game launchers. UI and privacy preferences are
+available through the explicit `workstation-preferences` profile. Windows font
+selection and WSL feature installation remain short one-time prerequisites.
+Home Manager intentionally has no Windows-side activation effects.
 
 Useful checks:
 

@@ -53,7 +53,9 @@ a convergence requirement.
 
 Finish Windows Update and update **App Installer** from the Microsoft Store.
 The bootstrap requires Windows 11, WinGet 1.11.430 or later, and a Windows
-account that is itself a local administrator.
+account that is itself a local administrator. On the first apply, the bootstrap
+enables WinGet Configuration automatically; that one-time operation requires
+Microsoft Store access.
 
 WSL installation remains an explicit one-time Windows operation. From an
 elevated PowerShell window, run:
@@ -65,7 +67,7 @@ wsl.exe --install --no-distribution
 Restart Windows if requested, then install and launch Ubuntu:
 
 ```powershell
-wsl.exe --install -d Ubuntu-24.04
+wsl.exe --install -d Ubuntu
 ```
 
 Create the Linux user expected by the Home Manager configuration and follow
@@ -75,15 +77,42 @@ reboots.
 
 ## Apply or check a profile
 
-Run the entry point from an ordinary Windows PowerShell session. Do not start
-it with **Run as administrator**. WinGet elevates only resources marked with
-`securityContext: elevated`, preserving the current identity for HKCU and
-user-scoped applications.
+The preferred entry point runs from WSL and keeps the repository, Git, and SSH
+state on Linux. Windows PowerShell and WinGet still execute natively on Windows:
 
-When the repository lives in WSL:
+```bash
+cd ~/develop/caz.nix
+./bootstrap/windows.sh workstation
+./bootstrap/windows.sh workstation --check
+```
+
+The launcher discovers the current distribution and repository path with
+`wslpath`; it does not hard-code an Ubuntu version or require `git.exe`. Both
+game-stream roles default to their deliberately LAN-only stage:
+
+```bash
+./bootstrap/windows.sh game-stream-host
+./bootstrap/windows.sh game-stream-host --check
+./bootstrap/windows.sh game-stream-client
+./bootstrap/windows.sh game-stream-client --check
+```
+
+The host installs Sunshine and converges its private-LAN policy; the client
+installs Moonlight and replaces the installer's unrestricted inbound rule with
+a program-scoped private-LAN rule. The role capabilities also ensure the
+official WireGuard package is present for the later fixed remote path, but
+neither LAN stage creates or starts a tunnel. After the LAN pilot and explicit
+enrollment, `--stage remote` selects the complete tunnel policy.
+
+WinGet elevates only resources marked with `securityContext: elevated`, so
+approve the Windows UAC prompt when it appears. Do not launch a separate
+administrator terminal; keeping the original Windows identity preserves HKCU
+and user-scoped application state.
+
+The direct Windows PowerShell entry point remains a fallback:
 
 ```powershell
-$repo = '\\wsl.localhost\Ubuntu-24.04\home\<linux-user>\develop\caz.nix'
+$repo = 'WINDOWS_PATH_REPORTED_BY_WSLPATH'
 powershell.exe -NoProfile -ExecutionPolicy Bypass `
     -File "$repo\bootstrap\windows.ps1" `
     -Profile workstation
@@ -93,8 +122,8 @@ The first apply installs the Visual C++ runtime if it is absent. WinGet itself
 provisions its supported DSC v3 processor when needed. The repository does not
 download, pin, or schema-translate a separate DSC installation.
 
-Check for drift without applying declared packages, extensions, or registry
-values:
+From that same fallback session, check for drift without applying declared
+packages, extensions, or registry values:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass `

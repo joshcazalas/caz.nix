@@ -6,6 +6,17 @@ param(
     [ValidateSet('Host', 'Client')]
     [string]$Role,
 
+    [ValidateSet('Lan', 'Remote')]
+    [string]$Stage = 'Remote',
+
+    [string]$EnrollmentFile,
+
+    [ValidatePattern('^[0-9a-fA-F]{40}$')]
+    [string]$SourceCommit,
+
+    [ValidatePattern('^[0-9a-fA-F]{64}$')]
+    [string]$SourceDigest,
+
     [switch]$Check
 )
 
@@ -20,6 +31,9 @@ $ManagedTunnelTcpRule = 'caz.nix-game-stream-host-tunnel-tcp'
 $ManagedTunnelUdpRule = 'caz.nix-game-stream-host-tunnel-udp'
 $ManagedLanTcpRule = 'caz.nix-game-stream-host-lan-tcp'
 $ManagedLanUdpRule = 'caz.nix-game-stream-host-lan-udp'
+$ManagedClientFirewallGroup = 'caz.nix game-stream client'
+$ManagedClientTunnelRule = 'caz.nix-game-stream-client-tunnel'
+$ManagedClientLanRule = 'caz.nix-game-stream-client-lan'
 $StateRoot = Join-Path $env:ProgramData "caz.nix\game-stream-$($Role.ToLowerInvariant())"
 $StateFile = Join-Path $StateRoot 'desired-state.json'
 $LegacySessionPolicyRoot = Join-Path $env:ProgramFiles 'caz.nix\game-stream-host'
@@ -31,6 +45,8 @@ $SunshineRoot = Join-Path $env:ProgramFiles 'Sunshine'
 $SunshineExecutable = Join-Path $SunshineRoot 'sunshine.exe'
 $SunshineConfiguration = Join-Path $SunshineRoot 'config\sunshine.conf'
 $SunshineState = Join-Path $SunshineRoot 'config\sunshine_state.json'
+$MoonlightRoot = Join-Path $env:ProgramFiles 'Moonlight Game Streaming'
+$MoonlightExecutable = Join-Path $MoonlightRoot 'Moonlight.exe'
 
 function Test-IsAdministrator {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -329,8 +345,14 @@ function Start-DpapiTunnelService {
 function Get-TunnelPeerRoute {
     param([Parameter(Mandatory)][string]$Wg)
 
-    $output = @(& $Wg show $TunnelName allowed-ips 2>$null)
-    if ($LASTEXITCODE -ne 0 -or $output.Count -ne 1) {
+    try {
+        $output = @(& $Wg show $TunnelName allowed-ips 2>$null)
+        $exitCode = $LASTEXITCODE
+    }
+    catch {
+        return $null
+    }
+    if ($exitCode -ne 0 -or $output.Count -ne 1) {
         return $null
     }
     $fields = @($output[0] -split '\s+' | Where-Object { $_ })
@@ -343,8 +365,14 @@ function Get-TunnelPeerRoute {
 function Test-TunnelKeepalive {
     param([Parameter(Mandatory)][string]$Wg)
 
-    $output = @(& $Wg show $TunnelName persistent-keepalive 2>$null)
-    if ($LASTEXITCODE -ne 0 -or $output.Count -ne 1) {
+    try {
+        $output = @(& $Wg show $TunnelName persistent-keepalive 2>$null)
+        $exitCode = $LASTEXITCODE
+    }
+    catch {
+        return $false
+    }
+    if ($exitCode -ne 0 -or $output.Count -ne 1) {
         return $false
     }
     $fields = @($output[0] -split '\s+' | Where-Object { $_ })
@@ -354,8 +382,14 @@ function Test-TunnelKeepalive {
 function Test-TunnelHandshakeHealthy {
     param([Parameter(Mandatory)][string]$Wg)
 
-    $output = @(& $Wg show $TunnelName latest-handshakes 2>$null)
-    if ($LASTEXITCODE -ne 0 -or $output.Count -ne 1) {
+    try {
+        $output = @(& $Wg show $TunnelName latest-handshakes 2>$null)
+        $exitCode = $LASTEXITCODE
+    }
+    catch {
+        return $false
+    }
+    if ($exitCode -ne 0 -or $output.Count -ne 1) {
         return $false
     }
     $fields = @($output[0] -split '\s+' | Where-Object { $_ })
@@ -373,7 +407,11 @@ function Test-MoonlightInstalled {
     )
     foreach ($root in $uninstallRoots) {
         $match = Get-ItemProperty -Path $root -ErrorAction SilentlyContinue |
-            Where-Object { $_.DisplayName -match '^Moonlight(?: Game Streaming)?(?:\s|$)' } |
+            Where-Object {
+                $displayName = $_.PSObject.Properties['DisplayName']
+                $null -ne $displayName -and
+                    $displayName.Value -match '^Moonlight(?: Game Streaming)?(?:\s|$)'
+            } |
             Select-Object -First 1
         if ($null -ne $match) {
             return $true
@@ -491,7 +529,7 @@ function Get-SunshineInboundRules {
 }
 
 function Set-SunshineFirewall {
-    param([Parameter(Mandatory)][string]$RemoteAddress)
+    param([AllowNull()][string]$RemoteAddress)
 
     $managedRules = @(
         $ManagedTunnelTcpRule,
@@ -504,35 +542,40 @@ function Set-SunshineFirewall {
             Disable-NetFirewallRule -Name $rule.Name
         }
     }
-    foreach ($name in $managedRules) {
+    foreach ($name in @($ManagedLanTcpRule, $ManagedLanUdpRule)) {
         Remove-NetFirewallRule -Name $name -ErrorAction SilentlyContinue
     }
 
-    $tunnelCommon = @{
-        DisplayGroup = $ManagedFirewallGroup
-        Direction = 'Inbound'
-        Action = 'Allow'
-        Enabled = 'True'
-        Profile = 'Any'
-        Program = $SunshineExecutable
-        RemoteAddress = $RemoteAddress
-        InterfaceAlias = $TunnelName
+    if (-not [string]::IsNullOrWhiteSpace($RemoteAddress)) {
+        foreach ($name in @($ManagedTunnelTcpRule, $ManagedTunnelUdpRule)) {
+            Remove-NetFirewallRule -Name $name -ErrorAction SilentlyContinue
+        }
+        $tunnelCommon = @{
+            Group = $ManagedFirewallGroup
+            Direction = 'Inbound'
+            Action = 'Allow'
+            Enabled = 'True'
+            Profile = 'Any'
+            Program = $SunshineExecutable
+            RemoteAddress = $RemoteAddress
+            InterfaceAlias = $TunnelName
+        }
+        $null = New-NetFirewallRule `
+            @tunnelCommon `
+            -Name $ManagedTunnelTcpRule `
+            -DisplayName 'Game stream host TCP from enrolled tunnel clients' `
+            -Protocol TCP `
+            -LocalPort 47984, 47989, 48010
+        $null = New-NetFirewallRule `
+            @tunnelCommon `
+            -Name $ManagedTunnelUdpRule `
+            -DisplayName 'Game stream host UDP from enrolled tunnel clients' `
+            -Protocol UDP `
+            -LocalPort 47998-48000, 48002, 48010
     }
-    $null = New-NetFirewallRule `
-        @tunnelCommon `
-        -Name $ManagedTunnelTcpRule `
-        -DisplayName 'Game stream host TCP from enrolled tunnel clients' `
-        -Protocol TCP `
-        -LocalPort 47984, 47989, 48010
-    $null = New-NetFirewallRule `
-        @tunnelCommon `
-        -Name $ManagedTunnelUdpRule `
-        -DisplayName 'Game stream host UDP from enrolled tunnel clients' `
-        -Protocol UDP `
-        -LocalPort 47998-48000, 48002, 48010
 
     $lanCommon = @{
-        DisplayGroup = $ManagedFirewallGroup
+        Group = $ManagedFirewallGroup
         Direction = 'Inbound'
         Action = 'Allow'
         Enabled = 'True'
@@ -556,32 +599,16 @@ function Set-SunshineFirewall {
 }
 
 function Test-SunshineFirewall {
-    param([Parameter(Mandatory)][string]$RemoteAddress)
+    param([AllowNull()][string]$RemoteAddress)
 
     $expected = @{
-        $ManagedTunnelTcpRule = @{
-            Protocol = 'TCP'
-            Ports = @('47984', '47989', '48010')
-            Profile = 'Any'
-            RemoteAddress = $RemoteAddress
-            InterfaceAlias = $TunnelName
-            InterfaceType = @('Any')
-        }
-        $ManagedTunnelUdpRule = @{
-            Protocol = 'UDP'
-            Ports = @('47998-48000', '48002', '48010')
-            Profile = 'Any'
-            RemoteAddress = $RemoteAddress
-            InterfaceAlias = $TunnelName
-            InterfaceType = @('Any')
-        }
         $ManagedLanTcpRule = @{
             Protocol = 'TCP'
             Ports = @('47984', '47989', '48010')
             Profile = 'Private'
             RemoteAddress = 'LocalSubnet4'
             InterfaceAlias = 'Any'
-            InterfaceType = @('Wired', 'Wireless')
+            InterfaceType = @('Wired, Wireless')
         }
         $ManagedLanUdpRule = @{
             Protocol = 'UDP'
@@ -589,7 +616,25 @@ function Test-SunshineFirewall {
             Profile = 'Private'
             RemoteAddress = 'LocalSubnet4'
             InterfaceAlias = 'Any'
-            InterfaceType = @('Wired', 'Wireless')
+            InterfaceType = @('Wired, Wireless')
+        }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($RemoteAddress)) {
+        $expected[$ManagedTunnelTcpRule] = @{
+            Protocol = 'TCP'
+            Ports = @('47984', '47989', '48010')
+            Profile = 'Any'
+            RemoteAddress = $RemoteAddress
+            InterfaceAlias = $TunnelName
+            InterfaceType = @('Any')
+        }
+        $expected[$ManagedTunnelUdpRule] = @{
+            Protocol = 'UDP'
+            Ports = @('47998-48000', '48002', '48010')
+            Profile = 'Any'
+            RemoteAddress = $RemoteAddress
+            InterfaceAlias = $TunnelName
+            InterfaceType = @('Any')
         }
     }
     foreach ($name in $expected.Keys) {
@@ -623,8 +668,130 @@ function Test-SunshineFirewall {
             return $false
         }
     }
+    $allowedManagedRules = @($expected.Keys)
+    if ([string]::IsNullOrWhiteSpace($RemoteAddress)) {
+        $allowedManagedRules += @($ManagedTunnelTcpRule, $ManagedTunnelUdpRule)
+    }
     foreach ($rule in @(Get-SunshineInboundRules)) {
-        if ($rule.Name -notin @($expected.Keys) -and $rule.Enabled -eq 'True') {
+        if ($rule.Name -notin $allowedManagedRules -and $rule.Enabled -eq 'True') {
+            return $false
+        }
+    }
+    return $true
+}
+
+function Get-MoonlightInboundRules {
+    $rules = [Collections.Generic.List[object]]::new()
+    foreach ($rule in @(Get-NetFirewallRule -Direction Inbound -ErrorAction SilentlyContinue)) {
+        $application = $rule | Get-NetFirewallApplicationFilter -ErrorAction SilentlyContinue
+        if (
+            $rule.DisplayName -match '(?i)Moonlight Game Streaming Client' -or
+            ($null -ne $application -and $application.Program -ieq $MoonlightExecutable)
+        ) {
+            $rules.Add($rule)
+        }
+    }
+    return @($rules)
+}
+
+function Set-MoonlightFirewall {
+    param([AllowNull()][string]$RemoteAddress)
+
+    $managedRules = @($ManagedClientLanRule, $ManagedClientTunnelRule)
+    foreach ($rule in @(Get-MoonlightInboundRules)) {
+        if ($rule.Name -notin $managedRules -and $rule.Enabled -eq 'True') {
+            Disable-NetFirewallRule -Name $rule.Name
+        }
+    }
+    Remove-NetFirewallRule -Name $ManagedClientLanRule -ErrorAction SilentlyContinue
+
+    $null = New-NetFirewallRule `
+        -Name $ManagedClientLanRule `
+        -DisplayName 'Game stream client traffic from the private local subnet' `
+        -Group $ManagedClientFirewallGroup `
+        -Direction Inbound `
+        -Action Allow `
+        -Enabled True `
+        -Profile Private `
+        -Program $MoonlightExecutable `
+        -RemoteAddress LocalSubnet4 `
+        -InterfaceType Wired, Wireless
+
+    if (-not [string]::IsNullOrWhiteSpace($RemoteAddress)) {
+        Remove-NetFirewallRule -Name $ManagedClientTunnelRule -ErrorAction SilentlyContinue
+        $null = New-NetFirewallRule `
+            -Name $ManagedClientTunnelRule `
+            -DisplayName 'Game stream client traffic from the enrolled tunnel host' `
+            -Group $ManagedClientFirewallGroup `
+            -Direction Inbound `
+            -Action Allow `
+            -Enabled True `
+            -Profile Any `
+            -Program $MoonlightExecutable `
+            -RemoteAddress $RemoteAddress `
+            -InterfaceAlias $TunnelName
+    }
+}
+
+function Test-MoonlightFirewall {
+    param([AllowNull()][string]$RemoteAddress)
+
+    $expected = @{
+        $ManagedClientLanRule = @{
+            Profile = 'Private'
+            RemoteAddress = 'LocalSubnet4'
+            InterfaceAlias = 'Any'
+            InterfaceType = @('Wired, Wireless')
+        }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($RemoteAddress)) {
+        $expected[$ManagedClientTunnelRule] = @{
+            Profile = 'Any'
+            RemoteAddress = $RemoteAddress
+            InterfaceAlias = $TunnelName
+            InterfaceType = @('Any')
+        }
+    }
+
+    foreach ($name in $expected.Keys) {
+        $rule = Get-NetFirewallRule -Name $name -ErrorAction SilentlyContinue
+        if (
+            $null -eq $rule -or
+            $rule.Enabled -ne 'True' -or
+            $rule.Action -ne 'Allow' -or
+            $rule.Direction -ne 'Inbound' -or
+            $rule.Profile -ne $expected[$name].Profile
+        ) {
+            return $false
+        }
+        $application = $rule | Get-NetFirewallApplicationFilter
+        $address = $rule | Get-NetFirewallAddressFilter
+        $interface = $rule | Get-NetFirewallInterfaceFilter
+        $interfaceType = $rule | Get-NetFirewallInterfaceTypeFilter
+        $port = $rule | Get-NetFirewallPortFilter
+        $interfaceAliases = @($interface.InterfaceAlias)
+        $interfaceTypes = @($interfaceType.InterfaceType)
+        if (
+            $application.Program -ine $MoonlightExecutable -or
+            @($address.RemoteAddress).Count -ne 1 -or
+            @($address.RemoteAddress)[0] -ine $expected[$name].RemoteAddress -or
+            $interfaceAliases.Count -ne 1 -or
+            $interfaceAliases[0] -ine $expected[$name].InterfaceAlias -or
+            (Compare-Object @($interfaceTypes | Sort-Object) @($expected[$name].InterfaceType | Sort-Object)) -or
+            $port.Protocol -ine 'Any' -or
+            @($port.LocalPort).Count -ne 1 -or
+            @($port.LocalPort)[0] -ine 'Any'
+        ) {
+            return $false
+        }
+    }
+
+    $allowedManagedRules = @($expected.Keys)
+    if ([string]::IsNullOrWhiteSpace($RemoteAddress)) {
+        $allowedManagedRules += $ManagedClientTunnelRule
+    }
+    foreach ($rule in @(Get-MoonlightInboundRules)) {
+        if ($rule.Name -notin $allowedManagedRules -and $rule.Enabled -eq 'True') {
             return $false
         }
     }
@@ -651,6 +818,7 @@ function Save-DesiredState {
     Initialize-StateRoot
     [ordered]@{
         role = $Role.ToLowerInvariant()
+        stage = $Stage.ToLowerInvariant()
         sessionModel = if ($Role -eq 'Host') { 'trusted-shared-console' } else { 'not-applicable' }
         sourceCommit = $SourceCommit
         sourceDigest = $SourceDigest
@@ -711,6 +879,7 @@ function Write-ComplianceResult {
 
     [ordered]@{
         role = "game-stream-$($Role.ToLowerInvariant())"
+        stage = $Stage.ToLowerInvariant()
         status = $Status
         findings = $Findings
         sourceCommit = $SourceCommit
@@ -731,8 +900,10 @@ function Test-Configuration {
     $state = Get-DesiredState
     $stateProperties = if ($null -ne $state) { @($state.PSObject.Properties.Name) } else { @() }
     $sourceCommit = if ($stateProperties -contains 'sourceCommit') { $state.sourceCommit } else { $null }
-    $expectedSourceDigest = [Environment]::GetEnvironmentVariable('CAZ_GAME_STREAM_SOURCE_DIGEST')
+    $expectedSourceDigest = $SourceDigest
     $expectedSessionModel = if ($Role -eq 'Host') { 'trusted-shared-console' } else { 'not-applicable' }
+    $remoteStage = $Stage -eq 'Remote'
+    $peerRoute = $null
 
     $wireGuard = Get-WireGuardCommand
     $wg = Get-WgCommand
@@ -742,29 +913,31 @@ function Test-Configuration {
     if ($Role -eq 'Client' -and -not (Test-MoonlightInstalled)) {
         $drift.Add('Moonlight package is absent')
     }
-    if (-not (Test-Path -LiteralPath $DpapiConfiguration -PathType Leaf)) {
-        $manual.Add('DPAPI-backed tunnel enrollment is required')
+    if ($remoteStage -and -not (Test-Path -LiteralPath $DpapiConfiguration -PathType Leaf)) {
+        $manual.Add('DPAPI-backed tunnel enrollment is required for the Remote stage')
     }
     if (Test-Path -LiteralPath $PlaintextConfiguration -PathType Leaf) {
         $drift.Add('plaintext WireGuard configuration remains in the managed configuration directory')
     }
     $tunnelService = Get-Service -Name $TunnelServiceName -ErrorAction SilentlyContinue
-    if ($null -eq $tunnelService) {
-        $manual.Add('WireGuard tunnel service enrollment is required')
+    if ($remoteStage -and $null -eq $tunnelService) {
+        $manual.Add('WireGuard tunnel service enrollment is required for the Remote stage')
     }
-    else {
+    elseif ($remoteStage) {
         $tunnelServiceConfiguration = Get-CimInstance `
             Win32_Service `
             -Filter "Name='$TunnelServiceName'"
-        if (
-            $null -eq $tunnelServiceConfiguration -or
-            $tunnelServiceConfiguration.StartMode -ne 'Auto' -or
-            $tunnelService.Status -ne 'Running'
-        ) {
+        $tunnelReady = (
+            $null -ne $tunnelServiceConfiguration -and
+            $tunnelServiceConfiguration.StartMode -eq 'Auto' -and
+            $tunnelService.Status -eq 'Running'
+        )
+        if (-not $tunnelReady) {
             $drift.Add('WireGuard tunnel service is not automatic and running')
         }
-        if ($null -ne $wg) {
-            if ($null -eq (Get-TunnelPeerRoute -Wg $wg)) {
+        if ($tunnelReady -and $null -ne $wg) {
+            $peerRoute = Get-TunnelPeerRoute -Wg $wg
+            if ($null -eq $peerRoute) {
                 $expectedRoute = if ($Role -eq 'Host') { 'client-role IPv4 /28' } else { 'host IPv4 /32' }
                 $drift.Add("tunnel route is not the exact $expectedRoute")
             }
@@ -776,22 +949,36 @@ function Test-Configuration {
             }
         }
     }
-    $dangerousScripts = Get-ItemPropertyValue `
+    $wireGuardPolicy = Get-ItemProperty `
         -LiteralPath 'HKLM:\Software\WireGuard' `
-        -Name DangerousScriptExecution `
         -ErrorAction SilentlyContinue
+    $dangerousScriptsProperty = if ($null -ne $wireGuardPolicy) {
+        $wireGuardPolicy.PSObject.Properties['DangerousScriptExecution']
+    }
+    else {
+        $null
+    }
+    $dangerousScripts = if ($null -ne $dangerousScriptsProperty) {
+        $dangerousScriptsProperty.Value
+    }
+    else {
+        $null
+    }
     if ($dangerousScripts -eq 1) {
         $drift.Add('WireGuard Local System hook execution is enabled')
     }
     if ($null -eq $state) {
-        $manual.Add('a declarative role apply is required')
+        $drift.Add('a declarative role apply is required')
     }
     elseif (
         $stateProperties -notcontains 'role' -or
+        $stateProperties -notcontains 'stage' -or
         $stateProperties -notcontains 'sessionModel' -or
         $stateProperties -notcontains 'sourceCommit' -or
         $stateProperties -notcontains 'sourceDigest' -or
         $state.role -ne $Role.ToLowerInvariant() -or
+        $state.stage -notin @('lan', 'remote') -or
+        ($remoteStage -and $state.stage -ne 'remote') -or
         $state.sessionModel -ne $expectedSessionModel -or
         $state.sourceCommit -notmatch '^[0-9a-f]{40}$' -or
         $state.sourceDigest -notmatch '^[0-9a-f]{64}$'
@@ -823,11 +1010,10 @@ function Test-Configuration {
         ) {
             $drift.Add('Sunshine security-critical network settings differ')
         }
-        if ($null -ne $wg) {
-            $peerRoute = Get-TunnelPeerRoute -Wg $wg
-            if ($null -ne $peerRoute -and -not (Test-SunshineFirewall -RemoteAddress $peerRoute)) {
-                $drift.Add('Sunshine firewall rules differ from the narrow tunnel and private-LAN policy')
-            }
+        $expectedFirewallRoute = if ($remoteStage) { $peerRoute } else { $null }
+        if (-not (Test-SunshineFirewall -RemoteAddress $expectedFirewallRoute)) {
+            $expectedFirewall = if ($remoteStage) { 'narrow tunnel and private-LAN policy' } else { 'private-LAN policy' }
+            $drift.Add("Sunshine firewall rules differ from the $expectedFirewall")
         }
         if (-not (Test-PrivateLanActive)) {
             $warnings.Add('no active Private Windows network exists; direct LAN streaming remains closed')
@@ -844,12 +1030,24 @@ function Test-Configuration {
         }
         $warnings.Add('headless display, power, reboot, Windows login, and shared-console behavior still require pilot evidence')
     }
+    else {
+        $expectedFirewallRoute = if ($remoteStage) { $peerRoute } else { $null }
+        if (
+            -not (Test-Path -LiteralPath $MoonlightExecutable -PathType Leaf) -or
+            -not (Test-MoonlightFirewall -RemoteAddress $expectedFirewallRoute)
+        ) {
+            $expectedFirewall = if ($remoteStage) { 'narrow tunnel and private-LAN policy' } else { 'private-LAN policy' }
+            $drift.Add("Moonlight installation or firewall rules differ from the $expectedFirewall")
+        }
+    }
 
     if ($drift.Count -gt 0) {
-        Write-ComplianceResult -Status drifted -Findings @($drift) -SourceCommit $sourceCommit
+        $findings = @($drift) + @($manual) + @($warnings)
+        Write-ComplianceResult -Status drifted -Findings $findings -SourceCommit $sourceCommit
     }
     if ($manual.Count -gt 0) {
-        Write-ComplianceResult -Status 'manual ceremony required' -Findings @($manual) -SourceCommit $sourceCommit
+        $findings = @($manual) + @($warnings)
+        Write-ComplianceResult -Status 'manual ceremony required' -Findings $findings -SourceCommit $sourceCommit
     }
     if ($warnings.Count -gt 0) {
         Write-ComplianceResult -Status 'environmental warning' -Findings @($warnings) -SourceCommit $sourceCommit
@@ -878,41 +1076,41 @@ Remove-ItemProperty `
     -Name DangerousScriptExecution `
     -ErrorAction SilentlyContinue
 
-$enrollmentFile = [Environment]::GetEnvironmentVariable('CAZ_GAME_STREAM_ENROLLMENT_FILE')
-if (-not [string]::IsNullOrWhiteSpace($enrollmentFile)) {
-    try {
-        Import-WireGuardEnrollment -WireGuard $wireGuard -EnrollmentFile $enrollmentFile
+$peerRoute = $null
+if ($Stage -eq 'Remote') {
+    if (-not [string]::IsNullOrWhiteSpace($EnrollmentFile)) {
+        try {
+            Import-WireGuardEnrollment -WireGuard $wireGuard -EnrollmentFile $EnrollmentFile
+        }
+        finally {
+            Remove-Item -LiteralPath $EnrollmentFile -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $PlaintextConfiguration -Force -ErrorAction SilentlyContinue
+        }
     }
-    finally {
-        Remove-Item -LiteralPath $enrollmentFile -Force -ErrorAction SilentlyContinue
-        Remove-Item -LiteralPath $PlaintextConfiguration -Force -ErrorAction SilentlyContinue
+    if (-not (Test-Path -LiteralPath $DpapiConfiguration -PathType Leaf)) {
+        throw 'Manual ceremony required: provide the one-time local WireGuard enrollment file for the Remote stage.'
+    }
+    Start-DpapiTunnelService -WireGuard $wireGuard
+
+    $wg = Get-WgCommand
+    if ($null -eq $wg) {
+        throw 'WireGuard wg.exe is unavailable after package installation.'
+    }
+    $peerRoute = Get-TunnelPeerRoute -Wg $wg
+    if ($null -eq $peerRoute -or -not (Test-TunnelKeepalive -Wg $wg)) {
+        $expectedRoute = if ($Role -eq 'Host') { 'one client-role /28' } else { 'one host /32' }
+        throw "The active tunnel must contain $expectedRoute and PersistentKeepalive = 25."
     }
 }
-if (-not (Test-Path -LiteralPath $DpapiConfiguration -PathType Leaf)) {
-    throw 'Manual ceremony required: provide the one-time local WireGuard enrollment file.'
-}
-Start-DpapiTunnelService -WireGuard $wireGuard
 
-$wg = Get-WgCommand
-if ($null -eq $wg) {
-    throw 'WireGuard wg.exe is unavailable after package installation.'
-}
-$peerRoute = Get-TunnelPeerRoute -Wg $wg
-if ($null -eq $peerRoute -or -not (Test-TunnelKeepalive -Wg $wg)) {
-    $expectedRoute = if ($Role -eq 'Host') { 'one client-role /28' } else { 'one host /32' }
-    throw "The active tunnel must contain $expectedRoute and PersistentKeepalive = 25."
-}
-
-$sourceCommit = [Environment]::GetEnvironmentVariable('CAZ_GAME_STREAM_SOURCE_COMMIT')
-if ($sourceCommit -notmatch '^[0-9a-fA-F]{40}$') {
+if ($SourceCommit -notmatch '^[0-9a-fA-F]{40}$') {
     throw 'The reviewed source commit is missing or invalid.'
 }
-$sourceCommit = $sourceCommit.ToLowerInvariant()
-$sourceDigest = [Environment]::GetEnvironmentVariable('CAZ_GAME_STREAM_SOURCE_DIGEST')
-if ($sourceDigest -notmatch '^[0-9a-fA-F]{64}$') {
+$SourceCommit = $SourceCommit.ToLowerInvariant()
+if ($SourceDigest -notmatch '^[0-9a-fA-F]{64}$') {
     throw 'The staged game-stream source digest is missing or invalid.'
 }
-$sourceDigest = $sourceDigest.ToLowerInvariant()
+$SourceDigest = $SourceDigest.ToLowerInvariant()
 
 if ($Role -eq 'Host') {
     $sunshineVersion = Get-SunshineVersion
@@ -944,9 +1142,15 @@ if ($Role -eq 'Host') {
         throw 'Sunshine could not be configured as an always-running automatic service.'
     }
 }
+else {
+    if (-not (Test-Path -LiteralPath $MoonlightExecutable -PathType Leaf)) {
+        throw 'Moonlight is installed without its expected executable.'
+    }
+    Set-MoonlightFirewall -RemoteAddress $peerRoute
+}
 
 Save-DesiredState `
-    -SourceCommit $sourceCommit `
-    -SourceDigest $sourceDigest
+    -SourceCommit $SourceCommit `
+    -SourceDigest $SourceDigest
 
-Write-Host "Applied declarative game-stream-$($Role.ToLowerInvariant()) security state."
+Write-Host "Applied declarative game-stream-$($Role.ToLowerInvariant()) $($Stage.ToLowerInvariant()) stage."
