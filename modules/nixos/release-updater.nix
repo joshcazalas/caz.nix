@@ -52,7 +52,6 @@ let
     ++ optionals config.services.fail2ban.enable [ "fail2ban.service" ]
     ++ optionals config.homelab.gameStreamGateway.enable [
       "wg-quick-wg-game.service"
-      "game-stream-gateway-policy.service"
     ]
     ++ optionals config.services.auxide.enable [ "auxide.service" ]
     ++ optionals providerEnabled [ providerUnit ]

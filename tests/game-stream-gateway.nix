@@ -3,8 +3,8 @@
   sops-nix,
 }:
 let
-  # These keys exist only inside disposable documentation-range VMs. Splitting
-  # the non-secret fixtures keeps generic secret scanners meaningful.
+  # Disposable test-only keys are split so generic secret scanners continue to
+  # catch accidentally committed production WireGuard material.
   fixtureKeys = {
     gateway = builtins.concatStringsSep "" [
       "+MAAEjYR"
@@ -13,14 +13,6 @@ let
       "rhK/305n"
       "Z64BtT3C"
       "IEM="
-    ];
-    host = builtins.concatStringsSep "" [
-      "UPLk0odu"
-      "0K0J9aPN"
-      "RJVeA+LG"
-      "abKNMnqw"
-      "WrNc/CWb"
-      "xXE="
     ];
     client = builtins.concatStringsSep "" [
       "MGFxeYcN"
@@ -40,97 +32,76 @@ let
     ];
   };
   gatewayPublicKey = "bW/PIeb0C8q05svQlT24VAaw58GQrk/0tErYhFsJOjQ=";
-  hostPublicKey = "4r4Uo/1VVCwydWVc+1bRHMDN/ln6+b6yJI2BBOOqtlA=";
   clientPublicKey = "RYOxSmSdLVmFheEeofQGbQMLQLxhUjX5NdLu7H2P6VM=";
   client2PublicKey = "xIW4eCfneRlGcuNXvKJsGKdLUas+3XzQaln0eQfxyVg=";
 
-  gatewayAddress = "192.0.2.1";
-  hostAddress = "192.0.2.2";
-  clientPool = "198.51.100.16/28";
-  clientAddress = "198.51.100.17";
-  client2Address = "198.51.100.18";
+  gatewayExternalAddress = "203.0.113.1";
+  clientExternalAddress = "203.0.113.2";
+  client2ExternalAddress = "203.0.113.3";
+  gatewayLanAddress = "192.0.2.1";
+  hostLanAddress = "192.0.2.2";
+  otherLanAddress = "192.0.2.3";
+  gatewayTunnelAddress = "198.51.100.1";
+  clientTunnelAddress = "198.51.100.2";
+  client2TunnelAddress = "198.51.100.3";
   listenerPort = 51820;
 
   gatewayFixture = pkgs.writeText "wg-game-test.conf" ''
     [Interface]
-    Address = ${gatewayAddress}/32
+    Address = ${gatewayTunnelAddress}/32
     PrivateKey = ${fixtureKeys.gateway}
     ListenPort = ${toString listenerPort}
 
     [Peer]
-    PublicKey = ${hostPublicKey}
-    AllowedIPs = ${hostAddress}/32
-
-    [Peer]
     PublicKey = ${clientPublicKey}
-    AllowedIPs = ${clientAddress}/32
+    AllowedIPs = ${clientTunnelAddress}/32
 
     [Peer]
     PublicKey = ${client2PublicKey}
-    AllowedIPs = ${client2Address}/32
+    AllowedIPs = ${client2TunnelAddress}/32
   '';
 
-  malformedPeerFixture = pkgs.writeText "wg-game-malformed-peer-test.conf" ''
-    [Interface]
-    Address = ${gatewayAddress}/32
-    PrivateKey = ${fixtureKeys.gateway}
-    ListenPort = ${toString listenerPort}
+  clientFixture =
+    privateKey: address:
+    pkgs.writeText "wg-client-test.conf" ''
+      [Interface]
+      Address = ${address}/32
+      PrivateKey = ${privateKey}
 
-    [Peer]
-    PublicKey = ${hostPublicKey}
-    PublicKey = ${clientPublicKey}
-    AllowedIPs = ${hostAddress}/32
+      [Peer]
+      PublicKey = ${gatewayPublicKey}
+      Endpoint = ${gatewayExternalAddress}:${toString listenerPort}
+      AllowedIPs = ${hostLanAddress}/32
+      PersistentKeepalive = 25
+    '';
 
-    [Peer]
-    AllowedIPs = ${clientAddress}/32
-  '';
-
-  hostOnlyFixture = pkgs.writeText "wg-game-host-only-test.conf" ''
-    [Interface]
-    Address = ${gatewayAddress}/32
-    PrivateKey = ${fixtureKeys.gateway}
-    ListenPort = ${toString listenerPort}
-
-    [Peer]
-    PublicKey = ${hostPublicKey}
-    AllowedIPs = ${hostAddress}/32
-  '';
-
-  duplicateClientRouteFixture = pkgs.writeText "wg-game-duplicate-client-route-test.conf" ''
-    [Interface]
-    Address = ${gatewayAddress}/32
-    PrivateKey = ${fixtureKeys.gateway}
-    ListenPort = ${toString listenerPort}
-
-    [Peer]
-    PublicKey = ${hostPublicKey}
-    AllowedIPs = ${hostAddress}/32
-
-    [Peer]
-    PublicKey = ${clientPublicKey}
-    AllowedIPs = ${clientAddress}/32
-
-    [Peer]
-    PublicKey = ${client2PublicKey}
-    AllowedIPs = ${clientAddress}/32
-  '';
+  staticAddress = address: {
+    ipv4.addresses = [
+      {
+        inherit address;
+        prefixLength = 24;
+      }
+    ];
+  };
 
   commonNode = {
     networking = {
+      useDHCP = false;
       firewall.enable = true;
       nftables.enable = false;
     };
     environment.systemPackages = [
       pkgs.curl
+      pkgs.socat
       pkgs.wireguard-tools
     ];
     system.stateVersion = "26.05";
   };
 
-  httpListener =
+  tcpListener =
     {
       address,
-      after,
+      after ? [ "network-online.target" ],
       name,
       port,
     }:
@@ -149,285 +120,181 @@ pkgs.testers.runNixOSTest {
   name = "game-stream-gateway";
 
   nodes = {
-    gateway =
-      { ... }:
-      {
-        imports = [
-          sops-nix.nixosModules.sops
-          ../modules/nixos/game-stream-gateway.nix
-          commonNode
-        ];
+    gateway = {
+      imports = [
+        sops-nix.nixosModules.sops
+        ../modules/nixos/game-stream-gateway.nix
+        commonNode
+      ];
+      virtualisation.vlans = [
+        1
+        2
+      ];
+      networking.interfaces = {
+        eth1 = staticAddress gatewayExternalAddress;
+        eth2 = staticAddress gatewayLanAddress;
+      };
+      networking.firewall.allowedTCPPorts = [ 9999 ];
+      homelab.gameStreamGateway = {
+        enable = true;
+        hostAddress = hostLanAddress;
+        listenPort = listenerPort;
+        _testConfigFile = toString gatewayFixture;
+      };
+      systemd.services.gateway-test-listener = tcpListener {
+        address = gatewayTunnelAddress;
+        after = [ "wg-quick-wg-game.service" ];
+        name = "gateway input";
+        port = 9999;
+      };
+    };
 
-        homelab.gameStreamGateway = {
-          enable = true;
-          listenPort = listenerPort;
-          _testConfigFile = toString gatewayFixture;
+    host = {
+      imports = [ commonNode ];
+      virtualisation.vlans = [ 2 ];
+      networking.interfaces.eth1.ipv4.addresses = [
+        {
+          address = hostLanAddress;
+          prefixLength = 24;
+        }
+        {
+          address = otherLanAddress;
+          prefixLength = 24;
+        }
+      ];
+      networking.firewall.allowedTCPPorts = [
+        47989
+        9999
+      ];
+      networking.firewall.allowedUDPPorts = [ 47998 ];
+      systemd.services = {
+        host-stream-listener = tcpListener {
+          address = hostLanAddress;
+          after = [ "network-addresses-eth1.service" ];
+          name = "allowed Sunshine TCP";
+          port = 47989;
         };
-
-        networking.firewall.allowedTCPPorts = [ 9999 ];
-        systemd.services.gateway-test-listener = httpListener {
-          address = gatewayAddress;
-          after = [ "wg-quick-wg-game.service" ];
-          name = "gateway input";
+        host-blocked-listener = tcpListener {
+          address = hostLanAddress;
+          after = [ "network-addresses-eth1.service" ];
+          name = "blocked host service";
           port = 9999;
         };
-      };
-
-    host =
-      { pkgs, ... }:
-      {
-        imports = [ commonNode ];
-
-        networking = {
-          firewall.allowedTCPPorts = [
-            9998
-            9999
-            47989
-          ];
-          wg-quick.interfaces.wg-test.configFile = toString (
-            pkgs.writeText "wg-host-test.conf" ''
-              [Interface]
-              Address = ${hostAddress}/32
-              PrivateKey = ${fixtureKeys.host}
-
-              [Peer]
-              PublicKey = ${gatewayPublicKey}
-              Endpoint = gateway:${toString listenerPort}
-              AllowedIPs = ${clientPool}
-              PersistentKeepalive = 25
-            ''
-          );
+        other-lan-listener = tcpListener {
+          address = otherLanAddress;
+          after = [ "network-addresses-eth1.service" ];
+          name = "blocked alternate LAN destination";
+          port = 47989;
         };
-
-        systemd.services = {
-          host-stream-listener = httpListener {
-            address = hostAddress;
-            after = [ "wg-quick-wg-test.service" ];
-            name = "allowed host stream";
-            port = 47989;
-          };
-          host-blocked-listener = httpListener {
-            address = hostAddress;
-            after = [ "wg-quick-wg-test.service" ];
-            name = "blocked host service";
-            port = 9999;
-          };
-          host-lan-listener = httpListener {
-            address = "0.0.0.0";
-            after = [ "network-online.target" ];
-            name = "blocked LAN service";
-            port = 9998;
+        host-stream-udp = {
+          description = "Throwaway allowed Sunshine UDP echo listener";
+          wantedBy = [ "multi-user.target" ];
+          requires = [ "network-addresses-eth1.service" ];
+          after = [ "network-addresses-eth1.service" ];
+          serviceConfig = {
+            ExecStart = "${pkgs.socat}/bin/socat UDP4-RECVFROM:47998,bind=${hostLanAddress},fork EXEC:${pkgs.coreutils}/bin/cat";
+            Restart = "on-failure";
           };
         };
       };
+    };
 
-    client =
-      { pkgs, ... }:
-      {
-        imports = [ commonNode ];
+    client = {
+      imports = [ commonNode ];
+      virtualisation.vlans = [ 1 ];
+      networking.interfaces.eth1 = staticAddress clientExternalAddress;
+      networking.wg-quick.interfaces.wg-test.configFile = toString (
+        clientFixture fixtureKeys.client clientTunnelAddress
+      );
+    };
 
-        networking = {
-          firewall.allowedTCPPorts = [ 7777 ];
-          wg-quick.interfaces.wg-test.configFile = toString (
-            pkgs.writeText "wg-client-test.conf" ''
-              [Interface]
-              Address = ${clientAddress}/32
-              PrivateKey = ${fixtureKeys.client}
-
-              [Peer]
-              PublicKey = ${gatewayPublicKey}
-              Endpoint = gateway:${toString listenerPort}
-              AllowedIPs = ${hostAddress}/32
-              PersistentKeepalive = 25
-            ''
-          );
-        };
-
-        systemd.services.client-test-listener = httpListener {
-          address = clientAddress;
-          after = [ "wg-quick-wg-test.service" ];
-          name = "blocked client service";
-          port = 7777;
-        };
+    client2 = {
+      imports = [ commonNode ];
+      virtualisation.vlans = [ 1 ];
+      networking.interfaces.eth1 = staticAddress client2ExternalAddress;
+      networking.firewall.allowedTCPPorts = [ 7777 ];
+      networking.wg-quick.interfaces.wg-test.configFile = toString (
+        clientFixture fixtureKeys.client2 client2TunnelAddress
+      );
+      systemd.services.client-test-listener = tcpListener {
+        address = client2TunnelAddress;
+        after = [ "wg-quick-wg-test.service" ];
+        name = "blocked client service";
+        port = 7777;
       };
-
-    client2 =
-      { pkgs, ... }:
-      {
-        imports = [ commonNode ];
-
-        networking = {
-          firewall.allowedTCPPorts = [ 7777 ];
-          wg-quick.interfaces.wg-test.configFile = toString (
-            pkgs.writeText "wg-client2-test.conf" ''
-              [Interface]
-              Address = ${client2Address}/32
-              PrivateKey = ${fixtureKeys.client2}
-
-              [Peer]
-              PublicKey = ${gatewayPublicKey}
-              Endpoint = gateway:${toString listenerPort}
-              AllowedIPs = ${hostAddress}/32
-              PersistentKeepalive = 25
-            ''
-          );
-        };
-
-        systemd.services.client2-test-listener = httpListener {
-          address = client2Address;
-          after = [ "wg-quick-wg-test.service" ];
-          name = "blocked second client service";
-          port = 7777;
-        };
-      };
+    };
   };
 
   testScript = ''
     start_all()
 
     gateway.wait_for_unit("wg-quick-wg-game.service")
-    gateway.wait_for_unit("game-stream-gateway-policy.service")
     gateway.wait_for_unit("gateway-test-listener.service")
-    host.wait_for_unit("wg-quick-wg-test.service")
     host.wait_for_unit("host-stream-listener.service")
+    host.wait_for_unit("host-stream-udp.service")
     host.wait_for_unit("host-blocked-listener.service")
-    host.wait_for_unit("host-lan-listener.service")
+    host.wait_for_unit("other-lan-listener.service")
     client.wait_for_unit("wg-quick-wg-test.service")
-    client.wait_for_unit("client-test-listener.service")
     client2.wait_for_unit("wg-quick-wg-test.service")
-    client2.wait_for_unit("client2-test-listener.service")
+    client2.wait_for_unit("client-test-listener.service")
 
-    gateway.succeed("iptables -w -C FORWARD -i wg-game -j caz-game-stream-guard")
-    gateway.succeed("iptables -w -C caz-game-stream-guard -j caz-game-stream")
-    gateway.succeed("iptables -w -C caz-game-stream-guard -j DROP")
     gateway.succeed("iptables -w -C nixos-fw -i wg-game -j nixos-fw-log-refuse")
     gateway.succeed(
-      "iptables -w -C caz-game-stream -s ${clientAddress}/32 -d ${hostAddress}/32 "
+      "iptables -w -C FORWARD -i wg-game -d ${hostLanAddress}/32 "
       "-p tcp -m multiport --dports 47984,47989,48010 "
       "-m conntrack --ctstate NEW,ESTABLISHED,RELATED -j ACCEPT"
     )
     gateway.succeed(
-      "iptables -w -C caz-game-stream -s ${clientAddress}/32 -d ${hostAddress}/32 "
+      "iptables -w -C FORWARD -i wg-game -d ${hostLanAddress}/32 "
       "-p udp -m multiport --dports 47998:48000,48002,48010 "
       "-m conntrack --ctstate NEW,ESTABLISHED,RELATED -j ACCEPT"
     )
-    gateway.succeed(
-      "iptables -w -C caz-game-stream -s ${client2Address}/32 -d ${hostAddress}/32 "
-      "-p tcp -m multiport --dports 47984,47989,48010 "
-      "-m conntrack --ctstate NEW,ESTABLISHED,RELATED -j ACCEPT"
-    )
-    gateway.succeed("test $(iptables -w -S caz-game-stream | grep -c '^-A caz-game-stream ') -eq 8")
+    gateway.succeed("iptables -w -C FORWARD -i wg-game -j DROP")
+    gateway.succeed("iptables -w -t nat -C nixos-nat-pre -i wg-game -j MARK --set-mark 1")
 
     client.wait_until_succeeds(
-      "curl --fail --silent --max-time 5 http://${hostAddress}:47989/ >/dev/null"
+      "curl --fail --silent --max-time 5 http://${hostLanAddress}:47989/ >/dev/null"
+    )
+    client.succeed(
+      "test \"$(printf ping | socat -T 5 - UDP4:${hostLanAddress}:47998)\" = ping"
     )
     client2.wait_until_succeeds(
-      "curl --fail --silent --max-time 5 http://${hostAddress}:47989/ >/dev/null"
+      "curl --fail --silent --max-time 5 http://${hostLanAddress}:47989/ >/dev/null"
     )
-    gateway.succeed(
-      "caz-game-stream-gateway report ${gatewayFixture} wg-game ${toString listenerPort}"
-    )
-    gateway.fail(
-      "caz-game-stream-gateway validate ${malformedPeerFixture} wg-game ${toString listenerPort}"
-    )
-    gateway.succeed(
-      "caz-game-stream-gateway validate ${hostOnlyFixture} wg-game ${toString listenerPort}"
-    )
-    gateway.fail(
-      "caz-game-stream-gateway validate ${duplicateClientRouteFixture} wg-game ${toString listenerPort}"
-    )
-    client.fail("curl --fail --silent --connect-timeout 2 http://${hostAddress}:9999/")
-    host.fail("curl --fail --silent --connect-timeout 2 http://${clientAddress}:7777/")
-    host.fail("curl --fail --silent --connect-timeout 2 http://${client2Address}:7777/")
 
-    # A client cannot reach another client even if it locally expands the
-    # gateway peer route. Each client remains a separate cryptographic role.
+    client.fail("curl --fail --silent --connect-timeout 2 http://${hostLanAddress}:9999/")
     client.succeed(
-      "wg set wg-test peer ${gatewayPublicKey} allowed-ips ${hostAddress}/32,${client2Address}/32"
+      "wg set wg-test peer ${gatewayPublicKey} allowed-ips ${hostLanAddress}/32,${otherLanAddress}/32"
     )
-    client.succeed("ip route add ${client2Address}/32 dev wg-test")
-    client.fail("curl --fail --silent --connect-timeout 2 http://${client2Address}:7777/")
+    client.succeed("ip route add ${otherLanAddress}/32 dev wg-test")
+    client.fail("curl --fail --silent --connect-timeout 2 http://${otherLanAddress}:47989/")
 
-    # Stopping or interrupting the policy updater must retain a persistent
-    # FORWARD guard and deny tunnel traffic until the exact policy is restored.
-    gateway.succeed("systemctl stop game-stream-gateway-policy.service")
-    gateway.succeed("iptables -w -C FORWARD -i wg-game -j caz-game-stream-guard")
-    gateway.succeed("iptables -w -C caz-game-stream -j DROP")
-    client.fail("curl --fail --silent --connect-timeout 2 http://${hostAddress}:47989/")
-    gateway.succeed("systemctl start game-stream-gateway-policy.service")
-    client.wait_until_succeeds(
-      "curl --fail --silent --max-time 5 http://${hostAddress}:47989/ >/dev/null"
+    client.succeed(
+      "wg set wg-test peer ${gatewayPublicKey} allowed-ips "
+      "${hostLanAddress}/32,${otherLanAddress}/32,${gatewayTunnelAddress}/32,${client2TunnelAddress}/32"
     )
+    client.succeed("ip route add ${gatewayTunnelAddress}/32 dev wg-test")
+    client.succeed("ip route add ${client2TunnelAddress}/32 dev wg-test")
+    client.fail("curl --fail --silent --connect-timeout 2 http://${gatewayTunnelAddress}:9999/")
+    client.fail("curl --fail --silent --connect-timeout 2 http://${client2TunnelAddress}:7777/")
 
-    # Even the transient empty-chain state of an interrupted rebuild returns
-    # to the guard's DROP instead of falling through to broader forwarding.
-    gateway.succeed("iptables -w -F caz-game-stream")
-    client.fail("curl --fail --silent --connect-timeout 2 http://${hostAddress}:47989/")
-    gateway.succeed("systemctl restart game-stream-gateway-policy.service")
-    client.wait_until_succeeds(
-      "curl --fail --silent --max-time 5 http://${hostAddress}:47989/ >/dev/null"
-    )
-    gateway.succeed(
-      "caz-game-stream-gateway report ${gatewayFixture} wg-game ${toString listenerPort}"
-    )
-
-    # The tunnel has an independent lifecycle, so stopping the general NixOS
-    # firewall must retain the dedicated forwarding guard and fail closed.
     gateway.succeed("systemctl stop firewall.service")
-    gateway.succeed("iptables -w -C FORWARD -i wg-game -j caz-game-stream-guard")
-    client.fail("curl --fail --silent --connect-timeout 2 http://${hostAddress}:47989/")
+    gateway.fail("wg show wg-game")
     gateway.succeed("systemctl start firewall.service")
-    gateway.succeed("systemctl start game-stream-gateway-policy.service")
+    gateway.succeed("systemctl start wg-quick-wg-game.service")
     client.wait_until_succeeds(
-      "curl --fail --silent --max-time 5 http://${hostAddress}:47989/ >/dev/null"
+      "curl --fail --silent --max-time 5 http://${hostLanAddress}:47989/ >/dev/null"
     )
 
-    # A normal firewall reload must reapply the narrow policy after its
-    # fail-closed guard reset instead of leaving the oneshot active but stale.
     gateway.succeed("systemctl reload firewall.service")
     client.wait_until_succeeds(
-      "curl --fail --silent --max-time 5 http://${hostAddress}:47989/ >/dev/null"
-    )
-    gateway.succeed(
-      "caz-game-stream-gateway report ${gatewayFixture} wg-game ${toString listenerPort}"
-    )
-
-    # Temporarily add the gateway /32 to the client peer only to prove that
-    # gateway-local input is refused even if a client tries to add a route.
-    client.succeed(
-      "wg set wg-test peer ${gatewayPublicKey} allowed-ips ${hostAddress}/32,${gatewayAddress}/32"
-    )
-    client.succeed("ip route add ${gatewayAddress}/32 dev wg-test")
-    client.fail("curl --fail --silent --connect-timeout 2 http://${gatewayAddress}:9999/")
-
-    # Even a locally added client route cannot turn the narrow role tunnel
-    # into access to the host's LAN-facing address.
-    host_lan_address = host.succeed(
-      "ip -o -4 address show dev eth1 | awk '{ print $4 }' | cut -d/ -f1"
-    ).strip()
-    client.succeed(
-      f"wg set wg-test peer ${gatewayPublicKey} allowed-ips "
-      f"${hostAddress}/32,${gatewayAddress}/32,{host_lan_address}/32"
-    )
-    client.succeed(f"ip route add {host_lan_address}/32 dev wg-test")
-    client.fail(
-      f"curl --fail --silent --connect-timeout 2 http://{host_lan_address}:9998/"
-    )
-
-    # A source outside the client's cryptokey route must not pass the gateway.
-    client.succeed("ip address add ${gatewayAddress}/32 dev lo")
-    client.fail(
-      "curl --interface ${gatewayAddress} --fail --silent --connect-timeout 2 http://${hostAddress}:47989/"
+      "curl --fail --silent --max-time 5 http://${hostLanAddress}:47989/ >/dev/null"
     )
 
     gateway.succeed("wg set wg-game peer ${clientPublicKey} remove")
-    client.fail("curl --fail --silent --connect-timeout 2 http://${hostAddress}:47989/")
+    client.fail("curl --fail --silent --connect-timeout 2 http://${hostLanAddress}:47989/")
     client2.wait_until_succeeds(
-      "curl --fail --silent --max-time 5 http://${hostAddress}:47989/ >/dev/null"
-    )
-    gateway.succeed("test $(wg show wg-game peers | wc -l) -eq 2")
-    gateway.fail(
-      "caz-game-stream-gateway report ${gatewayFixture} wg-game ${toString listenerPort}"
+      "curl --fail --silent --max-time 5 http://${hostLanAddress}:47989/ >/dev/null"
     )
   '';
 }

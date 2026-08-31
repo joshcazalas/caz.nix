@@ -19,25 +19,19 @@ Profiles under [`profiles/`](profiles/) select capability documents under
 | `gaming` | `base`, `gaming` | Common applications and game launchers |
 | `workstation` | `base`, `development`, `gaming` | Development and gaming without UI preferences |
 | `workstation-preferences` | `base`, `development`, `gaming`, `preferences` | The workstation profile plus optional UI and privacy choices |
-| `game-stream-host` | `game-stream-host` | Focused Sunshine/WireGuard shared-console host with private-LAN streaming |
-| `game-stream-client` | `game-stream-client` | Focused Moonlight/WireGuard independently keyed client role |
 
 The capabilities are deliberately narrow:
 
 - `base`: Terminal, browsers, Discord, and Spotify;
 - `development`: user-scoped Windows VS Code and declared extensions;
 - `gaming`: Steam, the EA app, Ubisoft Connect, and Prism Launcher;
-- `preferences`: optional registry-backed UI and privacy choices;
-- `game-stream-host`: Sunshine, official WireGuard, a narrow remote-client
-  subnet, and direct streaming from the trusted Windows `Private` LAN only;
-- `game-stream-client`: Moonlight, official WireGuard, an independently
-  generated device key, and a route only to the host tunnel `/32`.
+- `preferences`: optional registry-backed UI and privacy choices.
 
-The two game-stream profiles deliberately do not inherit `base`: applying a
-focused infrastructure role must not install browsers, chat, media, launchers,
-or development tools. See [`../docs/game-streaming.md`](../docs/game-streaming.md)
-for the rerunnable prepare/enroll/apply workflow, private input contract, and
-manual ceremonies. Do not hand-author Windows WireGuard documents.
+The focused `game-stream-host` and `game-stream-client` names remain available
+through `bootstrap/windows.sh`, but they intentionally bypass WinGet
+Configuration and DSC. One small native PowerShell entry point installs their
+exact package IDs with ordinary WinGet commands and applies only stable Windows
+policy. See [`../docs/game-streaming.md`](../docs/game-streaming.md).
 
 Profile names describe behavior only. Select one at apply time and do not
 commit a mapping from profiles to physical machines. Keep `preferences` last
@@ -87,8 +81,8 @@ cd ~/develop/caz.nix
 ```
 
 The launcher discovers the current distribution and repository path with
-`wslpath`; it does not hard-code an Ubuntu version or require `git.exe`. Both
-game-stream roles default to their deliberately LAN-only stage:
+`wslpath`; it does not hard-code an Ubuntu version or require `git.exe`. The two
+focused game-stream roles use the same WSL entry point:
 
 ```bash
 ./bootstrap/windows.sh game-stream-host
@@ -97,17 +91,15 @@ game-stream roles default to their deliberately LAN-only stage:
 ./bootstrap/windows.sh game-stream-client --check
 ```
 
-The host installs Sunshine and converges its private-LAN policy; the client
-installs Moonlight and replaces the installer's unrestricted inbound rule with
-a program-scoped private-LAN rule. The role capabilities also ensure the
-official WireGuard package is present for the later fixed remote path, but
-neither LAN stage creates or starts a tunnel. After the LAN pilot and explicit
-enrollment, `--stage remote` selects the complete tunnel policy.
+The host installs Sunshine and applies its private-LAN-only policy. Remote
+traffic arrives from the NixOS gateway's LAN address, so the host does not need
+WireGuard. The client installs Moonlight and WireGuard without declaring a
+client firewall policy. Importing the client tunnel remains an explicit one-time
+operation in the official WireGuard app.
 
-WinGet elevates only resources marked with `securityContext: elevated`, so
-approve the Windows UAC prompt when it appears. Do not launch a separate
-administrator terminal; keeping the original Windows identity preserves HKCU
-and user-scoped application state.
+Approve the single Windows UAC prompt for a game-stream apply or check. The
+launcher stages only its focused PowerShell file locally for elevation; it does
+not copy the repository or calculate source provenance.
 
 The direct Windows PowerShell entry point remains a fallback:
 
