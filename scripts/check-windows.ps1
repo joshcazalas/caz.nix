@@ -263,6 +263,17 @@ foreach ($document in @($gameStreamLifecycle, $gameStreamSetup)) {
         throw 'Game-stream action selection must retain an array under Windows PowerShell 5.1 strict mode.'
     }
 }
+foreach ($required in @(
+    '$childOutput = @(& powershell.exe @arguments 2>&1)',
+    '$previousErrorActionPreference = $ErrorActionPreference',
+    '$ErrorActionPreference = ''Continue''',
+    '$ErrorActionPreference = $previousErrorActionPreference',
+    'return $exitCode'
+)) {
+    if ($gameStreamSetup -notmatch [regex]::Escape($required)) {
+        throw "The elevated role wrapper is missing its native stderr boundary: $required"
+    }
+}
 if ($gameStreamLifecycle -match '(?im)^\s*(PrivateKey|PublicKey|Endpoint|Address|AllowedIPs)\s*=') {
     throw 'The WSL-first lifecycle must not embed production WireGuard material.'
 }

@@ -383,8 +383,19 @@ function Invoke-RoleConfiguration {
         $arguments += @('-SourceCommit', $SourceCommit)
     }
 
-    & powershell.exe @arguments | Out-Host
-    return $LASTEXITCODE
+    $childOutput = @()
+    $exitCode = 1
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        $childOutput = @(& powershell.exe @arguments 2>&1)
+        $exitCode = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+    $childOutput | ForEach-Object { Write-Host ($_.ToString()) }
+    return $exitCode
 }
 
 $selectedActions = @(
