@@ -55,6 +55,9 @@
         modules = [ ./hosts/cazpc/home.nix ];
       };
       wslSshSettings = wslHome.config.programs.ssh.settings;
+      wslSshAgentSocket = wslHome.config.systemd.user.sessionVariables.SSH_AUTH_SOCK;
+      wslSshAgentSocketMask = wslHome.config.home.file.".config/systemd/user/ssh-agent.socket".source;
+      wslBashInit = pkgs.writeText "wsl-bash-init" wslHome.config.programs.bash.initExtra;
       wslAwsSettings = wslHome.config.programs.awscli.settings;
       expectedWslAwsSettings =
         let
@@ -200,11 +203,18 @@
             pkgs.lib.escapeShellArg wslSshSettings."homeserver-remote".data.IdentityFile
           } = '~/.ssh/id_ed25519'
           test ${pkgs.lib.escapeShellArg wslSshSettings."github.com".data.IdentityFile} = '~/.ssh/id_ed25519'
+          test ${pkgs.lib.escapeShellArg wslSshAgentSocket} = '$XDG_RUNTIME_DIR/ssh-agent'
+          test "$(readlink ${wslSshAgentSocketMask})" = /dev/null
 
           grep -Fqx 'Host homeserver' "$ssh_config"
           grep -Fqx 'Host homeserver-remote' "$ssh_config"
           grep -Fq 'config_tmp="$config_path.hm-materialized"' "$activation"
           grep -Fq '/bin/install --mode 0600 "$config_path" "$config_tmp"' "$activation"
+          grep -Fq -- '--user stop ssh-agent.socket' "$activation"
+          grep -Fq 'set-environment SSH_AUTH_SOCK="$XDG_RUNTIME_DIR/ssh-agent"' "$activation"
+          grep -Fq 'ssh-add -T "$caz_ssh_identity.pub"' ${wslBashInit}
+          grep -Fq 'ssh-add -q "$caz_ssh_identity"' ${wslBashInit}
+          grep -Fq -- '-z ''${SSH_CONNECTION-}' ${wslBashInit}
 
           touch "$out"
         '';
