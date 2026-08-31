@@ -277,12 +277,13 @@ foreach ($required in @(
     }
 }
 foreach ($required in @(
+    'function Remove-ManagedTunnelConfiguration',
     'function Reset-PartialTunnelImport',
     '$ErrorActionPreference = ''Continue''',
     '& $WireGuard /uninstalltunnelservice $TunnelName 2>&1',
     'Stop-Service -Name WireGuardManager -Force -ErrorAction Stop',
     '''Stopped''',
-    'Remove-Item -LiteralPath $path -Force -ErrorAction Stop',
+    '[IO.File]::Delete($path)',
     'Start-Service -Name WireGuardManager -ErrorAction Stop',
     '''Running''',
     'Reset-PartialTunnelImport -PendingPublicKey $pendingState.publicKey',

@@ -296,6 +296,43 @@ function Get-ActiveTunnelPublicKey {
     return $key
 }
 
+function Remove-ManagedTunnelConfiguration {
+    $manager = Get-Service -Name WireGuardManager -ErrorAction SilentlyContinue
+    $managerWasRunning = $null -ne $manager -and $manager.Status -ne 'Stopped'
+    if ($managerWasRunning) {
+        Stop-Service -Name WireGuardManager -Force -ErrorAction Stop
+        (Get-Service -Name WireGuardManager -ErrorAction Stop).WaitForStatus(
+            'Stopped',
+            [TimeSpan]::FromSeconds(15)
+        )
+    }
+    try {
+        foreach ($path in @($PlaintextConfiguration, $DpapiConfiguration)) {
+            try {
+                [IO.File]::Delete($path)
+            }
+            catch {
+                throw "WireGuard could not remove managed configuration '$([IO.Path]::GetFileName($path))': $($_.Exception.Message)"
+            }
+        }
+    }
+    finally {
+        if ($managerWasRunning) {
+            Start-Service -Name WireGuardManager -ErrorAction Stop
+            (Get-Service -Name WireGuardManager -ErrorAction Stop).WaitForStatus(
+                'Running',
+                [TimeSpan]::FromSeconds(15)
+            )
+        }
+    }
+    if (
+        (Test-Path -LiteralPath $PlaintextConfiguration -PathType Leaf) -or
+        (Test-Path -LiteralPath $DpapiConfiguration -PathType Leaf)
+    ) {
+        throw 'WireGuard could not clear the managed game-stream configuration.'
+    }
+}
+
 function Reset-PartialTunnelImport {
     param([Parameter(Mandatory)][string]$PendingPublicKey)
 
@@ -325,42 +362,7 @@ function Reset-PartialTunnelImport {
         }
     }
 
-    $manager = Get-Service -Name WireGuardManager -ErrorAction SilentlyContinue
-    $managerWasRunning = $null -ne $manager -and $manager.Status -ne 'Stopped'
-    if ($managerWasRunning) {
-        Stop-Service -Name WireGuardManager -Force -ErrorAction Stop
-        (Get-Service -Name WireGuardManager -ErrorAction Stop).WaitForStatus(
-            'Stopped',
-            [TimeSpan]::FromSeconds(15)
-        )
-    }
-    try {
-        foreach ($path in @($PlaintextConfiguration, $DpapiConfiguration)) {
-            if (Test-Path -LiteralPath $path -PathType Leaf) {
-                try {
-                    Remove-Item -LiteralPath $path -Force -ErrorAction Stop
-                }
-                catch {
-                    throw "WireGuard could not remove incomplete managed configuration '$([IO.Path]::GetFileName($path))': $($_.Exception.Message)"
-                }
-            }
-        }
-    }
-    finally {
-        if ($managerWasRunning) {
-            Start-Service -Name WireGuardManager -ErrorAction Stop
-            (Get-Service -Name WireGuardManager -ErrorAction Stop).WaitForStatus(
-                'Running',
-                [TimeSpan]::FromSeconds(15)
-            )
-        }
-    }
-    if (
-        (Test-Path -LiteralPath $PlaintextConfiguration -PathType Leaf) -or
-        (Test-Path -LiteralPath $DpapiConfiguration -PathType Leaf)
-    ) {
-        throw 'WireGuard could not clear the incomplete game-stream configuration for deterministic re-import.'
-    }
+    Remove-ManagedTunnelConfiguration
 }
 
 function Read-EnrollmentResponse {
@@ -547,8 +549,7 @@ if ($ResetEnrollment) {
                 throw 'WireGuard could not uninstall the game-stream tunnel service.'
             }
         }
-        Remove-Item -LiteralPath $DpapiConfiguration -Force -ErrorAction SilentlyContinue
-        Remove-Item -LiteralPath $PlaintextConfiguration -Force -ErrorAction SilentlyContinue
+        Remove-ManagedTunnelConfiguration
         Remove-Item -LiteralPath $StateRoot -Recurse -Force -ErrorAction SilentlyContinue
         Write-Host 'Local enrollment was reset. Revoke the old request on the gateway and in Sunshine if you have not already done so.'
     }
