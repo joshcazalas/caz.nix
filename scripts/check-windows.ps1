@@ -249,6 +249,8 @@ foreach ($required in @(
     'Start-Process',
     '-Verb RunAs',
     '-EncodedCommand',
+    'last-error.log',
+    '<redacted-wireguard-key>',
     'Remove-Item -LiteralPath $StagingRoot -Recurse -Force',
     'Consumed and removed the one-time enrollment response'
 )) {

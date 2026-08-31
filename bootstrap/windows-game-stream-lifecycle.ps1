@@ -34,6 +34,7 @@ $StagedSetup = Join-Path $StagedBootstrapRoot 'game-stream-setup.ps1'
 $StagedRequest = Join-Path $StagingRoot 'request.json'
 $StagedResponse = Join-Path $StagingRoot 'response.json'
 $StagedLog = Join-Path $StagingRoot 'elevated.log'
+$RetainedFailureLog = Join-Path $StagingParent 'last-error.log'
 
 function Test-CurrentUserCanSelfElevate {
     $whoAmI = Join-Path $env:SystemRoot 'System32\whoami.exe'
@@ -100,19 +101,28 @@ function Invoke-ElevatedLifecycle {
     $setupLiteral = ConvertTo-SingleQuotedLiteral -Value $StagedSetup
     $roleLiteral = ConvertTo-SingleQuotedLiteral -Value $Role
     $logLiteral = ConvertTo-SingleQuotedLiteral -Value $StagedLog
-    $command = "& $setupLiteral -Role $roleLiteral"
+    $invocation = "& $setupLiteral -Role $roleLiteral"
 
     if ($Prepare) {
-        $command += " -Prepare -Output $(ConvertTo-SingleQuotedLiteral -Value $StagedRequest)"
+        $invocation += " -Prepare -Output $(ConvertTo-SingleQuotedLiteral -Value $StagedRequest)"
     }
     elseif (-not [string]::IsNullOrWhiteSpace($Enroll)) {
-        $command += " -Enroll $(ConvertTo-SingleQuotedLiteral -Value $StagedResponse)"
-        $command += " -SourceCommit $(ConvertTo-SingleQuotedLiteral -Value $SourceCommit.ToLowerInvariant())"
+        $invocation += " -Enroll $(ConvertTo-SingleQuotedLiteral -Value $StagedResponse)"
+        $invocation += " -SourceCommit $(ConvertTo-SingleQuotedLiteral -Value $SourceCommit.ToLowerInvariant())"
     }
     else {
-        $command += ' -ResetEnrollment -Confirm:$false'
+        $invocation += ' -ResetEnrollment -Confirm:$false'
     }
-    $command += " *> $logLiteral"
+    $command = @"
+try {
+    $invocation *> $logLiteral
+}
+catch {
+    (`$_ | Format-List * -Force | Out-String) |
+        Add-Content -LiteralPath $logLiteral -Encoding UTF8
+    exit 1
+}
+"@
 
     $encodedCommand = [Convert]::ToBase64String(
         [Text.Encoding]::Unicode.GetBytes($command)
@@ -138,12 +148,22 @@ function Invoke-ElevatedLifecycle {
         throw "Windows elevation was canceled or failed: $($_.Exception.Message)"
     }
 
+    $redactedLog = ''
     if (Test-Path -LiteralPath $StagedLog -PathType Leaf) {
-        Get-Content -LiteralPath $StagedLog | ForEach-Object { Write-Host $_ }
+        $redactedLog = (Get-Content -LiteralPath $StagedLog -Raw) -replace `
+            '(?<![A-Za-z0-9+/])[A-Za-z0-9+/]{43}=(?![A-Za-z0-9+/])', `
+            '<redacted-wireguard-key>'
+        $redactedLog.TrimEnd() -split "`r?`n" | ForEach-Object { Write-Host $_ }
     }
     if ($process.ExitCode -ne 0) {
-        throw "The elevated game-stream lifecycle action failed with exit code $($process.ExitCode)."
+        if ([string]::IsNullOrWhiteSpace($redactedLog)) {
+            $redactedLog = 'The elevated process returned no diagnostic output.'
+        }
+        $null = New-Item -ItemType Directory -Path $StagingParent -Force
+        Set-Content -LiteralPath $RetainedFailureLog -Value $redactedLog -Encoding UTF8
+        throw "The elevated game-stream lifecycle action failed with exit code $($process.ExitCode). The key-redacted diagnostic log is retained at '$RetainedFailureLog'."
     }
+    Remove-Item -LiteralPath $RetainedFailureLog -Force -ErrorAction SilentlyContinue
 }
 
 $selectedActions = @(
