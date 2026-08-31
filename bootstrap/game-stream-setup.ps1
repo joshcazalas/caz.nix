@@ -325,8 +325,36 @@ function Reset-PartialTunnelImport {
         }
     }
 
-    Remove-Item -LiteralPath $PlaintextConfiguration -Force -ErrorAction SilentlyContinue
-    Remove-Item -LiteralPath $DpapiConfiguration -Force -ErrorAction SilentlyContinue
+    $manager = Get-Service -Name WireGuardManager -ErrorAction SilentlyContinue
+    $managerWasRunning = $null -ne $manager -and $manager.Status -ne 'Stopped'
+    if ($managerWasRunning) {
+        Stop-Service -Name WireGuardManager -Force -ErrorAction Stop
+        (Get-Service -Name WireGuardManager -ErrorAction Stop).WaitForStatus(
+            'Stopped',
+            [TimeSpan]::FromSeconds(15)
+        )
+    }
+    try {
+        foreach ($path in @($PlaintextConfiguration, $DpapiConfiguration)) {
+            if (Test-Path -LiteralPath $path -PathType Leaf) {
+                try {
+                    Remove-Item -LiteralPath $path -Force -ErrorAction Stop
+                }
+                catch {
+                    throw "WireGuard could not remove incomplete managed configuration '$([IO.Path]::GetFileName($path))': $($_.Exception.Message)"
+                }
+            }
+        }
+    }
+    finally {
+        if ($managerWasRunning) {
+            Start-Service -Name WireGuardManager -ErrorAction Stop
+            (Get-Service -Name WireGuardManager -ErrorAction Stop).WaitForStatus(
+                'Running',
+                [TimeSpan]::FromSeconds(15)
+            )
+        }
+    }
     if (
         (Test-Path -LiteralPath $PlaintextConfiguration -PathType Leaf) -or
         (Test-Path -LiteralPath $DpapiConfiguration -PathType Leaf)
