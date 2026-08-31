@@ -221,6 +221,44 @@ than command arguments. Its response contains the gateway public key,
 endpoint, assigned address, narrow route, and request ID—but never either
 device's private key or the gateway private key.
 
+## Server activation
+
+Commit the changed SOPS ciphertext before applying a client response that uses
+the public endpoint. Configure the router's single UDP `51820` forward, enable
+the gateway, merge the reviewed change, publish the immutable release, and
+deploy it. The real addresses and keys remain encrypted in Git.
+
+Only after the encrypted input and router forward are ready, change the
+reviewed declaration in `hosts/homeserver/default.nix`:
+
+```nix
+homelab.gameStreamGateway = {
+  enable = true;
+  listenPort = 51820;
+};
+```
+
+The same switch adds the dedicated game VPN name to the existing Cloudflare
+DDNS declaration. Keep that record DNS-only: Cloudflare's ordinary proxy does
+not proxy arbitrary WireGuard UDP. Before deployment, compare the router's WAN
+IPv4 address to a public IPv4 lookup. If they differ, another NAT layer or
+carrier-grade NAT must be resolved; adding more local port forwards cannot fix
+it.
+
+Wait until the public endpoint resolves in Windows before applying the client
+response. Endpoint reachability and a handshake are not required for
+enrollment, but WireGuard for Windows must resolve the endpoint while starting
+its automatic tunnel service. A same-LAN handshake additionally requires
+router hairpin NAT or split-horizon DNS; use direct LAN streaming while home.
+
+After deployment, this command reports compliance without printing keys,
+endpoints, addresses, or mappings:
+
+```bash
+sudo caz-game-stream-gateway report \
+  /run/secrets/game-stream-gateway/config wg-game 51820
+```
+
 Copy each response to `/tmp` in the WSL distribution on the device that created
 its matching request, then apply it from that checkout:
 
@@ -271,37 +309,6 @@ Windows Git is intentionally absent; Windows SSH keys are never required.
 WinGet or Microsoft App Installer repair remains a manual prerequisite when
 `winget.exe` itself is unavailable. No setup script downloads an unreviewed
 installer as a fallback.
-
-## Server activation
-
-Commit the changed SOPS ciphertext, merge it, publish the immutable release,
-and deploy that release before expecting a new remote client to connect. The
-real addresses and keys remain encrypted in Git.
-
-Only after the encrypted input and router's single UDP `51820` forward are
-ready, change the reviewed declaration in `hosts/homeserver/default.nix`:
-
-```nix
-homelab.gameStreamGateway = {
-  enable = true;
-  listenPort = 51820;
-};
-```
-
-The same switch adds the dedicated game VPN name to the existing Cloudflare
-DDNS declaration. Keep that record DNS-only: Cloudflare's ordinary proxy does
-not proxy arbitrary WireGuard UDP. Before deployment, compare the router's WAN
-IPv4 address to a public IPv4 lookup. If they differ, another NAT layer or
-carrier-grade NAT must be resolved; adding more local port forwards cannot fix
-it.
-
-After deployment, this command reports compliance without printing keys,
-endpoints, addresses, or mappings:
-
-```bash
-sudo caz-game-stream-gateway report \
-  /run/secrets/game-stream-gateway/config wg-game 51820
-```
 
 ## Windows host policy
 

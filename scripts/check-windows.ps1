@@ -277,6 +277,10 @@ foreach ($required in @(
     }
 }
 foreach ($required in @(
+    'function Assert-EndpointResolvable',
+    '[Net.IPAddress]::TryParse($hostName, [ref]$parsedAddress)',
+    '[Net.Dns]::GetHostAddresses($hostName)',
+    'Assert-EndpointResolvable -Endpoint $response.endpoint',
     'function Remove-ManagedTunnelConfiguration',
     'function Reset-PartialTunnelImport',
     '$ErrorActionPreference = ''Continue''',
@@ -294,6 +298,11 @@ foreach ($required in @(
     if ($gameStreamSetup -notmatch [regex]::Escape($required)) {
         throw "The enrollment retry path is missing its deterministic partial-import recovery: $required"
     }
+}
+$endpointPreflightOffset = $gameStreamSetup.IndexOf('Assert-EndpointResolvable -Endpoint $response.endpoint')
+$partialResetOffset = $gameStreamSetup.IndexOf('Reset-PartialTunnelImport -PendingPublicKey $pendingState.publicKey')
+if ($endpointPreflightOffset -lt 0 -or $partialResetOffset -lt 0 -or $endpointPreflightOffset -gt $partialResetOffset) {
+    throw 'The enrollment endpoint must resolve before partial state is reset or imported.'
 }
 if ($windowsBootstrap -notmatch '(?s)if \(\$capabilities -contains ''preferences''\) \{.*Exact taskbar pin ordering') {
     throw 'The manual taskbar reminder must remain scoped to profiles that select preferences.'

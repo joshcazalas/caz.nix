@@ -415,6 +415,27 @@ function Read-EnrollmentResponse {
     return $response
 }
 
+function Assert-EndpointResolvable {
+    param([Parameter(Mandatory)][string]$Endpoint)
+
+    $hostName = $Endpoint.Substring(0, $Endpoint.LastIndexOf(':'))
+    $parsedAddress = $null
+    if ([Net.IPAddress]::TryParse($hostName, [ref]$parsedAddress)) {
+        return
+    }
+
+    $resolvedAddresses = @()
+    try {
+        $resolvedAddresses = @([Net.Dns]::GetHostAddresses($hostName))
+    }
+    catch {
+        $resolvedAddresses = @()
+    }
+    if ($resolvedAddresses.Count -eq 0) {
+        throw 'The WireGuard endpoint hostname does not resolve in Windows. Publish and propagate its DNS record before enrollment; the pending key and response were retained unchanged.'
+    }
+}
+
 function Write-WireGuardConfiguration {
     param(
         [Parameter(Mandatory)][object]$PendingState,
@@ -622,6 +643,7 @@ if (-not [string]::IsNullOrWhiteSpace($Enroll)) {
     if ($pendingState.requestId -ne $response.requestId) {
         throw 'The response does not match this device pending request ID.'
     }
+    Assert-EndpointResolvable -Endpoint $response.endpoint
 
     if (
         (Test-Path -LiteralPath $DpapiConfiguration -PathType Leaf) -or
