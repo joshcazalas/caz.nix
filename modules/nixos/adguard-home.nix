@@ -1,3 +1,13 @@
+{ config, settings, ... }:
+let
+  # These are exactly the public records whose address follows this home's
+  # connection. Inside the LAN, answer them with the server's reserved address
+  # instead, while every other name continues to the normal upstream resolver.
+  localRewrites = map (domain: {
+    inherit domain;
+    answer = settings.server.lanAddress;
+  }) config.homelab.cloudflareDdns.domains;
+in
 {
   services.adguardhome = {
     enable = true;
@@ -11,7 +21,10 @@
           "9.9.9.9"
           "149.112.112.112"
         ];
+      };
+      filtering = {
         protection_enabled = true;
+        rewrites = localRewrites;
       };
     };
   };
