@@ -386,12 +386,15 @@ function Invoke-RoleConfiguration {
     $childOutput = @()
     $exitCode = 1
     $previousErrorActionPreference = $ErrorActionPreference
+    $previousConsoleOutputEncoding = [Console]::OutputEncoding
     try {
         $ErrorActionPreference = 'Continue'
+        [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
         $childOutput = @(& powershell.exe @arguments 2>&1)
         $exitCode = $LASTEXITCODE
     }
     finally {
+        [Console]::OutputEncoding = $previousConsoleOutputEncoding
         $ErrorActionPreference = $previousErrorActionPreference
     }
     $childOutput | ForEach-Object { Write-Host ($_.ToString()) }

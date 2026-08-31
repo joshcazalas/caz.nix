@@ -448,8 +448,8 @@ try {
     Write-Host "Windows profile '$Profile' is complete."
     if ($capabilities -contains 'preferences') {
         Write-Host 'Sign out once (or restart Explorer) to make every Explorer and taskbar preference visible.'
+        Write-Host 'Exact taskbar pin ordering remains a short manual step; see windows/README.md.'
     }
-    Write-Host 'Exact taskbar pin ordering remains a short manual step; see windows/README.md.'
     $configurationSucceeded = $true
 }
 catch {

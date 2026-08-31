@@ -267,12 +267,17 @@ foreach ($required in @(
     '$childOutput = @(& powershell.exe @arguments 2>&1)',
     '$previousErrorActionPreference = $ErrorActionPreference',
     '$ErrorActionPreference = ''Continue''',
+    '[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)',
+    '[Console]::OutputEncoding = $previousConsoleOutputEncoding',
     '$ErrorActionPreference = $previousErrorActionPreference',
     'return $exitCode'
 )) {
     if ($gameStreamSetup -notmatch [regex]::Escape($required)) {
         throw "The elevated role wrapper is missing its native stderr boundary: $required"
     }
+}
+if ($windowsBootstrap -notmatch '(?s)if \(\$capabilities -contains ''preferences''\) \{.*Exact taskbar pin ordering') {
+    throw 'The manual taskbar reminder must remain scoped to profiles that select preferences.'
 }
 if ($gameStreamLifecycle -match '(?im)^\s*(PrivateKey|PublicKey|Endpoint|Address|AllowedIPs)\s*=') {
     throw 'The WSL-first lifecycle must not embed production WireGuard material.'
