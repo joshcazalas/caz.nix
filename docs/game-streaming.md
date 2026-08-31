@@ -75,6 +75,12 @@ state. Tunnel presence and handshake state are printed as observations.
 The merged pre-migration setup already created durable gateway and client keys.
 Reuse them instead of rotating identities.
 
+Before leaving physical access to the host, confirm that `192.168.1.134` is
+still reserved for it, its active Windows network is `Private`, Sunshine is
+running and already paired, and plugged-in sleep is disabled for the pilot.
+Power and login readiness remain explicit operating choices rather than
+configuration drift.
+
 1. Before removing the old host tunnel, record its public key transiently from
    the Sunshine host:
 
@@ -128,7 +134,18 @@ Reuse them instead of rotating identities.
    the public endpoint is not expected to resolve through the current internal
    DNS path.
 
-6. On the Sunshine host, apply the new focused baseline. Then open WireGuard,
+6. Leave the old host tunnel and WireGuard installation in place for the first
+   remote pilot. The new gateway configuration no longer authorizes that peer,
+   and its presence does not interfere with source-NATed traffic to the host LAN
+   address. Keeping it temporarily preserves the option to roll back the server
+   generation and old topology if the pilot exposes a problem.
+
+7. Put the laptop on a phone hotspot, activate its tunnel, and connect Moonlight
+   to `192.168.1.134`. The existing Sunshine pairing remains valid because the
+   Sunshine host itself did not change.
+
+8. After the remote pilot succeeds and the Sunshine host is physically
+   accessible again, apply the new focused host baseline. Then open WireGuard,
    deactivate the old `game-stream` host tunnel, and delete that tunnel. This
    host has no remaining WireGuard role, so uninstall its package from WSL:
 
@@ -140,10 +157,6 @@ Reuse them instead of rotating identities.
    Keep this as an explicit migration action: the reusable host baseline must
    not silently uninstall WireGuard from a future machine that uses it for an
    unrelated purpose.
-
-7. Put the laptop on a phone hotspot, activate its tunnel, and connect Moonlight
-   to `192.168.1.134`. The existing Sunshine pairing remains valid because the
-   Sunshine host itself did not change.
 
 The migration intentionally accepts a short remote-streaming interruption
 between the server deploy and the client route edit. It does not attempt an
