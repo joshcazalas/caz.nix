@@ -87,17 +87,17 @@ Then:
 3. In Jellyfin networking settings, add `127.0.0.1` as a known proxy before
    enabling Caddy.
 4. Open AdGuard Home on `http://homeserver:3000`, finish setup, then configure
-   the router's DHCP/LAN DNS server as `192.168.1.127`. Leave secondary DNS
+   the router's DHCP/LAN DNS server as `192.168.1.124`. Leave secondary DNS
    empty: a public secondary such as `1.1.1.1` or `9.9.9.9` can be selected at
    any time and would bypass the private `joshcaz.com` answers. After renewing
    a client's DHCP lease, verify both paths:
 
    ```bash
-   dig @192.168.1.127 +short map.joshcaz.com A
+   dig @192.168.1.124 +short map.joshcaz.com A
    dig +short map.joshcaz.com A
    ```
 
-   Both commands should return `192.168.1.127` on the LAN. Keep a fallback
+   Both commands should return `192.168.1.124` on the LAN. Keep a fallback
    plan: if the server is down, clients otherwise lose DNS. A future secondary
    local resolver should carry the same declarative rewrites.
 5. Provision the monitoring secrets and the external dead man's switch before
