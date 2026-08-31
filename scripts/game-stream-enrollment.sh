@@ -328,8 +328,12 @@ configuration_is_declared() {
 }
 
 save_configuration() {
+  local value_file="$temporary_directory/gateway-value.json"
+
   render_configuration "$configuration_file"
-  sops set --value-file "$secrets_file" "$sops_index" "$configuration_file" >/dev/null ||
+  jq --raw-input --slurp . "$configuration_file" >"$value_file"
+  chmod 0600 "$value_file"
+  sops set --value-file "$secrets_file" "$sops_index" "$value_file" >/dev/null ||
     die "SOPS could not update the encrypted gateway document"
 }
 

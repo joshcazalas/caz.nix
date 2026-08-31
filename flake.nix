@@ -140,10 +140,12 @@
           pkgs.runCommand "game-stream-enrollment-test"
             {
               nativeBuildInputs = with pkgs; [
+                age
                 coreutils
                 gnugrep
                 gnused
                 jq
+                sops
                 util-linux
               ];
             }

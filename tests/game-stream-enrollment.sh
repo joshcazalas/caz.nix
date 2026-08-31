@@ -6,9 +6,10 @@ readonly repository_root="${1:?repository root is required}"
 readonly work_directory="${TMPDIR:?}/game-stream-enrollment-test-$$"
 readonly fake_bin="${work_directory}/bin"
 readonly secrets_file="${work_directory}/homeserver.yaml"
+readonly age_key_file="${work_directory}/age-key.txt"
+readonly alternate_age_key_file="${work_directory}/alternate-age-key.txt"
 
 mkdir -p "${fake_bin}"
-touch "${secrets_file}"
 trap 'rm -rf -- "${work_directory}"' EXIT
 
 cat >"${fake_bin}/wg" <<'EOF'
@@ -32,26 +33,18 @@ case "${1:-}" in
 esac
 EOF
 
-cat >"${fake_bin}/sops" <<'EOF'
-#!/usr/bin/env bash
-set -Eeuo pipefail
-case "${1:-}" in
-  decrypt)
-    [[ "$2" == --extract && "$4" == --output && -s "$6" ]] || exit 128
-    grep -q '^# caz.nix-enrollment-state-v1 = ' "$6" || exit 128
-    cp "$6" "$5"
-    ;;
-  set)
-    [[ "$2" == --value-file && $# -eq 5 ]] || exit 2
-    cp "$5" "$3"
-    ;;
-  *) exit 2 ;;
-esac
-EOF
-
-sed -i "1c#!${BASH}" "${fake_bin}/sops" "${fake_bin}/wg"
-chmod +x "${fake_bin}/sops" "${fake_bin}/wg"
+sed -i "1c#!${BASH}" "${fake_bin}/wg"
+chmod +x "${fake_bin}/wg"
 export PATH="${fake_bin}:${PATH}"
+
+age-keygen --output "${age_key_file}" >/dev/null 2>&1
+age_recipient="$(age-keygen -y "${age_key_file}")"
+age-keygen --output "${alternate_age_key_file}" >/dev/null 2>&1
+alternate_age_recipient="$(age-keygen -y "${alternate_age_key_file}")"
+export SOPS_AGE_KEY_FILE="${age_key_file}"
+
+printf '%s\n' 'existingSecret: fixture' >"${secrets_file}"
+sops encrypt --age "${age_recipient}" --in-place "${secrets_file}"
 
 host_request="${work_directory}/host-request.json"
 client_one_request="${work_directory}/client-one-request.json"
@@ -97,9 +90,16 @@ jq -n '
 
 enrollment="${repository_root}/scripts/game-stream-enrollment.sh"
 
+decrypt_gateway() {
+  sops decrypt --extract '["gameStreamGatewayConfig"]' "${secrets_file}"
+}
+
 # A declared value that cannot be decrypted must never be mistaken for an
 # uninitialized gateway and replaced with a fresh private key.
-printf '%s\n' 'gameStreamGatewayConfig: ENC[unavailable]' >"${undecryptable_secrets}"
+printf '%s\n' 'gameStreamGatewayConfig: unavailable' >"${undecryptable_secrets}"
+SOPS_AGE_KEY_FILE="${alternate_age_key_file}" sops encrypt \
+  --age "${alternate_age_recipient}" --in-place "${undecryptable_secrets}"
+cp "${undecryptable_secrets}" "${work_directory}/undecryptable-original.yaml"
 if bash "${enrollment}" init-host "${host_request}" \
   --host-endpoint 192.168.1.50:51820 \
   --client-endpoint stream.example.test:51820 \
@@ -111,7 +111,7 @@ if bash "${enrollment}" init-host "${host_request}" \
   echo 'An undecryptable existing gateway was unexpectedly reinitialized.' >&2
   exit 1
 fi
-grep -Fqx 'gameStreamGatewayConfig: ENC[unavailable]' "${undecryptable_secrets}"
+cmp "${undecryptable_secrets}" "${work_directory}/undecryptable-original.yaml"
 
 bash "${enrollment}" init-host "${host_request}" \
   --host-endpoint 192.168.1.50:51820 \
@@ -131,7 +131,8 @@ jq -e '
   and .endpoint == "192.168.1.50:51820"
   and .persistentKeepalive == 25
 ' "${host_response}" >/dev/null
-[[ "$(grep -c '^\[Peer\]$' "${secrets_file}")" -eq 1 ]]
+gateway_configuration="$(decrypt_gateway)"
+[[ "$(grep -c '^\[Peer\]$' <<<"${gateway_configuration}")" -eq 1 ]]
 
 cp "${secrets_file}" "${work_directory}/initialized.conf"
 bash "${enrollment}" init-host "${host_request}" \
@@ -153,7 +154,8 @@ jq -e '
   and .allowedIps == "192.0.2.2/32"
   and .endpoint == "stream.example.test:51820"
 ' "${client_one_response}" >/dev/null
-[[ "$(grep -c '^\[Peer\]$' "${secrets_file}")" -eq 2 ]]
+gateway_configuration="$(decrypt_gateway)"
+[[ "$(grep -c '^\[Peer\]$' <<<"${gateway_configuration}")" -eq 2 ]]
 
 cp "${secrets_file}" "${work_directory}/one-client.conf"
 bash "${enrollment}" add-client "${client_one_request}" \
@@ -165,7 +167,8 @@ bash "${enrollment}" add-client "${client_two_request}" \
   --output "${client_two_response}" \
   --secrets-file "${secrets_file}"
 jq -e '.address == "198.51.100.18/32"' "${client_two_response}" >/dev/null
-[[ "$(grep -c '^\[Peer\]$' "${secrets_file}")" -eq 3 ]]
+gateway_configuration="$(decrypt_gateway)"
+[[ "$(grep -c '^\[Peer\]$' <<<"${gateway_configuration}")" -eq 3 ]]
 
 if bash "${enrollment}" add-client "${duplicate_key_request}" \
   --output "${work_directory}/invalid-response.json" \
@@ -178,8 +181,12 @@ status_output="$(bash "${enrollment}" status --secrets-file "${secrets_file}")"
 grep -Fqx 'Enrolled clients: 2' <<<"${status_output}"
 bash "${enrollment}" remove-client '22222222-2222-4222-8222-222222222222' \
   --secrets-file "${secrets_file}"
-[[ "$(grep -c '^\[Peer\]$' "${secrets_file}")" -eq 2 ]]
-! grep -Fq 'RYOxSmSdLVmFheEeofQGbQMLQLxhUjX5NdLu7H2P6VM=' "${secrets_file}"
+gateway_configuration="$(decrypt_gateway)"
+[[ "$(grep -c '^\[Peer\]$' <<<"${gateway_configuration}")" -eq 2 ]]
+if grep -Fq 'RYOxSmSdLVmFheEeofQGbQMLQLxhUjX5NdLu7H2P6VM=' <<<"${gateway_configuration}"; then
+  echo 'Removed client key remains in the gateway configuration.' >&2
+  exit 1
+fi
 
 bash "${enrollment}" remove-client '22222222-2222-4222-8222-222222222222' \
   --secrets-file "${secrets_file}"
