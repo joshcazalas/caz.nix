@@ -64,7 +64,7 @@ in
   homelab.gameStreamGateway = {
     enable = true;
     listenPort = 51820;
-    hostAddress = "192.168.1.127";
+    hostAddress = settings.server.lanAddress;
   };
 
   homelab.auxide.enable = true;
