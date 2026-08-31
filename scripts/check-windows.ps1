@@ -36,14 +36,7 @@ foreach ($file in $jsonFiles) {
 
 $capabilityFiles = @(Get-ChildItem -LiteralPath $CapabilitiesRoot -Filter '*.winget' -File)
 $capabilityNames = @($capabilityFiles | ForEach-Object BaseName)
-$requiredCapabilities = @(
-    'base',
-    'development',
-    'game-stream-client',
-    'game-stream-host',
-    'gaming',
-    'preferences'
-)
+$requiredCapabilities = @('base', 'development', 'gaming', 'preferences')
 foreach ($required in $requiredCapabilities) {
     if ($capabilityNames -notcontains $required) {
         throw "Windows capabilities are missing '$required.winget'."
@@ -110,20 +103,11 @@ foreach ($file in $profiles) {
     if ($file.BaseName -notmatch '^[a-z0-9][a-z0-9-]*$') {
         throw "Invalid Windows profile filename: $($file.Name)"
     }
-
     $profile = Get-Content -LiteralPath $file.FullName -Raw | ConvertFrom-Json
     $selected = @($profile.capabilities)
-    $gameStreamProfile = $file.BaseName -in @('game-stream-host', 'game-stream-client')
-    if ($selected.Count -eq 0) {
-        throw "Windows profile '$($file.BaseName)' must select at least one capability."
-    }
-    if (-not $gameStreamProfile -and $selected[0] -ne 'base') {
+    if ($selected.Count -eq 0 -or $selected[0] -ne 'base') {
         throw "Windows profile '$($file.BaseName)' must select base first."
     }
-    if ($gameStreamProfile -and ($selected.Count -ne 1 -or $selected[0] -ne $file.BaseName)) {
-        throw "Windows profile '$($file.BaseName)' must select only its focused role capability."
-    }
-
     $duplicates = @(
         $selected |
             Group-Object |
@@ -143,258 +127,93 @@ foreach ($file in $profiles) {
     }
 }
 
-$hostCapability = Get-Content -LiteralPath (Join-Path $CapabilitiesRoot 'game-stream-host.winget') -Raw
-$clientCapability = Get-Content -LiteralPath (Join-Path $CapabilitiesRoot 'game-stream-client.winget') -Raw
-$gameStreamHelper = Get-Content -LiteralPath (Join-Path $RepositoryRoot 'bootstrap\windows-game-stream.ps1') -Raw
-$gameStreamSetup = Get-Content -LiteralPath (Join-Path $RepositoryRoot 'bootstrap\game-stream-setup.ps1') -Raw
-$gameStreamLifecycle = Get-Content -LiteralPath (Join-Path $RepositoryRoot 'bootstrap\windows-game-stream-lifecycle.ps1') -Raw
+$gameStreamHelperPath = Join-Path $RepositoryRoot 'bootstrap\windows-game-stream.ps1'
+$gameStreamHelper = Get-Content -LiteralPath $gameStreamHelperPath -Raw
 $windowsBootstrap = Get-Content -LiteralPath (Join-Path $RepositoryRoot 'bootstrap\windows.ps1') -Raw
 $wslLauncher = Get-Content -LiteralPath (Join-Path $RepositoryRoot 'bootstrap\windows.sh') -Raw
+
 foreach ($required in @(
     'LizardByte.Sunshine',
-    'WireGuard.WireGuard',
-    'DisableLockScreenAppNotifications',
-    'GameStreamHostPolicy',
-    'game-stream-context.json',
-    'PSNativeCommandUseErrorActionPreference'
-)) {
-    if ($hostCapability -notmatch [regex]::Escape($required)) {
-        throw "The game-stream host capability is missing '$required'."
-    }
-}
-foreach ($required in @(
     'MoonlightGameStreamingProject.Moonlight',
     'WireGuard.WireGuard',
-    'GameStreamClientPolicy',
-    'game-stream-context.json'
-)) {
-    if ($clientCapability -notmatch [regex]::Escape($required)) {
-        throw "The game-stream client capability is missing '$required'."
-    }
-}
-foreach ($required in @(
-    "MinimumSunshineVersion = [version]'2026.516.143833'",
-    "DangerousScriptExecution",
-    "origin_web_ui_allowed",
-    "global_prep_cmd",
-    "PersistentKeepalive = 25",
-    "sourceDigest",
-    "trusted-shared-console",
-    "Test-SunshineAlwaysAvailable",
-    "Remove-RetiredSessionPolicy",
-    "PSObject.Properties['DisplayName']",
-    "Set-MoonlightFirewall",
-    "Test-MoonlightFirewall",
-    "caz.nix-game-stream-client-lan",
-    "caz.nix-game-stream-client-tunnel",
-    "StartupType Automatic",
-    "StartupType Disabled",
-    'Group = $ManagedFirewallGroup',
-    "WireGuard tunnel service is not automatic and running",
-    '$rule.Direction',
-    '$rule.Profile',
-    '$interfaceAliases.Count',
+    'origin_web_ui_allowed',
+    'global_prep_cmd',
+    'DisableLockScreenAppNotifications',
     'LocalSubnet4',
-    "InterfaceType = @('Wired', 'Wireless')",
-    'client-role IPv4 /28',
-    'WireGuardTunnel`$',
-    "ValidateSet('Lan', 'Remote')",
-    '[string]$SourceDigest',
-    'stage = $Stage.ToLowerInvariant()'
+    'Remove-RetiredGameStreamState',
+    'DangerousScriptExecution',
+    'Start-Process',
+    '-Verb RunAs',
+    'result.json'
 )) {
     if ($gameStreamHelper -notmatch [regex]::Escape($required)) {
-        throw "The game-stream helper is missing the '$required' guardrail."
+        throw "The focused game-stream helper is missing '$required'."
     }
 }
-foreach ($required in @(
-    '$StagedGameStreamContext',
-    'game-stream-context.json',
-    'ConvertTo-Json',
-    'Get-GameStreamSourceDigest -Capabilities $capabilities'
+foreach ($retired in @(
+    'SourceDigest',
+    'SourceCommit',
+    "ValidateSet('Lan', 'Remote')",
+    'EnrollmentFile',
+    'Wait-DpapiTunnelReady',
+    'Set-MoonlightFirewall'
 )) {
-    if ($windowsBootstrap -notmatch [regex]::Escape($required)) {
-        throw "The Windows bootstrap is missing the '$required' staged-context guardrail."
+    if ($gameStreamHelper -match [regex]::Escape($retired)) {
+        throw "The focused game-stream helper retained obsolete orchestration: $retired"
     }
 }
-if (
-    $windowsBootstrap -match 'CAZ_GAME_STREAM_' -or
-    $gameStreamHelper -match 'CAZ_GAME_STREAM_' -or
-    $hostCapability -match 'CAZ_GAME_STREAM_' -or
-    $clientCapability -match 'CAZ_GAME_STREAM_'
-) {
-    throw 'Game-stream state must cross the WinGet elevation boundary through the staged context, not process environment variables.'
+if ($gameStreamHelper -match '(?im)^\s*(PrivateKey|PublicKey|Endpoint|Address|AllowedIPs)\s*=') {
+    throw 'The Windows game-stream baseline must not embed WireGuard configuration material.'
 }
+
 foreach ($required in @(
     'powershell.exe',
     'wslpath -w',
-    'windows-game-stream-lifecycle.ps1',
-    '--prepare',
-    '--enroll',
-    '--reset-enrollment',
-    'git -C',
-    "rev-parse --verify 'HEAD^{commit}'",
-    '-GameStreamStage',
-    'stage=${stage:-lan}'
+    'windows-game-stream.ps1',
+    'game-stream-host',
+    'game-stream-client'
 )) {
     if ($wslLauncher -notmatch [regex]::Escape($required)) {
         throw "The WSL Windows launcher is missing '$required'."
     }
 }
+foreach ($retired in @('--stage', '--prepare', '--enroll', '--reset-enrollment', 'git -C', 'SourceCommit')) {
+    if ($wslLauncher -match [regex]::Escape($retired)) {
+        throw "The WSL Windows launcher retained obsolete game-stream orchestration: $retired"
+    }
+}
 if ($wslLauncher -match 'git\.exe|\.ssh') {
     throw 'The WSL Windows launcher must not depend on Windows Git or Windows SSH state.'
 }
-foreach ($required in @(
-    'Set-RestrictedStagingAcl',
-    'Copy-RequiredSource',
-    'Start-Process',
-    '-Verb RunAs',
-    '-EncodedCommand',
-    'last-error.log',
-    '<redacted-wireguard-key>',
-    'Remove-Item -LiteralPath $StagingRoot -Recurse -Force',
-    'Consumed and removed the one-time enrollment response'
-)) {
-    if ($gameStreamLifecycle -notmatch [regex]::Escape($required)) {
-        throw "The WSL-first game-stream lifecycle is missing '$required'."
-    }
+if ($windowsBootstrap -match 'GameStream|game-stream|SourceDigest|SourceCommit') {
+    throw 'Generic WinGet Configuration bootstrap must not contain game-stream lifecycle state.'
 }
-foreach ($document in @($gameStreamLifecycle, $gameStreamSetup)) {
-    if ($document -notmatch [regex]::Escape('$selectedActionCount = @($selectedActions | Where-Object { $_ }).Count')) {
-        throw 'Game-stream action selection must retain an array under Windows PowerShell 5.1 strict mode.'
-    }
-}
-foreach ($required in @(
-    '$childOutput = @(& powershell.exe @arguments 2>&1)',
-    '$previousErrorActionPreference = $ErrorActionPreference',
-    '$ErrorActionPreference = ''Continue''',
-    '[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)',
-    '[Console]::OutputEncoding = $previousConsoleOutputEncoding',
-    '$ErrorActionPreference = $previousErrorActionPreference',
-    'return $exitCode'
-)) {
-    if ($gameStreamSetup -notmatch [regex]::Escape($required)) {
-        throw "The elevated role wrapper is missing its native stderr boundary: $required"
-    }
-}
-foreach ($required in @(
-    'function Assert-EndpointResolvable',
-    '[Net.IPAddress]::TryParse($hostName, [ref]$parsedAddress)',
-    '[Net.Dns]::GetHostAddresses($hostName)',
-    'Assert-EndpointResolvable -Endpoint $response.endpoint',
-    'function Remove-ManagedTunnelConfiguration',
-    'function Reset-PartialTunnelImport',
-    '$ErrorActionPreference = ''Continue''',
-    '& $WireGuard /uninstalltunnelservice $TunnelName 2>&1',
-    'Stop-Service -Name WireGuardManager -Force -ErrorAction Stop',
-    '''Stopped''',
-    '[IO.File]::Delete($path)',
-    'Start-Service -Name WireGuardManager -ErrorAction Stop',
-    '''Running''',
-    'Reset-PartialTunnelImport -PendingPublicKey $pendingState.publicKey',
-    'Write-WireGuardConfiguration -PendingState $pendingState -Response $response',
-    '(Get-ActiveTunnelPublicKey) -ne $pendingState.publicKey',
-    'enrollment was not finalized'
-)) {
-    if ($gameStreamSetup -notmatch [regex]::Escape($required)) {
-        throw "The enrollment retry path is missing its deterministic partial-import recovery: $required"
-    }
-}
-$endpointPreflightOffset = $gameStreamSetup.IndexOf('Assert-EndpointResolvable -Endpoint $response.endpoint')
-$partialResetOffset = $gameStreamSetup.IndexOf('Reset-PartialTunnelImport -PendingPublicKey $pendingState.publicKey')
-if ($endpointPreflightOffset -lt 0 -or $partialResetOffset -lt 0 -or $endpointPreflightOffset -gt $partialResetOffset) {
-    throw 'The enrollment endpoint must resolve before partial state is reset or imported.'
-}
-if ($windowsBootstrap -notmatch '(?s)if \(\$capabilities -contains ''preferences''\) \{.*Exact taskbar pin ordering') {
-    throw 'The manual taskbar reminder must remain scoped to profiles that select preferences.'
-}
-if ($gameStreamLifecycle -match '(?im)^\s*(PrivateKey|PublicKey|Endpoint|Address|AllowedIPs)\s*=') {
-    throw 'The WSL-first lifecycle must not embed production WireGuard material.'
-}
-$configurationTestFunction = [regex]::Match(
-    $gameStreamHelper,
-    '(?s)function Test-Configuration \{(?<body>.*?)\n\}'
-)
-if (
-    -not $configurationTestFunction.Success -or
-    [regex]::Matches(
-        $configurationTestFunction.Groups['body'].Value,
-        'Get-TunnelPeerRoute -Wg \$wg'
-    ).Count -ne 1 -or
-    $configurationTestFunction.Groups['body'].Value -notmatch '\$tunnelReady -and \$null -ne \$wg'
-) {
-    throw 'The game-stream check must query wg.exe only behind the ready tunnel-service guard.'
-}
-foreach ($required in @(
-    'caz.nix/game-stream-request/v1',
-    'caz.nix/game-stream-enrollment/v1',
-    'caz.nix/game-stream-local-state/v1',
-    'Ensure-WireGuardTools',
-    'Set-AdministratorOnlyAcl',
-    'Write-PublicRequest',
-    'ResetEnrollment',
-    'Invoke-RoleConfiguration'
-)) {
-    if ($gameStreamSetup -notmatch [regex]::Escape($required)) {
-        throw "The game-stream setup orchestrator is missing '$required'."
-    }
-}
-$publicRequestFunction = [regex]::Match(
-    $gameStreamSetup,
-    '(?s)function Write-PublicRequest \{(?<body>.*?)\n\}'
-)
-if (
-    -not $publicRequestFunction.Success -or
-    $publicRequestFunction.Groups['body'].Value -match 'privateKey'
-) {
-    throw 'The public enrollment request must never contain the locally generated private key.'
-}
-$dangerousScriptsOffset = $gameStreamHelper.IndexOf('Remove-ItemProperty')
-$enrollmentImportOffset = $gameStreamHelper.IndexOf(
-    'Import-WireGuardEnrollment -WireGuard $wireGuard -EnrollmentFile $EnrollmentFile'
-)
-$tunnelStartOffset = $gameStreamHelper.IndexOf('Start-DpapiTunnelService -WireGuard $wireGuard')
-if (
-    $dangerousScriptsOffset -lt 0 -or
-    $enrollmentImportOffset -lt 0 -or
-    $tunnelStartOffset -lt 0 -or
-    $dangerousScriptsOffset -gt $enrollmentImportOffset -or
-    $dangerousScriptsOffset -gt $tunnelStartOffset
-) {
-    throw 'WireGuard Local System hooks must be disabled before enrollment import or tunnel start.'
-}
+
 $sunshineDisableOffset = $gameStreamHelper.IndexOf(
     'Set-Service -Name $sunshineService.Name -StartupType Disabled'
 )
-$sunshineStopOffset = $gameStreamHelper.IndexOf('Stop-Service -Name $sunshineService.Name -Force')
 $sunshineSettingOffset = $gameStreamHelper.IndexOf('Set-SunshineSetting -Name upnp -Value disabled')
 $sunshineAutomaticOffset = $gameStreamHelper.IndexOf(
     'Set-Service -Name $sunshineService.Name -StartupType Automatic'
 )
-$sunshineStartOffset = $gameStreamHelper.IndexOf('Start-Service -Name $sunshineService.Name')
 if (
-    @(
-        $sunshineDisableOffset,
-        $sunshineStopOffset,
-        $sunshineSettingOffset,
-        $sunshineAutomaticOffset,
-        $sunshineStartOffset
-    ) -contains -1 -or
-    $sunshineDisableOffset -gt $sunshineStopOffset -or
-    $sunshineStopOffset -gt $sunshineSettingOffset -or
-    $sunshineSettingOffset -gt $sunshineAutomaticOffset -or
-    $sunshineAutomaticOffset -gt $sunshineStartOffset
+    @($sunshineDisableOffset, $sunshineSettingOffset, $sunshineAutomaticOffset) -contains -1 -or
+    $sunshineDisableOffset -gt $sunshineSettingOffset -or
+    $sunshineSettingOffset -gt $sunshineAutomaticOffset
 ) {
-    throw 'Sunshine must remain disabled and stopped until its managed settings are ready for restart.'
+    throw 'Sunshine must remain stopped until its stable settings and firewall are ready.'
 }
-if ($gameStreamHelper -match '(?im)^\s*(PrivateKey|PublicKey|Endpoint|Address|AllowedIPs)\s*=') {
-    throw 'The game-stream helper must not embed production WireGuard material.'
-}
-foreach ($retiredHelper in @(
-    'bootstrap\windows-game-stream-session.ps1',
-    'bootstrap\windows-game-stream-control.ps1'
+
+foreach ($retiredPath in @(
+    'bootstrap\game-stream-setup.ps1',
+    'bootstrap\windows-game-stream-lifecycle.ps1',
+    'windows\capabilities\game-stream-host.winget',
+    'windows\capabilities\game-stream-client.winget',
+    'windows\profiles\game-stream-host.json',
+    'windows\profiles\game-stream-client.json'
 )) {
-    if (Test-Path -LiteralPath (Join-Path $RepositoryRoot $retiredHelper)) {
-        throw "The retired game-stream session helper remains present: $retiredHelper"
+    if (Test-Path -LiteralPath (Join-Path $RepositoryRoot $retiredPath)) {
+        throw "Retired game-stream orchestration remains present: $retiredPath"
     }
 }
 

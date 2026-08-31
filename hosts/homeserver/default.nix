@@ -58,12 +58,13 @@ in
     ++ lib.optionals settings.public.bluemap [ "map.${settings.public.domain}" ];
   };
 
-  # The game-stream gateway is enabled only after its SOPS-encrypted peer
-  # document is enrolled and the router's single UDP forward is ready. Its
-  # clients remain isolated from a future administrative/home VPN.
+  # The game-stream VPN is a client-to-site gateway. It forwards only Sunshine
+  # traffic to the host's reserved LAN address and remains isolated from a
+  # future administrative/home VPN.
   homelab.gameStreamGateway = {
     enable = true;
     listenPort = 51820;
+    hostAddress = "192.168.1.134";
   };
 
   homelab.auxide.enable = true;

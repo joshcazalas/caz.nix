@@ -48,13 +48,17 @@ repository secret. The Cloudflare DDNS API token belongs here; public DNS
 hostnames do not. Jellyfin and Samba manage user password hashes in their own
 state and do not belong in this repository.
 
-When the private game-stream gateway is enabled, its complete `wg-quick`
-document and opaque client-allocation metadata are stored together as the
-single multiline `gameStreamGatewayConfig` value. Manage that value with
-`scripts/game-stream-enrollment.sh`; it keeps every Windows private key on its
-originating device and passes the gateway private key to SOPS through a
-restricted file. The value contains all real tunnel addresses, keys,
-endpoints, and peer mappings. The public module validates and consumes it only
-from the runtime SOPS path; never split those values into public Nix settings.
+When the private game-stream gateway is enabled, `gameStreamGatewayConfig`
+contains an ordinary `wg-quick` server document: one interface and one exact
+`/32` peer entry per remote client. Edit it with `sops
+secrets/homeserver.yaml`. Only the gateway private key is secret; peer public
+keys and tunnel addresses remain encrypted here as a metadata-privacy choice.
+The public Nix module passes the document directly to `wg-quick` and does not
+parse it or derive firewall policy from peer order.
+
+Client private keys stay in the official WireGuard app on their originating
+Windows devices. Never copy a client private key into this repository. The
+gateway document must not contain a Sunshine-host peer: remote traffic is
+forwarded and source-NATed to the host's reserved LAN address instead.
 
 Reference: <https://github.com/Mic92/sops-nix>

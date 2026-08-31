@@ -19,14 +19,14 @@ cat >"${fake_bin}/wslpath" <<'EOF'
 set -Eeuo pipefail
 [[ "$1" == -w && -n "${2:-}" ]]
 case "$2" in
-  */windows-game-stream-lifecycle.ps1)
-    printf '%s\n' '\\wsl.localhost\TestDistro\repo\bootstrap\windows-game-stream-lifecycle.ps1'
+  */windows-game-stream.ps1)
+    printf '%s\n' '\\wsl.localhost\TestDistro\repo\bootstrap\windows-game-stream.ps1'
     ;;
   */windows.ps1)
     printf '%s\n' '\\wsl.localhost\TestDistro\repo\bootstrap\windows.ps1'
     ;;
   *)
-    printf 'C:\\wsl-private\\%s\n' "$(basename -- "$2")"
+    exit 1
     ;;
 esac
 EOF
@@ -75,10 +75,19 @@ require_pair() {
   exit 1
 }
 
+require_argument() {
+  local expected=$1
+  local argument
+  for argument in "${launcher_arguments[@]}"; do
+    [[ "${argument}" != "${expected}" ]] || return 0
+  done
+  echo "Missing launcher argument: ${expected}" >&2
+  exit 1
+}
+
 reject_argument() {
   local rejected=$1
   local argument
-
   for argument in "${launcher_arguments[@]}"; do
     [[ "${argument}" != "${rejected}" ]] || {
       echo "Unexpected launcher argument: ${rejected}" >&2
@@ -87,62 +96,34 @@ reject_argument() {
   done
 }
 
-source_commit="$(git -C "${repo_root}" rev-parse --verify 'HEAD^{commit}')"
-
 run_launcher game-stream-host
-require_pair -Profile game-stream-host
-require_pair -GameStreamStage Lan
-require_pair -SourceCommit "${source_commit}"
+require_pair -File '\\wsl.localhost\TestDistro\repo\bootstrap\windows-game-stream.ps1'
+require_pair -Role Host
+reject_argument -Profile
 reject_argument -Check
 
 run_launcher game-stream-host --check
-require_pair -Profile game-stream-host
-require_pair -GameStreamStage Lan
-reject_argument -SourceCommit
+require_pair -Role Host
+require_argument -Check
 
 run_launcher game-stream-client
-require_pair -Profile game-stream-client
-require_pair -GameStreamStage Lan
-require_pair -SourceCommit "${source_commit}"
+require_pair -File '\\wsl.localhost\TestDistro\repo\bootstrap\windows-game-stream.ps1'
+require_pair -Role Client
+reject_argument -Profile
 reject_argument -Check
 
-run_launcher game-stream-client --stage remote --check
-require_pair -Profile game-stream-client
-require_pair -GameStreamStage Remote
-reject_argument -SourceCommit
-
-request_path="${test_root}/host.game-stream-request.json"
-run_launcher game-stream-host --prepare "${request_path}"
-require_pair -File '\\wsl.localhost\TestDistro\repo\bootstrap\windows-game-stream-lifecycle.ps1'
-require_pair -Role Host
-require_pair -Output 'C:\wsl-private\host.game-stream-request.json'
-reject_argument -Profile
-reject_argument -SourceCommit
-
-response_path="${test_root}/client.game-stream-enrollment.json"
-touch "${response_path}"
-run_launcher game-stream-client --enroll "${response_path}"
-require_pair -File '\\wsl.localhost\TestDistro\repo\bootstrap\windows-game-stream-lifecycle.ps1'
+run_launcher game-stream-client --check
 require_pair -Role Client
-require_pair -Enroll 'C:\wsl-private\client.game-stream-enrollment.json'
-require_pair -SourceCommit "${source_commit}"
-reject_argument -Profile
+require_argument -Check
 
-run_launcher game-stream-client --reset-enrollment
-require_pair -File '\\wsl.localhost\TestDistro\repo\bootstrap\windows-game-stream-lifecycle.ps1'
-require_pair -Role Client
-reject_argument -Profile
-reject_argument -SourceCommit
-
-reject_launcher workstation --prepare "${test_root}/invalid-request.json"
-reject_launcher game-stream-host --check --prepare "${test_root}/invalid-request.json"
-reject_launcher game-stream-host --stage remote --reset-enrollment
-reject_launcher game-stream-host --prepare "${repo_root}/invalid-request.json"
-reject_launcher game-stream-client --enroll "${test_root}/missing-response.json"
+reject_launcher game-stream-host --stage remote
+reject_launcher game-stream-client --prepare /tmp/request.json
+reject_launcher game-stream-client --enroll /tmp/response.json
+reject_launcher game-stream-client --reset-enrollment
 
 run_launcher workstation
+require_pair -File '\\wsl.localhost\TestDistro\repo\bootstrap\windows.ps1'
 require_pair -Profile workstation
-reject_argument -GameStreamStage
-reject_argument -SourceCommit
+reject_argument -Role
 
 echo 'Validated WSL-to-Windows launcher argument routing.'
