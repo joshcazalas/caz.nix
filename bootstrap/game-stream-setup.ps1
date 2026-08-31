@@ -272,11 +272,67 @@ function Get-ActiveTunnelPublicKey {
     if (-not (Test-Path -LiteralPath $Wg -PathType Leaf)) {
         return $null
     }
-    $key = @(& $Wg show $TunnelName public-key 2>$null) | Select-Object -First 1
-    if ($LASTEXITCODE -ne 0 -or -not (Test-WireGuardKey -Key $key)) {
+    $key = $null
+    $exitCode = 1
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        $key = @(& $Wg show $TunnelName public-key 2>$null) | Select-Object -First 1
+        $exitCode = $LASTEXITCODE
+    }
+    catch {
+        return $null
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+    if (
+        $exitCode -ne 0 -or
+        [string]::IsNullOrWhiteSpace($key) -or
+        -not (Test-WireGuardKey -Key $key)
+    ) {
         return $null
     }
     return $key
+}
+
+function Reset-PartialTunnelImport {
+    param([Parameter(Mandatory)][string]$PendingPublicKey)
+
+    $activePublicKey = Get-ActiveTunnelPublicKey
+    if ($null -ne $activePublicKey -and $activePublicKey -ne $PendingPublicKey) {
+        throw 'An unrelated active WireGuard tunnel already uses the managed game-stream name. Reset it explicitly before replacement.'
+    }
+
+    if ($null -ne (Get-Service -Name $TunnelServiceName -ErrorAction SilentlyContinue)) {
+        $uninstallOutput = @()
+        $uninstallExitCode = 1
+        $previousErrorActionPreference = $ErrorActionPreference
+        try {
+            $ErrorActionPreference = 'Continue'
+            $uninstallOutput = @(& $WireGuard /uninstalltunnelservice $TunnelName 2>&1)
+            $uninstallExitCode = $LASTEXITCODE
+        }
+        finally {
+            $ErrorActionPreference = $previousErrorActionPreference
+        }
+        $uninstallOutput | ForEach-Object { Write-Host ($_.ToString()) }
+        if (
+            $uninstallExitCode -ne 0 -and
+            $null -ne (Get-Service -Name $TunnelServiceName -ErrorAction SilentlyContinue)
+        ) {
+            throw 'WireGuard could not remove the incomplete game-stream tunnel service.'
+        }
+    }
+
+    Remove-Item -LiteralPath $PlaintextConfiguration -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $DpapiConfiguration -Force -ErrorAction SilentlyContinue
+    if (
+        (Test-Path -LiteralPath $PlaintextConfiguration -PathType Leaf) -or
+        (Test-Path -LiteralPath $DpapiConfiguration -PathType Leaf)
+    ) {
+        throw 'WireGuard could not clear the incomplete game-stream configuration for deterministic re-import.'
+    }
 }
 
 function Read-EnrollmentResponse {
@@ -538,18 +594,20 @@ if (-not [string]::IsNullOrWhiteSpace($Enroll)) {
         throw 'The response does not match this device pending request ID.'
     }
 
-    if (Test-Path -LiteralPath $DpapiConfiguration -PathType Leaf) {
-        if ((Get-ActiveTunnelPublicKey) -ne $pendingState.publicKey) {
-            throw 'An unrelated DPAPI tunnel already exists. Reset it explicitly before replacement.'
-        }
-        $exitCode = Invoke-RoleConfiguration
+    if (
+        (Test-Path -LiteralPath $DpapiConfiguration -PathType Leaf) -or
+        (Test-Path -LiteralPath $PlaintextConfiguration -PathType Leaf) -or
+        $null -ne (Get-Service -Name $TunnelServiceName -ErrorAction SilentlyContinue)
+    ) {
+        Reset-PartialTunnelImport -PendingPublicKey $pendingState.publicKey
     }
-    else {
-        Write-WireGuardConfiguration -PendingState $pendingState -Response $response
-        $exitCode = Invoke-RoleConfiguration -EnrollmentFile $ComposedConfiguration
-    }
+    Write-WireGuardConfiguration -PendingState $pendingState -Response $response
+    $exitCode = Invoke-RoleConfiguration -EnrollmentFile $ComposedConfiguration
     if ($exitCode -ne 0) {
         throw "Declarative role enrollment failed with exit code $exitCode. The restricted pending state was retained for a safe rerun."
+    }
+    if ((Get-ActiveTunnelPublicKey) -ne $pendingState.publicKey) {
+        throw 'The converged tunnel public key does not match the pending enrollment key. Pending state was retained and enrollment was not finalized.'
     }
 
     Write-JsonFile -Path $EnrolledStateFile -Document ([ordered]@{

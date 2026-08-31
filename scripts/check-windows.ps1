@@ -276,6 +276,19 @@ foreach ($required in @(
         throw "The elevated role wrapper is missing its native stderr boundary: $required"
     }
 }
+foreach ($required in @(
+    'function Reset-PartialTunnelImport',
+    '$ErrorActionPreference = ''Continue''',
+    '& $WireGuard /uninstalltunnelservice $TunnelName 2>&1',
+    'Reset-PartialTunnelImport -PendingPublicKey $pendingState.publicKey',
+    'Write-WireGuardConfiguration -PendingState $pendingState -Response $response',
+    '(Get-ActiveTunnelPublicKey) -ne $pendingState.publicKey',
+    'enrollment was not finalized'
+)) {
+    if ($gameStreamSetup -notmatch [regex]::Escape($required)) {
+        throw "The enrollment retry path is missing its deterministic partial-import recovery: $required"
+    }
+}
 if ($windowsBootstrap -notmatch '(?s)if \(\$capabilities -contains ''preferences''\) \{.*Exact taskbar pin ordering') {
     throw 'The manual taskbar reminder must remain scoped to profiles that select preferences.'
 }
