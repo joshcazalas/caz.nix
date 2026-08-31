@@ -58,11 +58,11 @@ in
     ++ lib.optionals settings.public.bluemap [ "map.${settings.public.domain}" ];
   };
 
-  # The game-stream gateway remains disabled until its SOPS-encrypted peer
+  # The game-stream gateway is enabled only after its SOPS-encrypted peer
   # document is enrolled and the router's single UDP forward is ready. Its
-  # clients are intentionally isolated from a future administrative/home VPN.
+  # clients remain isolated from a future administrative/home VPN.
   homelab.gameStreamGateway = {
-    enable = false;
+    enable = true;
     listenPort = 51820;
   };
 
