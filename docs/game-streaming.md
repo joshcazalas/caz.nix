@@ -20,7 +20,7 @@ LAN address with the client tunnel off. While away, enable the client tunnel;
 that same host `/32` is routed through the gateway.
 
 The separate `wg-game` interface is not an administrative VPN. An authenticated
-client can reach only the Sunshine host at `192.168.1.134`, only on TCP `47984`,
+client can reach only the Sunshine host at `192.168.1.127`, only on TCP `47984`,
 `47989`, and `48010` and UDP `47998-48000`, `48002`, and `48010`. Gateway-local
 traffic, other LAN destinations, other clients, and every other host port are
 denied. A future `wg-home` interface should remain a different trust plane.
@@ -75,7 +75,7 @@ state. Tunnel presence and handshake state are printed as observations.
 The merged pre-migration setup already created durable gateway and client keys.
 Reuse them instead of rotating identities.
 
-Before leaving physical access to the host, confirm that `192.168.1.134` is
+Before leaving physical access to the host, confirm that `192.168.1.127` is
 still reserved for it, its active Windows network is `Private`, Sunshine is
 running and already paired, and plugged-in sleep is disabled for the pilot.
 Power and login readiness remain explicit operating choices rather than
@@ -126,7 +126,7 @@ configuration drift.
    WireGuard app. Change only its peer route:
 
    ```ini
-   AllowedIPs = 192.168.1.134/32
+   AllowedIPs = 192.168.1.127/32
    ```
 
    Keep its interface address, private key, gateway public key, endpoint, and
@@ -141,7 +141,7 @@ configuration drift.
    generation and old topology if the pilot exposes a problem.
 
 7. Put the laptop on a phone hotspot, activate its tunnel, and connect Moonlight
-   to `192.168.1.134`. The existing Sunshine pairing remains valid because the
+   to `192.168.1.127`. The existing Sunshine pairing remains valid because the
    Sunshine host itself did not change.
 
 8. After the remote pilot succeeds and the Sunshine host is physically
@@ -188,13 +188,13 @@ instead of a custom enrollment protocol.
 
    [Peer]
    PublicKey = GATEWAY_PUBLIC_KEY
-   AllowedIPs = 192.168.1.134/32
+   AllowedIPs = 192.168.1.127/32
    Endpoint = game-vpn.joshcaz.com:51820
    PersistentKeepalive = 25
    ```
 
 6. Commit and deploy the encrypted server change, activate the tunnel off-LAN,
-   and pair Moonlight with `192.168.1.134` if that client is not already paired.
+   and pair Moonlight with `192.168.1.127` if that client is not already paired.
 
 An existing client tunnel shows the gateway public key. On the SOPS-capable
 machine it can also be derived without printing the gateway private key:
@@ -243,13 +243,13 @@ Pair and prove Sunshine directly on the LAN first. Then test from an actual
 external network:
 
 1. Confirm a recent WireGuard handshake.
-2. Connect Moonlight to `192.168.1.134` and prove video, audio, input, controller,
+2. Connect Moonlight to `192.168.1.127` and prove video, audio, input, controller,
    resolution, and game launch.
 3. Confirm a non-Sunshine host port is blocked, for example:
 
    ```bash
    powershell.exe -NoLogo -NoProfile -Command \
-     'Test-NetConnection 192.168.1.134 -Port 3389'
+     'Test-NetConnection 192.168.1.127 -Port 3389'
    ```
 
 4. Stream at the intended resolution, frame rate, and bitrate for at least
