@@ -57,6 +57,29 @@ This game tunnel does not provide SSH or general home-network access. A future
 WireGuard replacement for public SSH should be a separate administrative role
 with different peers and policy.
 
+That separation is intentional, not an unfinished general VPN. WireGuard
+authenticates device keys and binds them to tunnel addresses, but does not
+distribute configuration or authorize users to individual services. Putting a
+future TV, handheld, or other streaming client on the same security plane as
+homeserver administration would therefore make every firewall change harder to
+review and increase the effect of a compromised client.
+
+The maintainable long-term shape is two small interfaces rather than one policy
+framework:
+
+- `wg-game` admits only enrolled streaming devices and only Sunshine traffic;
+- a future `wg-home` admits separately enrolled administrator devices to
+  explicitly selected homeserver services; and
+- later device-to-device access is added as narrow grants, never a blanket
+  any-to-any home subnet.
+
+After the administrative tunnel has passed an off-LAN test and a LAN recovery
+path is documented, public TCP 22 and its SSH Fail2ban jail can be retired.
+Intentionally public services such as Minecraft or the read-only map are a
+separate publishing decision and do not become VPN-only automatically. This
+keeps the current project small while avoiding a migration or trust-boundary
+mistake later.
+
 ## Private input boundary
 
 Never commit plaintext addresses, endpoints, keys, peer mappings, account
@@ -128,31 +151,30 @@ Moonlight client, and prove video, audio, input, display, and game launching ove
 the host's ordinary LAN address. Keep the gateway disabled and router port
 closed during this stage.
 
-## Rerunnable remote enrollment workflow
+## WSL-first remote enrollment workflow
 
-Only after the LAN pilot passes, run the enrollment Windows commands from
-PowerShell as Administrator. `Prepare` installs WireGuard through WinGet if
-necessary, generates the device key locally, and writes a public request.
-Repeating it reproduces the same request instead of silently rotating the key.
+Only after the LAN pilot passes, prepare each device from its own WSL checkout.
+The launcher stages the reviewed source on the Windows filesystem and requests
+UAC for the native Windows portion. `Prepare` installs WireGuard through WinGet
+if necessary, generates the device key locally, and writes only a public
+request back to WSL. Repeating it reproduces the same request instead of
+silently rotating the key.
 
-```powershell
+```bash
 # On the living-room host:
-.\bootstrap\game-stream-setup.ps1 `
-  -Role Host `
-  -Prepare `
-  -Output "$env:USERPROFILE\Downloads\host.game-stream-request.json"
+./bootstrap/windows.sh game-stream-host \
+  --prepare /tmp/host.game-stream-request.json
 
-# On each laptop independently:
-.\bootstrap\game-stream-setup.ps1 `
-  -Role Client `
-  -Prepare `
-  -Output "$env:USERPROFILE\Downloads\client.game-stream-request.json"
+# On the laptop that will run Moonlight:
+./bootstrap/windows.sh game-stream-client \
+  --prepare /tmp/client.game-stream-request.json
 ```
 
 Requests contain only a schema, generic role, random request ID, and public
 key. The private key remains under an administrator-only ACL in ProgramData.
-Copy each request to the administrator's WSL environment; do not put it in the
-repository.
+Copy the host request into `/tmp` on the SOPS-capable administrator laptop; the
+client request is already there when that laptop is the first client. Do not
+put either file in the repository.
 
 From the repository root in WSL, enter the pinned development shell and make
 the administrator SSH identity available to SOPS:
@@ -164,26 +186,32 @@ export SOPS_AGE_SSH_PRIVATE_KEY_FILE="$HOME/.ssh/id_ed25519"
 
 Initialize the gateway and produce the host response once. Select a private
 gateway `/32`, a distinct host `/32`, and a non-overlapping aligned `/28` for
-up to fourteen clients. Give the host the server's home-LAN endpoint so the
-always-on host tunnel does not depend on router hairpin NAT; give clients the
-public endpoint used away from home. Both ports must equal `--listen-port`.
+up to fourteen clients. Check the home LAN, WSL, Docker, and likely remote LAN
+routes first; if they overlap, select a different private block rather than
+adding route workarounds.
+
+Give the host the server's reserved home-LAN endpoint so its always-on tunnel
+does not depend on router hairpin NAT. Give remote clients the dedicated
+DNS-only public endpoint. Keep the private allocation and host's LAN endpoint
+in the operator handoff and encrypted state; the public DNS name remains in the
+reviewed DDNS declaration.
 
 ```bash
-./scripts/game-stream-enrollment.sh init-host /private/host.game-stream-request.json \
+./scripts/game-stream-enrollment.sh init-host /tmp/host.game-stream-request.json \
   --host-endpoint SERVER_HOME_LAN_IPV4:51820 \
   --client-endpoint WIREGUARD_PUBLIC_NAME_OR_IP:51820 \
   --gateway-address GATEWAY_TUNNEL_IPV4/32 \
   --host-address HOST_TUNNEL_IPV4/32 \
   --client-pool CLIENT_ROLE_NETWORK_IPV4/28 \
-  --output /private/host.game-stream-enrollment.json
+  --output /tmp/host.game-stream-enrollment.json
 ```
 
 Enroll each client. Repeating the same request returns the same `/32` and
 response; it does not create a duplicate peer.
 
 ```bash
-./scripts/game-stream-enrollment.sh add-client /private/client.game-stream-request.json \
-  --output /private/client.game-stream-enrollment.json
+./scripts/game-stream-enrollment.sh add-client /tmp/client.game-stream-request.json \
+  --output /tmp/client.game-stream-enrollment.json
 
 ./scripts/game-stream-enrollment.sh status
 ```
@@ -193,30 +221,64 @@ than command arguments. Its response contains the gateway public key,
 endpoint, assigned address, narrow route, and request ID—but never either
 device's private key or the gateway private key.
 
-Copy the appropriate response back to the device that created its matching
-request, then apply it. When Windows Git is intentionally absent, obtain the
-commit once with `git rev-parse HEAD` in WSL and paste that 40-character value
-as `REVIEWED_SOURCE_COMMIT` below:
+## Server activation
 
-```powershell
-# Host:
-.\bootstrap\game-stream-setup.ps1 `
-  -Role Host `
-  -Enroll "$env:USERPROFILE\Downloads\host.game-stream-enrollment.json" `
-  -SourceCommit REVIEWED_SOURCE_COMMIT
+Commit the changed SOPS ciphertext before applying a client response that uses
+the public endpoint. Configure the router's single UDP `51820` forward, enable
+the gateway, merge the reviewed change, publish the immutable release, and
+deploy it. The real addresses and keys remain encrypted in Git.
 
-# Client:
-.\bootstrap\game-stream-setup.ps1 `
-  -Role Client `
-  -Enroll "$env:USERPROFILE\Downloads\client.game-stream-enrollment.json" `
-  -SourceCommit REVIEWED_SOURCE_COMMIT
+Only after the encrypted input and router forward are ready, change the
+reviewed declaration in `hosts/homeserver/default.nix`:
+
+```nix
+homelab.gameStreamGateway = {
+  enable = true;
+  listenPort = 51820;
+};
 ```
 
-The wrapper composes the WireGuard document only inside its restricted local
-state, runs the existing declarative WinGet profile, waits for WireGuard's
-DPAPI conversion, and removes the plaintext configuration and response after
-success. A failed run retains only the restricted recovery material needed for
-a safe rerun.
+The same switch adds the dedicated game VPN name to the existing Cloudflare
+DDNS declaration. Keep that record DNS-only: Cloudflare's ordinary proxy does
+not proxy arbitrary WireGuard UDP. Before deployment, compare the router's WAN
+IPv4 address to a public IPv4 lookup. If they differ, another NAT layer or
+carrier-grade NAT must be resolved; adding more local port forwards cannot fix
+it.
+
+Wait until the public endpoint resolves in Windows before applying the client
+response. Endpoint reachability and a handshake are not required for
+enrollment, but WireGuard for Windows must resolve the endpoint while starting
+its automatic tunnel service. A same-LAN handshake additionally requires
+router hairpin NAT or split-horizon DNS; use direct LAN streaming while home.
+
+After deployment, this command reports compliance without printing keys,
+endpoints, addresses, or mappings:
+
+```bash
+sudo caz-game-stream-gateway report \
+  /run/secrets/game-stream-gateway/config wg-game 51820
+```
+
+Copy each response to `/tmp` in the WSL distribution on the device that created
+its matching request, then apply it from that checkout:
+
+```bash
+# Host device:
+./bootstrap/windows.sh game-stream-host \
+  --enroll /tmp/host.game-stream-enrollment.json
+
+# Client device:
+./bootstrap/windows.sh game-stream-client \
+  --enroll /tmp/client.game-stream-enrollment.json
+```
+
+The WSL launcher supplies the reviewed commit from Linux Git. Its Windows
+wrapper copies only the required source and one-time response into a restricted
+local staging directory before elevation. The setup composes the WireGuard
+document only inside administrator-only state, runs the declarative WinGet
+profile, waits for WireGuard's DPAPI conversion, and removes the plaintext
+configuration and both response copies after success. A failed run leaves the
+original response and restricted recovery state available for a safe rerun.
 
 Normal remote-stage convergence no longer needs an enrollment input. From WSL,
 the preferred commands are:
@@ -247,31 +309,6 @@ Windows Git is intentionally absent; Windows SSH keys are never required.
 WinGet or Microsoft App Installer repair remains a manual prerequisite when
 `winget.exe` itself is unavailable. No setup script downloads an unreviewed
 installer as a fallback.
-
-## Server activation
-
-Commit the changed SOPS ciphertext, merge it, publish the immutable release,
-and deploy that release before expecting a new remote client to connect. The
-real addresses and keys remain encrypted in Git.
-
-Only after the private input and router's single UDP `51820` forward are
-ready, enable the gateway in the host configuration or a private deployment
-overlay:
-
-```nix
-homelab.gameStreamGateway = {
-  enable = true;
-  listenPort = 51820;
-};
-```
-
-After deployment, this command reports compliance without printing keys,
-endpoints, addresses, or mappings:
-
-```bash
-sudo caz-game-stream-gateway report \
-  /run/secrets/game-stream-gateway/config wg-game 51820
-```
 
 ## Windows host policy
 
@@ -343,11 +380,21 @@ Test in this order:
    WireGuard handshake, and add the host tunnel `/32` to Moonlight.
 5. Prove streaming works and confirm the client cannot reach the gateway, host
    LAN address, another client, or another home device through the tunnel.
-6. Record power, display/EDID, reboot, Windows login-screen, and simultaneous
+6. Stream at the intended resolution, frame rate, and bitrate for at least
+   fifteen minutes. On a PC client, enable Moonlight's statistics with
+   `Ctrl+Alt+Shift+S`. Network-dropped frames should remain effectively zero,
+   jitter should stay near or below 1 ms without recurring spikes, latency
+   should remain stable, and the gateway must remain well below CPU and NIC
+   saturation. A visible stutter or input regression fails the pilot even when
+   the services report healthy.
+7. Record power, display/EDID, reboot, Windows login-screen, and simultaneous
    local/remote behavior on the real hardware.
 
 A same-LAN tunnel test is optional and does not replace step 4. It may require
 router hairpin NAT or split-horizon DNS even when the external path is correct.
+It is useful for comparing direct-LAN statistics with the relayed path while
+removing most Internet variability. The expected relay cost is sub-millisecond;
+investigate a repeatable 1-2 ms or larger increase before accepting it.
 
 ## Revocation and rotation
 
@@ -365,10 +412,10 @@ ciphertext, and remove the same device from Sunshine's paired clients:
 ```
 
 Only after gateway revocation, explicitly remove local tunnel material on the
-retired device:
+retired device from WSL:
 
-```powershell
-.\bootstrap\game-stream-setup.ps1 -Role Client -ResetEnrollment
+```bash
+./bootstrap/windows.sh game-stream-client --reset-enrollment
 ```
 
 Rotation is explicit: revoke the old request, reset that device, run `Prepare`
@@ -391,3 +438,24 @@ These remain intentionally manual:
 
 Do not add declarative power/display changes until the hardware pilot shows
 which settings are actually necessary.
+
+## Primary references
+
+- WireGuard cryptokey routing and configuration scope:
+  <https://www.wireguard.com/>
+- WireGuard NAT keepalive guidance:
+  <https://www.wireguard.com/quickstart/>
+- WireGuard protocol and performance paper:
+  <https://www.wireguard.com/papers/wireguard.pdf>
+- Official WireGuard for Windows enterprise/service behavior:
+  <https://git.zx2c4.com/wireguard-windows/about/docs/enterprise.md>
+- Moonlight connection statistics:
+  <https://github.com/moonlight-stream/moonlight-docs/wiki/Frequently-Asked-Questions>
+- Sunshine network and MTU testing:
+  <https://github.com/LizardByte/Sunshine/blob/master/docs/troubleshooting.md>
+- NIST zero-trust resource and least-privilege model:
+  <https://csrc.nist.gov/pubs/sp/800/207/final>
+- CISA microsegmentation guidance:
+  <https://www.cisa.gov/news-events/alerts/2025/07/29/cisa-releases-part-one-zero-trust-microsegmentation-guidance>
+- Cloudflare DNS proxy limitations:
+  <https://developers.cloudflare.com/dns/proxy-status/limitations/>

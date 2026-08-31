@@ -147,6 +147,7 @@ $hostCapability = Get-Content -LiteralPath (Join-Path $CapabilitiesRoot 'game-st
 $clientCapability = Get-Content -LiteralPath (Join-Path $CapabilitiesRoot 'game-stream-client.winget') -Raw
 $gameStreamHelper = Get-Content -LiteralPath (Join-Path $RepositoryRoot 'bootstrap\windows-game-stream.ps1') -Raw
 $gameStreamSetup = Get-Content -LiteralPath (Join-Path $RepositoryRoot 'bootstrap\game-stream-setup.ps1') -Raw
+$gameStreamLifecycle = Get-Content -LiteralPath (Join-Path $RepositoryRoot 'bootstrap\windows-game-stream-lifecycle.ps1') -Raw
 $windowsBootstrap = Get-Content -LiteralPath (Join-Path $RepositoryRoot 'bootstrap\windows.ps1') -Raw
 $wslLauncher = Get-Content -LiteralPath (Join-Path $RepositoryRoot 'bootstrap\windows.sh') -Raw
 foreach ($required in @(
@@ -226,6 +227,10 @@ if (
 foreach ($required in @(
     'powershell.exe',
     'wslpath -w',
+    'windows-game-stream-lifecycle.ps1',
+    '--prepare',
+    '--enroll',
+    '--reset-enrollment',
     'git -C',
     "rev-parse --verify 'HEAD^{commit}'",
     '-GameStreamStage',
@@ -237,6 +242,73 @@ foreach ($required in @(
 }
 if ($wslLauncher -match 'git\.exe|\.ssh') {
     throw 'The WSL Windows launcher must not depend on Windows Git or Windows SSH state.'
+}
+foreach ($required in @(
+    'Set-RestrictedStagingAcl',
+    'Copy-RequiredSource',
+    'Start-Process',
+    '-Verb RunAs',
+    '-EncodedCommand',
+    'last-error.log',
+    '<redacted-wireguard-key>',
+    'Remove-Item -LiteralPath $StagingRoot -Recurse -Force',
+    'Consumed and removed the one-time enrollment response'
+)) {
+    if ($gameStreamLifecycle -notmatch [regex]::Escape($required)) {
+        throw "The WSL-first game-stream lifecycle is missing '$required'."
+    }
+}
+foreach ($document in @($gameStreamLifecycle, $gameStreamSetup)) {
+    if ($document -notmatch [regex]::Escape('$selectedActionCount = @($selectedActions | Where-Object { $_ }).Count')) {
+        throw 'Game-stream action selection must retain an array under Windows PowerShell 5.1 strict mode.'
+    }
+}
+foreach ($required in @(
+    '$childOutput = @(& powershell.exe @arguments 2>&1)',
+    '$previousErrorActionPreference = $ErrorActionPreference',
+    '$ErrorActionPreference = ''Continue''',
+    '[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)',
+    '[Console]::OutputEncoding = $previousConsoleOutputEncoding',
+    '$ErrorActionPreference = $previousErrorActionPreference',
+    'return $exitCode'
+)) {
+    if ($gameStreamSetup -notmatch [regex]::Escape($required)) {
+        throw "The elevated role wrapper is missing its native stderr boundary: $required"
+    }
+}
+foreach ($required in @(
+    'function Assert-EndpointResolvable',
+    '[Net.IPAddress]::TryParse($hostName, [ref]$parsedAddress)',
+    '[Net.Dns]::GetHostAddresses($hostName)',
+    'Assert-EndpointResolvable -Endpoint $response.endpoint',
+    'function Remove-ManagedTunnelConfiguration',
+    'function Reset-PartialTunnelImport',
+    '$ErrorActionPreference = ''Continue''',
+    '& $WireGuard /uninstalltunnelservice $TunnelName 2>&1',
+    'Stop-Service -Name WireGuardManager -Force -ErrorAction Stop',
+    '''Stopped''',
+    '[IO.File]::Delete($path)',
+    'Start-Service -Name WireGuardManager -ErrorAction Stop',
+    '''Running''',
+    'Reset-PartialTunnelImport -PendingPublicKey $pendingState.publicKey',
+    'Write-WireGuardConfiguration -PendingState $pendingState -Response $response',
+    '(Get-ActiveTunnelPublicKey) -ne $pendingState.publicKey',
+    'enrollment was not finalized'
+)) {
+    if ($gameStreamSetup -notmatch [regex]::Escape($required)) {
+        throw "The enrollment retry path is missing its deterministic partial-import recovery: $required"
+    }
+}
+$endpointPreflightOffset = $gameStreamSetup.IndexOf('Assert-EndpointResolvable -Endpoint $response.endpoint')
+$partialResetOffset = $gameStreamSetup.IndexOf('Reset-PartialTunnelImport -PendingPublicKey $pendingState.publicKey')
+if ($endpointPreflightOffset -lt 0 -or $partialResetOffset -lt 0 -or $endpointPreflightOffset -gt $partialResetOffset) {
+    throw 'The enrollment endpoint must resolve before partial state is reset or imported.'
+}
+if ($windowsBootstrap -notmatch '(?s)if \(\$capabilities -contains ''preferences''\) \{.*Exact taskbar pin ordering') {
+    throw 'The manual taskbar reminder must remain scoped to profiles that select preferences.'
+}
+if ($gameStreamLifecycle -match '(?im)^\s*(PrivateKey|PublicKey|Endpoint|Address|AllowedIPs)\s*=') {
+    throw 'The WSL-first lifecycle must not embed production WireGuard material.'
 }
 $configurationTestFunction = [regex]::Match(
     $gameStreamHelper,

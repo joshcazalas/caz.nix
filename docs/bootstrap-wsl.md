@@ -18,6 +18,13 @@ nix flake check --no-build
 home-manager switch --flake .#joshcaz@wsl
 ```
 
+Home Manager starts one `ssh-agent` for the WSL user session. The first local
+interactive Bash shell after WSL starts prompts for the configured GitHub key's
+passphrase and adds it automatically; later terminals and tools inherit the
+same unlocked identity without a manual `ssh-add`. The identity expires after
+twelve hours or when the WSL session shuts down, whichever comes first. Remote
+SSH shells do not trigger this automatic prompt.
+
 Docker Engine remains an Ubuntu system service; the bootstrap installs it from
 Docker's official apt repository. Home Manager owns the Docker client baseline
 along with OpenTofu, Node/TypeScript, Go, Rust, uv, and the shell environment.

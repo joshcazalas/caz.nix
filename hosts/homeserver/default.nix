@@ -50,9 +50,20 @@ in
     domains = [
       "mc.${settings.public.domain}"
     ]
+    ++ lib.optionals config.homelab.gameStreamGateway.enable [
+      "game-vpn.${settings.public.domain}"
+    ]
     ++ lib.optionals settings.public.ssh [ "ssh.${settings.public.domain}" ]
     ++ lib.optionals settings.public.jellyfin [ "jellyfin.${settings.public.domain}" ]
     ++ lib.optionals settings.public.bluemap [ "map.${settings.public.domain}" ];
+  };
+
+  # The game-stream gateway is enabled only after its SOPS-encrypted peer
+  # document is enrolled and the router's single UDP forward is ready. Its
+  # clients remain isolated from a future administrative/home VPN.
+  homelab.gameStreamGateway = {
+    enable = true;
+    listenPort = 51820;
   };
 
   homelab.auxide.enable = true;

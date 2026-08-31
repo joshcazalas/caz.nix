@@ -31,6 +31,35 @@ in
     defaultMaximumIdentityLifetime = 12 * 60 * 60;
   };
 
+  # Ubuntu 26.04 globally enables its own ssh-agent.socket at
+  # $XDG_RUNTIME_DIR/openssh_agent. It conflicts with Home Manager's service
+  # of the same name and can leave systemd-launched tools pointed at a socket
+  # that no process serves. Mask only that vendor socket and make the managed
+  # socket authoritative for user services as well as shells.
+  home.file.".config/systemd/user/ssh-agent.socket".source =
+    config.lib.file.mkOutOfStoreSymlink "/dev/null";
+  systemd.user.sessionVariables.SSH_AUTH_SOCK = "$XDG_RUNTIME_DIR/ssh-agent";
+  home.activation.reconcileSshAgentSocket = lib.hm.dag.entryAfter [ "reloadSystemd" ] ''
+    if ${config.systemd.user.systemctlPath} --user is-active --quiet ssh-agent.socket; then
+      run ${config.systemd.user.systemctlPath} --user stop ssh-agent.socket
+    fi
+    run ${config.systemd.user.systemctlPath} --user set-environment SSH_AUTH_SOCK="$XDG_RUNTIME_DIR/ssh-agent"
+  '';
+
+  # Add the GitHub identity on the first local interactive shell of a WSL
+  # session. ssh-add reads its passphrase from the TTY; subsequent shells use
+  # -T with the public half to prove the matching identity is already usable
+  # and stay silent. Remote SSH shells never trigger an unexpected prompt.
+  programs.bash.initExtra = lib.mkOrder 50 ''
+    caz_ssh_identity=${lib.escapeShellArg "${config.home.homeDirectory}/.ssh/id_ed25519"}
+    if [[ $- == *i* && -t 0 && -z ''${SSH_CONNECTION-} && -r "$caz_ssh_identity" && -r "$caz_ssh_identity.pub" ]]; then
+      if ! ${lib.getExe' pkgs.openssh "ssh-add"} -T "$caz_ssh_identity.pub" >/dev/null 2>&1; then
+        ${lib.getExe' pkgs.openssh "ssh-add"} -q "$caz_ssh_identity" || true
+      fi
+    fi
+    unset caz_ssh_identity
+  '';
+
   programs.ssh = {
     enable = true;
     # Home Manager's implicit `programs.ssh` defaults are being phased out;

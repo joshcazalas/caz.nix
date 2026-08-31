@@ -211,6 +211,7 @@ function Get-GameStreamSourceDigest {
     }
     $files.Add((Join-Path $PSScriptRoot 'windows-game-stream.ps1'))
     $files.Add((Join-Path $PSScriptRoot 'game-stream-setup.ps1'))
+    $files.Add((Join-Path $PSScriptRoot 'windows-game-stream-lifecycle.ps1'))
 
     $manifest = [Text.StringBuilder]::new()
     foreach ($path in @($files | Sort-Object)) {
@@ -447,8 +448,8 @@ try {
     Write-Host "Windows profile '$Profile' is complete."
     if ($capabilities -contains 'preferences') {
         Write-Host 'Sign out once (or restart Explorer) to make every Explorer and taskbar preference visible.'
+        Write-Host 'Exact taskbar pin ordering remains a short manual step; see windows/README.md.'
     }
-    Write-Host 'Exact taskbar pin ordering remains a short manual step; see windows/README.md.'
     $configurationSucceeded = $true
 }
 catch {
