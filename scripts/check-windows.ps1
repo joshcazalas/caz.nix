@@ -147,6 +147,7 @@ $hostCapability = Get-Content -LiteralPath (Join-Path $CapabilitiesRoot 'game-st
 $clientCapability = Get-Content -LiteralPath (Join-Path $CapabilitiesRoot 'game-stream-client.winget') -Raw
 $gameStreamHelper = Get-Content -LiteralPath (Join-Path $RepositoryRoot 'bootstrap\windows-game-stream.ps1') -Raw
 $gameStreamSetup = Get-Content -LiteralPath (Join-Path $RepositoryRoot 'bootstrap\game-stream-setup.ps1') -Raw
+$gameStreamLifecycle = Get-Content -LiteralPath (Join-Path $RepositoryRoot 'bootstrap\windows-game-stream-lifecycle.ps1') -Raw
 $windowsBootstrap = Get-Content -LiteralPath (Join-Path $RepositoryRoot 'bootstrap\windows.ps1') -Raw
 $wslLauncher = Get-Content -LiteralPath (Join-Path $RepositoryRoot 'bootstrap\windows.sh') -Raw
 foreach ($required in @(
@@ -226,6 +227,10 @@ if (
 foreach ($required in @(
     'powershell.exe',
     'wslpath -w',
+    'windows-game-stream-lifecycle.ps1',
+    '--prepare',
+    '--enroll',
+    '--reset-enrollment',
     'git -C',
     "rev-parse --verify 'HEAD^{commit}'",
     '-GameStreamStage',
@@ -237,6 +242,27 @@ foreach ($required in @(
 }
 if ($wslLauncher -match 'git\.exe|\.ssh') {
     throw 'The WSL Windows launcher must not depend on Windows Git or Windows SSH state.'
+}
+foreach ($required in @(
+    'Set-RestrictedStagingAcl',
+    'Copy-RequiredSource',
+    'Start-Process',
+    '-Verb RunAs',
+    '-EncodedCommand',
+    'Remove-Item -LiteralPath $StagingRoot -Recurse -Force',
+    'Consumed and removed the one-time enrollment response'
+)) {
+    if ($gameStreamLifecycle -notmatch [regex]::Escape($required)) {
+        throw "The WSL-first game-stream lifecycle is missing '$required'."
+    }
+}
+foreach ($document in @($gameStreamLifecycle, $gameStreamSetup)) {
+    if ($document -notmatch [regex]::Escape('$selectedActionCount = @($selectedActions | Where-Object { $_ }).Count')) {
+        throw 'Game-stream action selection must retain an array under Windows PowerShell 5.1 strict mode.'
+    }
+}
+if ($gameStreamLifecycle -match '(?im)^\s*(PrivateKey|PublicKey|Endpoint|Address|AllowedIPs)\s*=') {
+    throw 'The WSL-first lifecycle must not embed production WireGuard material.'
 }
 $configurationTestFunction = [regex]::Match(
     $gameStreamHelper,

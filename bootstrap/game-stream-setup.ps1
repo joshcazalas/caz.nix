@@ -369,7 +369,9 @@ function Invoke-RoleConfiguration {
         '-File',
         $WindowsBootstrap,
         '-Profile',
-        "game-stream-$($Role.ToLowerInvariant())"
+        "game-stream-$($Role.ToLowerInvariant())",
+        '-GameStreamStage',
+        'Remote'
     )
     if ($ReadOnly) {
         $arguments += '-Check'
@@ -390,8 +392,9 @@ $selectedActions = @(
     -not [string]::IsNullOrWhiteSpace($Enroll),
     [bool]$Check,
     [bool]$ResetEnrollment
-) | Where-Object { $_ }
-if ($selectedActions.Count -gt 1) {
+)
+$selectedActionCount = @($selectedActions | Where-Object { $_ }).Count
+if ($selectedActionCount -gt 1) {
     throw 'Choose only one of Prepare, Enroll, Check, or ResetEnrollment.'
 }
 if ($Prepare -and [string]::IsNullOrWhiteSpace($Output)) {

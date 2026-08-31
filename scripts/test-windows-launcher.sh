@@ -18,7 +18,17 @@ cat >"${fake_bin}/wslpath" <<'EOF'
 #!/usr/bin/env bash
 set -Eeuo pipefail
 [[ "$1" == -w && -n "${2:-}" ]]
-printf '%s\n' '\\wsl.localhost\TestDistro\repo\bootstrap\windows.ps1'
+case "$2" in
+  */windows-game-stream-lifecycle.ps1)
+    printf '%s\n' '\\wsl.localhost\TestDistro\repo\bootstrap\windows-game-stream-lifecycle.ps1'
+    ;;
+  */windows.ps1)
+    printf '%s\n' '\\wsl.localhost\TestDistro\repo\bootstrap\windows.ps1'
+    ;;
+  *)
+    printf 'C:\\wsl-private\\%s\n' "$(basename -- "$2")"
+    ;;
+esac
 EOF
 
 cat >"${fake_bin}/powershell.exe" <<'EOF'
@@ -35,6 +45,16 @@ run_launcher() {
     PATH="${fake_bin}:${PATH}" \
     "${repo_root}/bootstrap/windows.sh" "$@" >/dev/null
   mapfile -d '' launcher_arguments <"${capture}"
+}
+
+reject_launcher() {
+  if WINDOWS_LAUNCHER_CAPTURE="${capture}" \
+    WSL_INTEROP=/run/WSL/test \
+    PATH="${fake_bin}:${PATH}" \
+    "${repo_root}/bootstrap/windows.sh" "$@" >/dev/null 2>&1; then
+    echo "Launcher unexpectedly accepted: $*" >&2
+    exit 1
+  fi
 }
 
 require_pair() {
@@ -90,6 +110,35 @@ run_launcher game-stream-client --stage remote --check
 require_pair -Profile game-stream-client
 require_pair -GameStreamStage Remote
 reject_argument -SourceCommit
+
+request_path="${test_root}/host.game-stream-request.json"
+run_launcher game-stream-host --prepare "${request_path}"
+require_pair -File '\\wsl.localhost\TestDistro\repo\bootstrap\windows-game-stream-lifecycle.ps1'
+require_pair -Role Host
+require_pair -Output 'C:\wsl-private\host.game-stream-request.json'
+reject_argument -Profile
+reject_argument -SourceCommit
+
+response_path="${test_root}/client.game-stream-enrollment.json"
+touch "${response_path}"
+run_launcher game-stream-client --enroll "${response_path}"
+require_pair -File '\\wsl.localhost\TestDistro\repo\bootstrap\windows-game-stream-lifecycle.ps1'
+require_pair -Role Client
+require_pair -Enroll 'C:\wsl-private\client.game-stream-enrollment.json'
+require_pair -SourceCommit "${source_commit}"
+reject_argument -Profile
+
+run_launcher game-stream-client --reset-enrollment
+require_pair -File '\\wsl.localhost\TestDistro\repo\bootstrap\windows-game-stream-lifecycle.ps1'
+require_pair -Role Client
+reject_argument -Profile
+reject_argument -SourceCommit
+
+reject_launcher workstation --prepare "${test_root}/invalid-request.json"
+reject_launcher game-stream-host --check --prepare "${test_root}/invalid-request.json"
+reject_launcher game-stream-host --stage remote --reset-enrollment
+reject_launcher game-stream-host --prepare "${repo_root}/invalid-request.json"
+reject_launcher game-stream-client --enroll "${test_root}/missing-response.json"
 
 run_launcher workstation
 require_pair -Profile workstation

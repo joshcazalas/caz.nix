@@ -50,6 +50,10 @@ let
     ++ optionals config.services.grafana.enable [ "grafana.service" ]
     ++ optionals config.services.cloudflare-ddns.enable [ "cloudflare-ddns.service" ]
     ++ optionals config.services.fail2ban.enable [ "fail2ban.service" ]
+    ++ optionals config.homelab.gameStreamGateway.enable [
+      "wg-quick-wg-game.service"
+      "game-stream-gateway-policy.service"
+    ]
     ++ optionals config.services.auxide.enable [ "auxide.service" ]
     ++ optionals providerEnabled [ providerUnit ]
     ++ optionals config.homelab.homeAssistant.enable [ "home-assistant.service" ]
