@@ -64,7 +64,8 @@ in
   homelab.gameStreamGateway = {
     enable = true;
     listenPort = 51820;
-    hostAddress = settings.server.lanAddress;
+    # The Sunshine host is a separate Windows machine, not the homeserver.
+    hostAddress = "192.168.1.127";
   };
 
   homelab.auxide.enable = true;

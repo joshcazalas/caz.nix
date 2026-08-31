@@ -6,6 +6,7 @@ let
   localRewrites = map (domain: {
     inherit domain;
     answer = settings.server.lanAddress;
+    enabled = true;
   }) config.homelab.cloudflareDdns.domains;
 in
 {
@@ -25,6 +26,7 @@ in
       filtering = {
         protection_enabled = true;
         rewrites = localRewrites;
+        rewrites_enabled = true;
       };
     };
   };
