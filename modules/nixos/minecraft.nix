@@ -256,37 +256,6 @@ in
 
       environment.systemPackages = [ minecraftAccess ];
 
-      # Minecraft was the first containerized service and still owns the
-      # runtime, rather than the base system carrying a root-privileged daemon
-      # whether or not anything uses it. It is no longer the only one: Auxide's
-      # proof-of-origin provider is a container too, and asserts on a runtime
-      # being enabled. Disabling Minecraft still removes Docker, and now stops
-      # that provider as well.
-      virtualisation.docker = {
-        enable = true;
-
-        # Required by the KillMode=process the upstream unit ships. systemd
-        # kills only dockerd on stop and leaves every container, shim, and
-        # port forwarder running. Without this the daemon returns with no
-        # record of them, so a docker-proxy goes on holding a published port
-        # that no container claims, and the next start of that container fails
-        # on a port that is now busy forever. Re-adopting the survivors is what
-        # makes them legal rather than abandoned.
-        daemon.settings.live-restore = true;
-
-        # --all discards every image no *running* container is using, so an
-        # image is only safe under it if it can be restored without a network.
-        # Auxide's provider keeps its image in the Nix store and reloads it
-        # before each start for that reason. Minecraft's is pulled, so a prune
-        # landing while it happens to be stopped costs a re-pull next start.
-        autoPrune = {
-          enable = true;
-          dates = "weekly";
-          flags = [ "--all" ];
-        };
-      };
-      virtualisation.oci-containers.backend = "docker";
-
       virtualisation.oci-containers.containers.minecraft = {
         inherit (cfg) image;
         autoStart = true;

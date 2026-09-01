@@ -28,6 +28,10 @@ let
   updaterServiceConfig = config.systemd.services.caz-release-updater.serviceConfig;
 
   minecraftEnabled = config.homelab.minecraft.enable;
+  homeAssistantEnabled = config.homelab.homeAssistant.enable;
+  homeAssistantUnit = "docker-homeassistant.service";
+  homeAssistantStatePath = lib.removePrefix "/" config.homelab.homeAssistant.dataDir;
+  containerMaintenanceLock = "/run/caz-container-maintenance/lock";
 
   # Auxide keeps answering commands without its proof-of-origin provider, so
   # nothing here fails when it dies -- it just quietly costs whole tracks,
@@ -55,7 +59,7 @@ let
     ]
     ++ optionals config.services.auxide.enable [ "auxide.service" ]
     ++ optionals providerEnabled [ providerUnit ]
-    ++ optionals config.homelab.homeAssistant.enable [ "home-assistant.service" ]
+    ++ optionals homeAssistantEnabled [ homeAssistantUnit ]
     ++ optionals config.homelab.immich.enable [ "immich-server.service" ]
     ++ optionals minecraftEnabled [ "docker-minecraft.service" ]
     ++ optionals config.services.caddy.enable [ "caddy.service" ];
@@ -74,7 +78,7 @@ let
     ++ optionals config.services.grafana.enable [
       "grafana=http://127.0.0.1:${toString config.services.grafana.settings.server.http_port}/api/health"
     ]
-    ++ optionals config.homelab.homeAssistant.enable [ "home-assistant=http://127.0.0.1:8123/" ]
+    ++ optionals homeAssistantEnabled [ "home-assistant=http://127.0.0.1:8123/" ]
     ++ optionals config.homelab.immich.enable [ "immich=http://127.0.0.1:2283/api/server/ping" ]
     ++ optionals config.services.auxide.enable [ "auxide=http://127.0.0.1:9090/health/ready" ]
     # The unit check above proves systemd still has it; this proves the token
@@ -114,7 +118,8 @@ let
     ]
     ++ optionals config.services.jellyfin.enable [ "jellyfin.service" ]
     ++ optionals config.services.adguardhome.enable [ "adguardhome.service" ]
-    ++ optionals config.services.grafana.enable [ "grafana.service" ];
+    ++ optionals config.services.grafana.enable [ "grafana.service" ]
+    ++ optionals homeAssistantEnabled [ homeAssistantUnit ];
   backupStatePaths =
     optionals config.services.samba.enable [ "var/lib/samba" ]
     ++ optionals config.services.jellyfin.enable [ "var/lib/jellyfin" ]
@@ -122,7 +127,10 @@ let
     # Grafana's database is small and holds annotations and preferences.
     # Prometheus' TSDB is deliberately excluded: it is large, rewritten
     # constantly, and reproducible by simply scraping again.
-    ++ optionals config.services.grafana.enable [ "var/lib/grafana" ];
+    ++ optionals config.services.grafana.enable [ "var/lib/grafana" ]
+    # Stop the container before archiving its SQLite database. This protects
+    # UI-managed integrations, automations, credentials, and history together.
+    ++ optionals homeAssistantEnabled [ homeAssistantStatePath ];
   preDeployBackup = pkgs.writeShellApplication {
     name = "caz-pre-deployment-backup";
     runtimeInputs = [
@@ -130,6 +138,7 @@ let
       pkgs.findutils
       pkgs.gnutar
       pkgs.systemd
+      pkgs.util-linux
       pkgs.zstd
     ];
     text = ''
@@ -137,6 +146,7 @@ let
       export CAZ_BACKUP_RETENTION_COUNT=${toString cfg.stateBackupRetention}
       export CAZ_BACKUP_PAUSE_UNITS=${lib.escapeShellArg (concatStringsSep " " pauseUnits)}
       export CAZ_BACKUP_STATE_PATHS=${lib.escapeShellArg (concatStringsSep " " backupStatePaths)}
+      export CAZ_CONTAINER_MAINTENANCE_LOCK=${lib.escapeShellArg containerMaintenanceLock}
 
       ${builtins.readFile ../../scripts/pre-deploy-backup.sh}
     '';
@@ -165,6 +175,7 @@ let
     text = ''
       export CAZ_RELEASE_HEALTH_WAIT_SECONDS=${toString cfg.healthWaitSeconds}
       export CAZ_RELEASE_STABILIZATION_SECONDS=${toString cfg.stabilizationSeconds}
+      export CAZ_CONTAINER_MAINTENANCE_LOCK=${lib.escapeShellArg containerMaintenanceLock}
 
       ${builtins.readFile ../../scripts/stage-server-release.sh}
     '';
@@ -194,7 +205,7 @@ in
 
     healthWaitSeconds = lib.mkOption {
       type = lib.types.ints.positive;
-      default = 300;
+      default = 600;
       description = "Maximum time for services to become healthy after activation or rollback.";
     };
 
@@ -314,19 +325,12 @@ in
       };
     };
 
-    warnings =
-      optionals config.homelab.immich.enable [
-        ''
-          Immich is enabled but its PostgreSQL database is not yet included in
-          the automatic pre-deployment backup. Add an application-native backup
-          before relying on unattended Immich schema migrations.
-        ''
-      ]
-      ++ optionals config.homelab.homeAssistant.enable [
-        ''
-          Home Assistant is enabled but its state is not yet included in the
-          automatic pre-deployment backup. Extend the backup policy first.
-        ''
-      ];
+    warnings = optionals config.homelab.immich.enable [
+      ''
+        Immich is enabled but its PostgreSQL database is not yet included in
+        the automatic pre-deployment backup. Add an application-native backup
+        before relying on unattended Immich schema migrations.
+      ''
+    ];
   };
 }

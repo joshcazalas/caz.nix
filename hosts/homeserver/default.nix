@@ -22,6 +22,7 @@ in
     ../../modules/nixos/storage.nix
     ../../modules/nixos/networking.nix
     ../../modules/nixos/network-policy.nix
+    ../../modules/nixos/container-runtime.nix
     ../../modules/nixos/game-stream-gateway.nix
     ../../modules/nixos/security.nix
     ../../modules/nixos/cloudflare-ddns.nix
@@ -33,6 +34,7 @@ in
     ../../modules/nixos/minecraft.nix
     ../../modules/nixos/monitoring.nix
     ../../modules/nixos/monitoring-rules.nix
+    ../../modules/nixos/home-assistant.nix
     ../../modules/nixos/optional-services.nix
     ../../modules/nixos/release-updater.nix
   ];
@@ -79,6 +81,11 @@ in
     enable = true;
     peers = [ ];
   };
+
+  # Home Assistant runs as the upstream-supported Container installation. Its
+  # UI and discovery traffic are reachable only from the LAN; integrations and
+  # automations are configured after deployment through the Home Assistant UI.
+  homelab.homeAssistant.enable = true;
 
   # Renders the overworld around spawn into static tiles served by Caddy over
   # HTTPS. Player markers stay off: the map is public, and live markers would
