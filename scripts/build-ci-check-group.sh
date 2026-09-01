@@ -35,7 +35,7 @@ while IFS= read -r check_name; do
   case "${check_name}" in
     homeserver) check_group=homeserver ;;
     wsl-*) check_group=wsl ;;
-    game-stream-*) check_group=integration ;;
+    game-stream-* | home-access-gateway | network-policy) check_group=integration ;;
     *)
       echo "Flake check '${check_name}' has no CI group." >&2
       unclassified=true

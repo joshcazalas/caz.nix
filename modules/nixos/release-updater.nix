@@ -57,6 +57,9 @@ let
     ++ optionals config.homelab.gameStreamGateway.enable [
       "wg-quick-wg-game.service"
     ]
+    ++ optionals config.homelab.homeAccessGateway.enable [
+      "wg-quick-wg-home.service"
+    ]
     ++ optionals config.services.auxide.enable [ "auxide.service" ]
     ++ optionals providerEnabled [ providerUnit ]
     ++ optionals homeAssistantEnabled [ homeAssistantUnit ]

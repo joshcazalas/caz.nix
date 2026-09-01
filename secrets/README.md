@@ -61,4 +61,12 @@ Windows devices. Never copy a client private key into this repository. The
 gateway document must not contain a Sunshine-host peer: remote traffic is
 forwarded and source-NATed to the host's reserved LAN address instead.
 
+When private household access is enabled, `homeAccessGatewayPrivateKey`
+contains only the gateway's bare WireGuard private key. Peer public keys,
+addresses, exact generated `/32` routes, and administrator/resident membership
+share one declarative source in Nix. This prevents the tunnel's cryptokey
+routing policy from drifting away from its firewall roles. Never place client
+private keys in SOPS, and never reuse a `wg-game` peer or private key in
+`wg-home`.
+
 Reference: <https://github.com/Mic92/sops-nix>

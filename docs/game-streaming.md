@@ -23,7 +23,8 @@ The separate `wg-game` interface is not an administrative VPN. An authenticated
 client can reach only the Sunshine host at `192.168.1.127`, only on TCP `47984`,
 `47989`, and `48010` and UDP `47998-48000`, `48002`, and `48010`. Gateway-local
 traffic, other LAN destinations, other clients, and every other host port are
-denied. A future `wg-home` interface should remain a different trust plane.
+denied. The role-filtered `wg-home` module remains a different trust plane and
+does not inherit `wg-game` peers.
 
 ## What owns each part
 
@@ -35,9 +36,64 @@ denied. A future `wg-home` interface should remain a different trust plane.
 | WSL | Thin launcher for native Windows PowerShell and WinGet |
 | Operator | Router forward, DHCP reservation, peer admission, Sunshine credentials, and Moonlight pairing |
 
-The repository never needs Windows Git, Windows SSH keys, a Windows checkout,
-or a custom DSC resource. A stale handshake, sleeping host, or untested display
-is an observation rather than configuration drift.
+The repository never needs Windows Git, a Windows checkout, or a custom DSC
+resource. The WSL checkout may use anonymous HTTPS and therefore does not need a
+GitHub or homeserver SSH credential. A stale handshake, sleeping host, or
+untested display is an observation rather than configuration drift.
+
+## Retire administration credentials from the host
+
+The Sunshine host is intentionally a low-trust entertainment endpoint. Among
+private homeserver services, its reserved LAN address is restricted at the
+firewall to TCP/UDP DNS 53; it no longer inherits SSH, Samba, Home Assistant, or
+other private services from being on the home LAN. Deliberately public services
+remain reachable just as they are from an Internet client. That source-address
+rule is useful containment, not a substitute for removing credentials: a valid
+GitHub write credential could still publish a release, and some routers may
+hairpin the public SSH endpoint.
+
+Keep WSL and the focused declarative role. They are not the privilege boundary.
+The public repository can be cloned and updated without an account:
+
+```bash
+git remote set-url origin https://github.com/joshcazalas/caz.nix.git
+git pull --ff-only
+./bootstrap/windows.sh game-stream-host
+./bootstrap/windows.sh game-stream-host --check
+```
+
+Do not use the bootstrap's optional `--ssh-clone` path on this host. Before
+removing anything, identify the host's exact key rather than guessing from key
+order or age:
+
+```bash
+ssh-keygen -lf ~/.ssh/id_ed25519.pub
+git remote -v
+ssh-add -l
+gh auth status
+```
+
+Then perform the credential retirement as one reviewed change:
+
+1. Remove the matching public key from the homeserver account's
+   `authorizedKeys` in `settings.nix` and deploy that release.
+2. If the same key is registered with GitHub, delete that one GitHub SSH key.
+   Do not remove keys belonging to administrator devices.
+3. Change the checkout to HTTPS, clear the agent with `ssh-add -D`, and sign out
+   any cached GitHub CLI session with `gh auth logout --hostname github.com`.
+4. Run `aws sso logout` as defense in depth. Declarative AWS SSO profile names
+   are not credentials, and an account that has never logged in has no SSO
+   session to steal.
+5. Confirm the public checkout still pulls and both declarative host commands
+   still pass. Confirm `ssh homeserver` and `ssh homeserver-remote` fail from the
+   gaming host before deleting its local private/public key files.
+
+A passphrase protects a private-key file at rest, but an unlocked `ssh-agent`
+can use it without asking for that passphrase again. The shared WSL profile may
+cache a key for up to twelve hours, which is why this host should not retain a
+reusable administrator/GitHub key even though every key is passphrase
+protected. There is no need to split or erase the Home Manager profile once the
+actual credentials and cached sessions are absent.
 
 ## Windows baseline
 
@@ -260,4 +316,4 @@ external network:
 
 Keep home/away switching manual until repetition proves that automating it is
 worth another moving part. Wake-on-LAN, virtual service addresses, scheduled key
-rotation, and the future `wg-home` policy are separate projects.
+rotation, and adding further `wg-home` forwarding targets are separate projects.

@@ -5,7 +5,6 @@
     sshPublicKeys = [
       "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJPPR7VdBolKryex6C9qgqq6XQU5snK1Z3HcEkqRkK/a"
       "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKXty6E2n/hPoz1jIwHVKk5RWmOGBSZdrqgSJ7pMZW3J"
-      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKgqSWIPoN6upB8ACKHRcINxl1EaVJxEJi6Smqnitrid"
     ];
   };
 
