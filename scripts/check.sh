@@ -14,6 +14,9 @@ deadnix --fail .
 echo "==> Linting Nix"
 statix check .
 
+echo "==> Linting Home Assistant YAML"
+yamllint -d '{extends: default, rules: {line-length: disable}}' home-assistant
+
 echo "==> Linting shell scripts"
 mapfile -d '' shell_files < <(
   find bootstrap scripts -type f -name '*.sh' -print0
