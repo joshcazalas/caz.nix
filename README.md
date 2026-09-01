@@ -57,6 +57,7 @@ their standard Bash integrations.
 | Prometheus + Alertmanager | on | Loopback; SSH forwarding | Metrics, declarative alert rules validated in CI, email and Discord notifications |
 | Grafana | on | Loopback; SSH forwarding | Provisioned dashboard over the Prometheus data source |
 | Cloudflare DDNS | on | Outbound HTTPS only | Keep reviewed public IPv4 records synchronized |
+| Household WireGuard | off pending peer enrollment | Exact private services by role | Per-device administrator/resident access without a full-mesh LAN VPN |
 | Home Assistant Container | on | LAN or SSH forwarding | Local automation, dashboards, and device integration |
 | Immich | off | LAN or SSH forwarding initially | Photo library, not a backup by itself |
 | Minecraft | on | LAN TCP 25565; Internet after manual DNS/router setup | Pinned Paper server with a locally managed whitelist and daily backups |
@@ -64,11 +65,14 @@ their standard Bash integrations.
 | Release updater | on | outbound HTTPS only | Verified maintenance-window deployment, health checks, and rollback |
 
 The host firewall accepts storage, monitoring, discovery, and DNS traffic only
-from RFC 1918 private IPv4 sources. Public SSH is restricted to the declared
-administrator and public-key authentication, with five failures in ten minutes
-earning a one-hour Fail2ban block. Minecraft TCP 25565 remains the other
-globally allowed port. IPv6 is temporarily disabled until its firewall and
-external reachability are reviewed and tested deliberately.
+from RFC 1918 private IPv4 sources, with explicit per-address restrictions for
+low-trust LAN clients such as the gaming host. WireGuard interfaces do not
+inherit that broad LAN policy; their exact source, destination, and port grants
+are defined separately. Public SSH is restricted to the declared administrator
+and public-key authentication, with five failures in ten minutes earning a
+one-hour Fail2ban block. Minecraft TCP 25565 remains the other globally allowed
+port. IPv6 is temporarily disabled until its firewall and external reachability
+are reviewed and tested deliberately.
 
 Minecraft and the optional public Jellyfin endpoint have separate, explicitly
 reviewed exposure paths. Jellyfin's design is:
@@ -77,9 +81,11 @@ reviewed exposure paths. Jellyfin's design is:
 friends/family -> jellyfin.your-domain -> router TCP 80/443
                -> Caddy HTTPS -> Jellyfin accounts
 
-you while away -> ssh.your-domain -> router TCP 22
-               -> key-only OpenSSH -> shell/sudo
-               -> optional SSH local forwarding -> private dashboards
+you while away -> home-vpn.your-domain -> router UDP 51821
+               -> role-filtered WireGuard -> selected private services
+
+transition/recovery -> ssh.your-domain -> router TCP 22
+                    -> key-only OpenSSH -> shell/sudo
 ```
 
 Cloudflare should host the DNS record in **DNS-only** mode. A Cloudflare Tunnel
@@ -126,12 +132,12 @@ windows/capabilities/             composable Windows desired-state documents
 windows/profiles/                 generic capability selections
 windows/README.md                 Windows setup, preferences, and limitations
 docs/game-streaming.md            isolated client-to-site game streaming setup
+docs/remote-access.md             role-based WireGuard, hardened SSH, and public Jellyfin plan
 modules/nixos/                    storage, network, and service modules
 modules/nixos/cloudflare-ddns.nix scoped IPv4-only Cloudflare DNS updater
 secrets/                          sops-nix workflow for future runtime secrets
 docs/bootstrap-wsl.md             short WSL command reference
 docs/install-server.md            safe installation-day checklist
-docs/remote-access.md             DNS, hardened SSH, and public Jellyfin plan
 docs/home-assistant.md            container, onboarding, backups, and operations
 docs/minecraft.md                 pinned server, backups, and exposure checklist
 docs/ci-and-releases.md           update, validation, SBOM, and release design

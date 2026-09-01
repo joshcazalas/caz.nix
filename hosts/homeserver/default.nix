@@ -24,6 +24,7 @@ in
     ../../modules/nixos/network-policy.nix
     ../../modules/nixos/container-runtime.nix
     ../../modules/nixos/game-stream-gateway.nix
+    ../../modules/nixos/home-access-gateway.nix
     ../../modules/nixos/security.nix
     ../../modules/nixos/cloudflare-ddns.nix
     ../../modules/nixos/filesharing.nix
@@ -55,6 +56,9 @@ in
     ++ lib.optionals config.homelab.gameStreamGateway.enable [
       "game-vpn.${settings.public.domain}"
     ]
+    ++ lib.optionals config.homelab.homeAccessGateway.enable [
+      "home-vpn.${settings.public.domain}"
+    ]
     ++ lib.optionals settings.public.ssh [ "ssh.${settings.public.domain}" ]
     ++ lib.optionals settings.public.jellyfin [ "jellyfin.${settings.public.domain}" ]
     ++ lib.optionals settings.public.bluemap [ "map.${settings.public.domain}" ];
@@ -69,6 +73,19 @@ in
     # The Sunshine host is a separate Windows machine, not the homeserver.
     hostAddress = "192.168.1.127";
   };
+
+  # The gaming host is an intentionally low-trust target. Among private
+  # homeserver services, it may use only DNS; it does not inherit SSH, storage,
+  # Home Assistant, or administrative access merely because it sits on the
+  # LAN. Deliberately public services remain reachable as they are from any
+  # Internet client.
+  homelab.networkPolicy.restrictedLANClients = [
+    {
+      address = config.homelab.gameStreamGateway.hostAddress;
+      allowedTCPPorts = [ 53 ];
+      allowedUDPPorts = [ 53 ];
+    }
+  ];
 
   homelab.auxide.enable = true;
 

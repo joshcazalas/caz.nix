@@ -61,4 +61,12 @@ Windows devices. Never copy a client private key into this repository. The
 gateway document must not contain a Sunshine-host peer: remote traffic is
 forwarded and source-NATed to the host's reserved LAN address instead.
 
+When private household access is enabled, `homeAccessGatewayConfig` follows the
+same ownership model for the separate `wg-home` interface. Every peer must use
+an exact `/32` `AllowedIPs` entry that also appears in exactly one declarative
+`administrator` or `resident` role. The encrypted document proves possession of
+a tunnel key; the public Nix firewall policy decides which homeserver and LAN
+services that address may reach. Never reuse a `wg-game` peer or private key in
+`wg-home`.
+
 Reference: <https://github.com/Mic92/sops-nix>

@@ -97,6 +97,11 @@ WireGuard. The client installs Moonlight and WireGuard without declaring a
 client firewall policy. Importing the client tunnel remains an explicit one-time
 operation in the official WireGuard app.
 
+The gaming host's WSL checkout should use the repository's public HTTPS URL; it
+does not need a GitHub login or an SSH key authorized on the homeserver to apply
+or check this profile. See [`../docs/game-streaming.md`](../docs/game-streaming.md)
+for the credential-retirement checklist.
+
 Approve the single Windows UAC prompt for a game-stream apply or check. The
 launcher stages only its focused PowerShell file locally for elevation; it does
 not copy the repository or calculate source provenance.

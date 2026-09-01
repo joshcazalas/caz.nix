@@ -1,6 +1,130 @@
 # Remote access and public Jellyfin
 
-Use two different trust paths rather than treating every web app the same.
+Use separate trust paths rather than treating every person, device, and web app
+the same. Public services remain public by deliberate exception; private
+household access uses role-filtered WireGuard; emergency administration keeps
+the existing hardened SSH path until the VPN has been proven from outside the
+home.
+
+## Private household access
+
+`homelab.homeAccessGateway` defines a second client-to-site WireGuard interface,
+`wg-home`. It is separate from the low-trust `wg-game` tunnel: joining one never
+grants access to the other. Each peer receives one exact `/32` address and is
+assigned to one of two deliberately small roles:
+
+- `administrator` devices may reach only the listed homeserver services and
+  listed LAN targets;
+- `resident` devices may reach only their own, usually smaller, service list;
+- neither role receives arbitrary LAN access, peer-to-peer access, or an
+  Internet default route.
+
+The module is present but intentionally disabled until real device keys have
+been enrolled. A conservative initial policy looks like this in
+`hosts/homeserver/default.nix`:
+
+```nix
+homelab.homeAccessGateway = {
+  enable = true;
+  listenPort = 51821;
+
+  administrator = {
+    peerAddresses = [ "10.77.1.2/32" ];
+    gatewayTCPPorts = [
+      22
+      53
+      3000
+      8096
+      8123
+    ];
+    gatewayUDPPorts = [ 53 ];
+    forwardTargets = [
+      {
+        address = config.homelab.gameStreamGateway.hostAddress;
+        tcpPorts = [
+          47984
+          47989
+          48010
+        ];
+        udpPorts = [
+          47998
+          47999
+          48000
+          48002
+          48010
+        ];
+      }
+    ];
+  };
+
+  resident = {
+    peerAddresses = [ "10.77.1.3/32" ];
+    gatewayTCPPorts = [
+      53
+      8123
+    ];
+    gatewayUDPPorts = [ 53 ];
+  };
+};
+```
+
+The encrypted `homeAccessGatewayConfig` value must bind those same addresses to
+the intended public keys:
+
+```ini
+[Interface]
+Address = 10.77.1.1/24
+PrivateKey = GATEWAY_PRIVATE_KEY
+ListenPort = 51821
+
+[Peer]
+PublicKey = ADMIN_DEVICE_PUBLIC_KEY
+AllowedIPs = 10.77.1.2/32
+
+[Peer]
+PublicKey = RESIDENT_DEVICE_PUBLIC_KEY
+AllowedIPs = 10.77.1.3/32
+```
+
+On an administrator phone or laptop, import a separate `home-access` tunnel:
+
+```ini
+[Interface]
+PrivateKey = DEVICE_PRIVATE_KEY
+Address = 10.77.1.2/32
+DNS = 192.168.1.124
+
+[Peer]
+PublicKey = GATEWAY_PUBLIC_KEY
+AllowedIPs = 192.168.1.124/32, 192.168.1.127/32
+Endpoint = home-vpn.joshcaz.com:51821
+PersistentKeepalive = 25
+```
+
+Keep `AllowedIPs` to the exact destinations granted by that peer's role; do not
+use `0.0.0.0/0` or the whole home subnet. The firewall is the authorization
+boundary, but narrow client routes prevent accidental traffic capture and make
+the intended scope visible on the device.
+
+Activation is intentionally ordered:
+
+1. Generate each tunnel in the official WireGuard client so its private key
+   never leaves that device. Record only its public key.
+2. Add the exact `/32` peer to SOPS and the matching role policy in Nix.
+3. Deploy, then forward only router UDP 51821 to the homeserver and create the
+   DNS-only `home-vpn` record through the existing DDNS configuration.
+4. Test from cellular data: Home Assistant, allowed administration, blocked
+   ports, and peer isolation.
+5. Only after repeated external tests, remove the router's TCP 22 forward and
+   set `settings.public.ssh = false`. LAN SSH remains available to trusted LAN
+   clients; the gaming host is explicitly excluded from it.
+
+Removing one `[Peer]` block and its role address revokes one device without
+rotating everyone else. A stolen resident device therefore exposes only that
+resident role, not SSH, the gaming host, or other peers. A flat LAN still cannot
+cryptographically stop a compromised machine from spoofing another LAN source
+address, so VLAN isolation remains an optional future hardening layer rather
+than a prerequisite for this design.
 
 ## Dynamic DNS
 
@@ -92,12 +216,13 @@ using ordinary CDN service for disproportionate video or large-file delivery:
 - <https://developers.cloudflare.com/tunnel/>
 - <https://developers.cloudflare.com/fundamentals/reference/policies-compliances/delivering-videos-with-cloudflare/>
 
-## Public administration path
+## Transitional public administration path
 
-The administration endpoint is ordinary OpenSSH, so Windows, WSL, macOS, and
-Linux can use their existing `ssh` command. There is no VPN agent, account, or
-background client. A device still needs the administrator's private key; a
-username or server password is never sufficient.
+Until `wg-home` has passed its external pilot, the administration endpoint is
+ordinary OpenSSH, so Windows, WSL, macOS, and Linux can use their existing
+`ssh` command. There is no VPN agent, account, or background client. A device
+still needs the administrator's private key; a username or server password is
+never sufficient.
 
 The declarative policy layers the following controls:
 

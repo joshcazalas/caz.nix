@@ -136,6 +136,11 @@
           inherit pkgs;
           inherit (inputs) sops-nix;
         };
+        home-access-gateway = import ./tests/home-access-gateway.nix {
+          inherit pkgs;
+          inherit (inputs) sops-nix;
+        };
+        network-policy = import ./tests/network-policy.nix { inherit pkgs; };
         wsl-home = self.homeConfigurations."${settings.user.name}@wsl".activationPackage;
         wsl-aws-profiles = pkgs.runCommand "check-wsl-aws-profiles" { } ''
           aws_config=${wslHome.config.home.file."${wslHome.config.home.homeDirectory}/.aws/config".source}
