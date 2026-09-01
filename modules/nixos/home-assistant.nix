@@ -8,6 +8,9 @@ let
   cfg = config.homelab.homeAssistant;
   containerName = "homeassistant";
   container = config.virtualisation.oci-containers.containers.${containerName};
+  declarativeConfig = ../../home-assistant;
+  configurationMount = "${declarativeConfig}/configuration.yaml:/config/configuration.yaml:ro";
+  packagesMount = "${declarativeConfig}/packages:/config/packages:ro";
 in
 {
   options.homelab.homeAssistant = {
@@ -58,10 +61,18 @@ in
         assertion = lib.elem "${cfg.dataDir}:/config:rw" container.volumes;
         message = "Home Assistant's persistent state directory must be mounted at /config.";
       }
+      {
+        assertion =
+          lib.elem configurationMount container.volumes && lib.elem packagesMount container.volumes;
+        message = "Home Assistant's release-managed YAML must be mounted read-only beneath /config.";
+      }
     ];
 
     systemd.tmpfiles.rules = [
       "d ${cfg.dataDir} 0700 root root -"
+      "f ${cfg.dataDir}/automations.yaml 0600 root root - []"
+      "f ${cfg.dataDir}/scripts.yaml 0600 root root - {}"
+      "f ${cfg.dataDir}/scenes.yaml 0600 root root - []"
     ];
 
     virtualisation.oci-containers.containers.${containerName} = {
@@ -69,6 +80,8 @@ in
       autoStart = true;
       volumes = [
         "${cfg.dataDir}:/config:rw"
+        configurationMount
+        packagesMount
         "/etc/localtime:/etc/localtime:ro"
       ];
       environment.TZ = settings.server.timeZone;

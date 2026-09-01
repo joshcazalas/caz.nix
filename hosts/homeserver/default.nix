@@ -100,8 +100,9 @@ in
   };
 
   # Home Assistant runs as the upstream-supported Container installation. Its
-  # UI and discovery traffic are reachable only from the LAN; integrations and
-  # automations are configured after deployment through the Home Assistant UI.
+  # UI and discovery traffic are reachable only from the LAN. Release-managed
+  # YAML provides reviewed automations while pairing credentials and other
+  # mutable application state remain outside the Nix store.
   homelab.homeAssistant.enable = true;
 
   # Renders the overworld around spawn into static tiles served by Caddy over

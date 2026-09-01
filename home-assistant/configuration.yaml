@@ -1,0 +1,13 @@
+---
+# The release owns this entry point. Mutable integrations, credentials, and
+# entity registries remain in /config/.storage and are never committed.
+default_config:
+
+homeassistant:
+  packages: !include_dir_named packages
+
+# Preserve the Home Assistant UI editors for unrelated automations, scripts,
+# and scenes. These files stay in the writable application-state directory.
+automation: !include automations.yaml
+script: !include scripts.yaml
+scene: !include scenes.yaml

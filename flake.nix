@@ -48,6 +48,7 @@
         nixfmt
         shellcheck
         statix
+        yamllint
       ];
       wslHome = home-manager.lib.homeManagerConfiguration {
         inherit pkgs;

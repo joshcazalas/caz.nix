@@ -36,6 +36,27 @@ The directory is root-only because `.storage` contains credentials. Edit files
 there only for recovery or a deliberately reviewed configuration change; use
 the Home Assistant UI for normal setup.
 
+## Declarative configuration boundary
+
+The release mounts `home-assistant/configuration.yaml` and
+`home-assistant/packages/` read-only beneath `/config`. The entry point keeps
+`default_config:` and loads the package directory while continuing to include
+the writable `automations.yaml`, `scripts.yaml`, and `scenes.yaml` files used by
+Home Assistant's UI editors.
+
+This division is intentional:
+
+- Git and Nix own reviewed helpers, templates, scripts, and automations.
+- `/config/.storage` owns HomeKit pairing keys, integration setup, entity and
+  device registries, authentication, and other mutable runtime state.
+- The Home Assistant database, backups, and UI-authored YAML stay writable
+  under the existing state directory.
+
+Never add pairing codes, credentials, `.storage`, or a copy of the live state
+directory to this repository. The previous mutable `configuration.yaml` is not
+deleted; the read-only mount hides it while this release is active, so a NixOS
+rollback restores the previous configuration boundary.
+
 ## Operations
 
 ```bash
@@ -96,3 +117,5 @@ forward.
   <https://www.home-assistant.io/common-tasks/container/>
 - Home Assistant backups:
   <https://www.home-assistant.io/common-tasks/general/#backups>
+- Home Assistant configuration packages:
+  <https://www.home-assistant.io/docs/configuration/packages/>

@@ -62,6 +62,10 @@ else
         esac
         ;;
 
+      home-assistant/*)
+        homeserver=true
+        ;;
+
       hosts/cazpc/*)
         wsl=true
         ;;

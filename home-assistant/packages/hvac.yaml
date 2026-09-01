@@ -1,0 +1,306 @@
+---
+input_boolean:
+  hvac_filter_tracking_initialized:
+    name: HVAC filter tracking initialized
+    icon: mdi:air-filter
+
+input_datetime:
+  hvac_filter_last_replaced:
+    name: HVAC filter last replaced
+    has_date: true
+    has_time: false
+    icon: mdi:calendar-check
+
+input_number:
+  hvac_filter_replacement_interval_days:
+    name: HVAC filter replacement interval
+    min: 30
+    max: 365
+    step: 30
+    mode: box
+    unit_of_measurement: days
+    icon: mdi:calendar-clock
+
+template:
+  - sensor:
+      - name: HVAC filter age
+        default_entity_id: sensor.hvac_filter_age
+        unique_id: hvac_filter_age
+        unit_of_measurement: days
+        icon: mdi:air-filter
+        availability: >-
+          {{ is_state('input_boolean.hvac_filter_tracking_initialized', 'on') }}
+        state: >-
+          {% set replaced = state_attr(
+            'input_datetime.hvac_filter_last_replaced', 'timestamp') %}
+          {% if replaced is number %}
+            {{ [0, ((as_timestamp(now()) - replaced) / 86400) | int(0)] | max }}
+          {% else %}
+            0
+          {% endif %}
+  - binary_sensor:
+      - name: HVAC filter due
+        default_entity_id: binary_sensor.hvac_filter_due
+        unique_id: hvac_filter_due
+        device_class: problem
+        icon: mdi:air-filter
+        availability: >-
+          {{ is_state('input_boolean.hvac_filter_tracking_initialized', 'on')
+            and has_value('sensor.hvac_filter_age')
+            and has_value('input_number.hvac_filter_replacement_interval_days') }}
+        state: >-
+          {{ (states('sensor.hvac_filter_age') | int(0))
+            >= (states('input_number.hvac_filter_replacement_interval_days')
+              | int(180)) }}
+
+  - button:
+      - name: Record HVAC filter replacement
+        default_entity_id: button.record_hvac_filter_replacement
+        unique_id: record_hvac_filter_replacement
+        icon: mdi:air-filter
+        press:
+          action: script.record_hvac_filter_replacement
+
+script:
+  apply_hvac_sun_schedule:
+    alias: Apply current HVAC sun schedule
+    description: >-
+      Set both cooling thermostats to 76 F during daylight or 72 F at night.
+    icon: mdi:thermostat-auto
+    mode: single
+    variables:
+      solar_period_known: >-
+        {{ states('sun.sun') in ['above_horizon', 'below_horizon'] }}
+      desired_temperature: >-
+        {{ 76 if is_state('sun.sun', 'above_horizon') else 72 }}
+    sequence:
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ solar_period_known }}"
+              - condition: state
+                entity_id: climate.upstairs_thermostat
+                state: "cool"
+              - condition: state
+                entity_id: climate.downstairs_thermostat
+                state: "cool"
+            sequence:
+              - if:
+                  - condition: template
+                    value_template: >-
+                      {{ (state_attr('climate.upstairs_thermostat', 'temperature')
+                        | float(-999)) != (desired_temperature | float) }}
+                then:
+                  - action: climate.set_temperature
+                    target:
+                      entity_id: climate.upstairs_thermostat
+                    data:
+                      temperature: "{{ desired_temperature }}"
+              - if:
+                  - condition: template
+                    value_template: >-
+                      {{ (state_attr('climate.downstairs_thermostat', 'temperature')
+                        | float(-999)) != (desired_temperature | float) }}
+                then:
+                  - action: climate.set_temperature
+                    target:
+                      entity_id: climate.downstairs_thermostat
+                    data:
+                      temperature: "{{ desired_temperature }}"
+              - action: persistent_notification.dismiss
+                data:
+                  notification_id: hvac_schedule_blocked
+        default:
+          - action: persistent_notification.create
+            data:
+              notification_id: hvac_schedule_blocked
+              title: HVAC schedule could not run
+              message: >-
+                {% if not solar_period_known %}
+                  Home Assistant does not currently know whether the sun is above
+                  or below the horizon. Verify the configured home location.
+                {% else %}
+                  No setpoint was changed because both thermostats must be
+                  available and in cool mode. Upstairs is
+                  {{ states('climate.upstairs_thermostat') }}; downstairs is
+                  {{ states('climate.downstairs_thermostat') }}.
+                {% endif %}
+
+  record_hvac_filter_replacement:
+    alias: Record HVAC filter replacement
+    description: >-
+      Record today as the replacement date and reset the filter reminder.
+    icon: mdi:air-filter
+    mode: single
+    sequence:
+      - if:
+          - condition: state
+            entity_id: input_boolean.hvac_filter_tracking_initialized
+            state: "off"
+          - condition: numeric_state
+            entity_id: input_number.hvac_filter_replacement_interval_days
+            below: 31
+        then:
+          - action: input_number.set_value
+            target:
+              entity_id: input_number.hvac_filter_replacement_interval_days
+            data:
+              value: 180
+      - action: input_datetime.set_datetime
+        target:
+          entity_id: input_datetime.hvac_filter_last_replaced
+        data:
+          date: "{{ now().strftime('%Y-%m-%d') }}"
+      - action: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.hvac_filter_tracking_initialized
+      - action: persistent_notification.dismiss
+        data:
+          notification_id: hvac_filter_due
+
+automation:
+  - id: hvac_sun_schedule
+    alias: HVAC - Apply sunrise and sunset schedule
+    description: >-
+      Reconcile both cooling thermostats at sunrise, sunset, and Home Assistant
+      startup. Manual setpoint changes remain until the next reconciliation.
+    mode: restart
+    triggers:
+      - trigger: sun
+        event: sunrise
+        id: sunrise
+      - trigger: sun
+        event: sunset
+        id: sunset
+      - trigger: homeassistant
+        event: start
+        id: startup
+    actions:
+      - if:
+          - condition: trigger
+            id: startup
+        then:
+          - delay: "00:02:00"
+      - action: script.apply_hvac_sun_schedule
+
+  - id: hvac_thermostat_availability
+    alias: HVAC - Report thermostat availability
+    description: >-
+      Report a thermostat that remains unavailable for ten minutes and clear
+      its notification when it recovers.
+    mode: parallel
+    max: 4
+    triggers:
+      - trigger: state
+        entity_id:
+          - climate.upstairs_thermostat
+          - climate.downstairs_thermostat
+        to:
+          - "unavailable"
+          - "unknown"
+        for: "00:10:00"
+        id: unavailable
+      - trigger: state
+        entity_id:
+          - climate.upstairs_thermostat
+          - climate.downstairs_thermostat
+        from:
+          - "unavailable"
+          - "unknown"
+        not_to:
+          - "unavailable"
+          - "unknown"
+        id: recovered
+    actions:
+      - choose:
+          - conditions:
+              - condition: trigger
+                id: unavailable
+            sequence:
+              - action: persistent_notification.create
+                data:
+                  notification_id: >-
+                    hvac_{{ trigger.entity_id | replace('.', '_') }}_unavailable
+                  title: Thermostat unavailable
+                  message: >-
+                    {{ state_attr(trigger.entity_id, 'friendly_name')
+                      | default(trigger.entity_id, true) }} has been
+                    {{ trigger.to_state.state }} for ten minutes. The coordinated
+                    HVAC schedule will not change either thermostat until both
+                    thermostats are available and in cool mode.
+        default:
+          - action: persistent_notification.dismiss
+            data:
+              notification_id: >-
+                hvac_{{ trigger.entity_id | replace('.', '_') }}_unavailable
+
+  - id: hvac_filter_initialize_interval
+    alias: HVAC - Initialize filter replacement interval
+    description: >-
+      Give a new installation a 180-day interval without overwriting later
+      user adjustments restored by Home Assistant.
+    mode: single
+    triggers:
+      - trigger: homeassistant
+        event: start
+    actions:
+      - delay: "00:00:30"
+      - condition: state
+        entity_id: input_boolean.hvac_filter_tracking_initialized
+        state: "off"
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.hvac_filter_replacement_interval_days
+        data:
+          value: 180
+
+  - id: hvac_filter_reminder
+    alias: HVAC - Report filter replacement due
+    description: >-
+      Maintain one persistent reminder once the tracked filter reaches its
+      configured replacement interval.
+    mode: restart
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.hvac_filter_due
+        to: "on"
+        id: due
+      - trigger: state
+        entity_id: binary_sensor.hvac_filter_due
+        to: "off"
+        id: cleared
+      - trigger: time
+        at: "09:00:00"
+        id: daily
+      - trigger: homeassistant
+        event: start
+        id: startup
+    actions:
+      - if:
+          - condition: trigger
+            id: startup
+        then:
+          - delay: "00:03:00"
+      - choose:
+          - conditions:
+              - condition: trigger
+                id: cleared
+            sequence:
+              - action: persistent_notification.dismiss
+                data:
+                  notification_id: hvac_filter_due
+        default:
+          - condition: state
+            entity_id: binary_sensor.hvac_filter_due
+            state: "on"
+          - action: persistent_notification.create
+            data:
+              notification_id: hvac_filter_due
+              title: HVAC filter replacement due
+              message: >-
+                The tracked HVAC filter has been installed for
+                {{ states('sensor.hvac_filter_age') }} days and has reached the
+                configured
+                {{ states('input_number.hvac_filter_replacement_interval_days')
+                  | int(180) }}-day interval. After replacing it, press Record
+                HVAC filter replacement.
