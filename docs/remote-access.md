@@ -176,6 +176,7 @@ ssh \
   -L 3000:127.0.0.1:3000 \
   -L 3001:127.0.0.1:3001 \
   -L 8096:127.0.0.1:8096 \
+  -L 8123:127.0.0.1:8123 \
   -L 9093:127.0.0.1:9093 \
   -L 9095:127.0.0.1:9095 \
   joshcaz@ssh.joshcaz.com
@@ -183,9 +184,10 @@ ssh \
 
 While that session is open, the remote laptop can browse AdGuard at
 `http://127.0.0.1:3000`, Grafana at `http://127.0.0.1:3001`, Jellyfin's local
-endpoint at `http://127.0.0.1:8096`, Alertmanager at `http://127.0.0.1:9093`,
-and Prometheus at `http://127.0.0.1:9095`. Do not forward Samba, AdGuard DNS,
-or arbitrary administration ports through the router.
+endpoint at `http://127.0.0.1:8096`, Home Assistant at
+`http://127.0.0.1:8123`, Alertmanager at `http://127.0.0.1:9093`, and
+Prometheus at `http://127.0.0.1:9095`. Do not forward Samba, AdGuard DNS, Home
+Assistant, or arbitrary administration ports through the router.
 
 Grafana, Prometheus, and Alertmanager bind to loopback only, so this tunnel is
 the sole path to them from anywhere, including the LAN. That is deliberate: an

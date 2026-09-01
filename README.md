@@ -57,7 +57,7 @@ their standard Bash integrations.
 | Prometheus + Alertmanager | on | Loopback; SSH forwarding | Metrics, declarative alert rules validated in CI, email and Discord notifications |
 | Grafana | on | Loopback; SSH forwarding | Provisioned dashboard over the Prometheus data source |
 | Cloudflare DDNS | on | Outbound HTTPS only | Keep reviewed public IPv4 records synchronized |
-| Home Assistant | off | LAN or SSH forwarding | Enable when the first devices arrive |
+| Home Assistant Container | on | LAN or SSH forwarding | Local automation, dashboards, and device integration |
 | Immich | off | LAN or SSH forwarding initially | Photo library, not a backup by itself |
 | Minecraft | on | LAN TCP 25565; Internet after manual DNS/router setup | Pinned Paper server with a locally managed whitelist and daily backups |
 | BlueMap | on | Public HTTPS after manual router setup | Static 3D world map served by Caddy; no player markers, bounded render |
@@ -95,6 +95,8 @@ Jellyfin provides separate, non-admin usernames and passwords.
   remaining ext4 filesystem is labeled `NIXOS_ROOT`.
 - Shared media, photo, file, and application storage currently lives under
   `/var/lib/homelab` on that root NVMe. `/srv` is intentionally unconfigured.
+- Home Assistant's root-only configuration and database live under
+  `/var/lib/homelab/home-assistant` and join every pre-deployment state archive.
 - Minecraft state and its local backup set live separately at
   `/var/lib/minecraft` and `/var/backup/minecraft`.
 - Three pre-deployment archives of mutable application state are retained under
@@ -130,6 +132,7 @@ secrets/                          sops-nix workflow for future runtime secrets
 docs/bootstrap-wsl.md             short WSL command reference
 docs/install-server.md            safe installation-day checklist
 docs/remote-access.md             DNS, hardened SSH, and public Jellyfin plan
+docs/home-assistant.md            container, onboarding, backups, and operations
 docs/minecraft.md                 pinned server, backups, and exposure checklist
 docs/ci-and-releases.md           update, validation, SBOM, and release design
 docs/publication-checklist.md     safe path from private to public

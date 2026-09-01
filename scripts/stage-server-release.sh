@@ -463,7 +463,7 @@ if [[ "${check_only}" == true ]]; then
   exit 0
 fi
 
-health_wait_seconds="${CAZ_RELEASE_HEALTH_WAIT_SECONDS:-300}"
+health_wait_seconds="${CAZ_RELEASE_HEALTH_WAIT_SECONDS:-600}"
 stabilization_seconds="${CAZ_RELEASE_STABILIZATION_SECONDS:-60}"
 for value in "$health_wait_seconds" "$stabilization_seconds"; do
   if [[ ! "$value" =~ ^[1-9][0-9]*$ ]]; then
@@ -582,6 +582,11 @@ reboot_is_required() {
   [[ -z "$booted_components" || "$booted_components" != "$deployed_components" ]]
 }
 
+container_maintenance_lock="${CAZ_CONTAINER_MAINTENANCE_LOCK:-/run/caz-container-maintenance/lock}"
+exec 8>"$container_maintenance_lock"
+echo "==> Waiting for exclusive container maintenance access"
+flock --exclusive 8
+
 current_store_path="$(readlink --canonicalize /run/current-system)"
 if [[ "$current_store_path" == "$built_store_path" ]]; then
   echo "==> ${release_tag} is already the running system; adopting it as verified"
@@ -604,7 +609,7 @@ echo "==> Verifying the current generation before changing it"
 server_health --wait 60
 
 echo "==> Protecting mutable application state before activation"
-caz-pre-deployment-backup
+CAZ_CONTAINER_MAINTENANCE_LOCK_HELD=true caz-pre-deployment-backup
 
 previous_store_path="$current_store_path"
 # Keep the rollback closure alive even after the system profile moves forward.

@@ -48,15 +48,20 @@ policy gate.
 
 Before changing the NixOS profile, the updater requires the currently running
 server to be healthy. It creates a normal Minecraft world backup, briefly
-pauses the other mutable applications, and archives their state. Three archives
-are retained under `/var/backup/caz-release-updater`; Minecraft retains its
-separate daily archives under `/var/backup/minecraft`.
+pauses the other mutable applications, and archives their state. Home Assistant
+is stopped during this short window so its SQLite database is clean in the
+archive. Three archives are retained under `/var/backup/caz-release-updater`;
+Minecraft retains its separate daily archives under `/var/backup/minecraft`.
+Backup and deployment hold the same maintenance lock as aggressive Docker
+image pruning, so a stopped container's pinned image cannot disappear before
+the service restarts.
 
-After activation it waits up to five minutes for these checks, then requires
+After activation it waits up to ten minutes for these checks, then requires
 them to remain healthy for another minute:
 
 - SSH and Samba systemd services;
-- Jellyfin, AdGuard Home, Prometheus, Alertmanager, and Grafana HTTP responses;
+- Jellyfin, AdGuard Home, Home Assistant, Prometheus, Alertmanager, and Grafana
+  HTTP responses;
 - an actual DNS lookup through the local AdGuard Home resolver;
 - the Minecraft container, its RCON console, and public-listener socket.
 
@@ -194,8 +199,9 @@ use the systemd-boot menu to select an older generation if early boot fails.
 Automatic local rollback also cannot reverse an application database migration
 that modified persistent data incompatibly. The pre-deployment archives provide
 the recovery material, but restoration remains an explicit administrator
-operation. Add application-native backup handling before enabling future
-stateful services such as Immich or Home Assistant.
+operation. Home Assistant state is protected by the pre-deployment archive and
+can also create application-native encrypted backups. Add equivalent
+application-native handling before enabling Immich.
 
 References: [NixOS automatic upgrades](https://nixos.org/manual/nixos/stable/#sec-upgrading-automatic),
 [systemd boot counting](https://uapi-group.org/specifications/specs/boot_loader_specification/#boot-counting).

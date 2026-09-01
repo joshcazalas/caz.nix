@@ -15,6 +15,13 @@ if [[ ! "$retention_count" =~ ^[1-9][0-9]*$ ]]; then
   exit 1
 fi
 
+if [[ "${CAZ_CONTAINER_MAINTENANCE_LOCK_HELD:-false}" != true ]]; then
+  container_maintenance_lock="${CAZ_CONTAINER_MAINTENANCE_LOCK:-/run/caz-container-maintenance/lock}"
+  exec 7>"$container_maintenance_lock"
+  echo "==> Waiting for exclusive container maintenance access"
+  flock --exclusive 7
+fi
+
 echo "==> Creating an application-consistent Minecraft backup"
 systemctl start minecraft-backup.service
 
