@@ -48,6 +48,13 @@ in
         message = "Home Assistant hardware access must be granted per device, not with --privileged.";
       }
       {
+        assertion = !lib.elem "--init" container.extraOptions;
+        message = ''
+          Home Assistant's s6-overlay must run as PID 1; Docker's --init flag
+          inserts another init process and prevents the container from starting.
+        '';
+      }
+      {
         assertion = lib.elem "${cfg.dataDir}:/config:rw" container.volumes;
         message = "Home Assistant's persistent state directory must be mounted at /config.";
       }
@@ -66,7 +73,6 @@ in
       ];
       environment.TZ = settings.server.timeZone;
       extraOptions = [
-        "--init"
         "--memory=2g"
         "--network=host"
         "--pids-limit=512"
