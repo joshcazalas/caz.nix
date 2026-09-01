@@ -6,16 +6,32 @@
 let
   cfg = config.homelab.homeAccessGateway;
   interfaceName = "wg-home";
-  secretName = "home-access-gateway/config";
-  productionConfiguration = cfg._testConfigFile == null;
-  configurationFile =
-    if productionConfiguration then config.sops.secrets.${secretName}.path else cfg._testConfigFile;
+  secretName = "home-access-gateway/private-key";
+  productionPrivateKey = cfg._testPrivateKeyFile == null;
+  privateKeyFile =
+    if productionPrivateKey then
+      config.sops.secrets.${secretName}.path
+    else
+      toString cfg._testPrivateKeyFile;
 
   inherit (lib)
     concatMapStringsSep
     concatStringsSep
     unique
     ;
+
+  peerType = lib.types.submodule {
+    options = {
+      address = lib.mkOption {
+        type = lib.types.strMatching "([0-9]{1,3}\\.){3}[0-9]{1,3}";
+        description = "Exact WireGuard IPv4 address assigned to this peer.";
+      };
+      publicKey = lib.mkOption {
+        type = lib.types.strMatching "[A-Za-z0-9+/]{43}=";
+        description = "WireGuard public key generated on this peer device.";
+      };
+    };
+  };
 
   forwardTargetType = lib.types.submodule {
     options = {
@@ -38,12 +54,12 @@ let
 
   roleType = lib.types.submodule {
     options = {
-      peerAddresses = lib.mkOption {
-        type = lib.types.listOf (lib.types.strMatching "([0-9]{1,3}\\.){3}[0-9]{1,3}/32");
+      peers = lib.mkOption {
+        type = lib.types.listOf peerType;
         default = [ ];
         description = ''
-          Exact WireGuard peer addresses assigned to this role. The encrypted
-          wg-quick configuration binds each address to one peer public key.
+          WireGuard peers assigned to this role. Each declaration generates
+          both its exact /32 cryptokey route and its firewall grants.
         '';
       };
       gatewayTCPPorts = lib.mkOption {
@@ -68,7 +84,10 @@ let
     cfg.administrator
     cfg.resident
   ];
-  allPeerAddresses = builtins.concatLists (map (role: role.peerAddresses) roles);
+  allPeers = builtins.concatLists (map (role: role.peers) roles);
+  allPeerAddresses = map (peer: peer.address) allPeers;
+  allPeerPublicKeys = map (peer: peer.publicKey) allPeers;
+  gatewayAddress = lib.head (lib.splitString "/" cfg.address);
 
   inputRule =
     protocol: port: address:
@@ -82,17 +101,17 @@ let
     concatStringsSep "\n" (
       builtins.concatLists (
         map (
-          address:
-          map (port: inputRule "tcp" port address) role.gatewayTCPPorts
-          ++ map (port: inputRule "udp" port address) role.gatewayUDPPorts
+          peer:
+          map (port: inputRule "tcp" port "${peer.address}/32") role.gatewayTCPPorts
+          ++ map (port: inputRule "udp" port "${peer.address}/32") role.gatewayUDPPorts
           ++ builtins.concatLists (
             map (
               target:
-              map (port: forwardRule "tcp" port address target) target.tcpPorts
-              ++ map (port: forwardRule "udp" port address target) target.udpPorts
+              map (port: forwardRule "tcp" port "${peer.address}/32" target) target.tcpPorts
+              ++ map (port: forwardRule "udp" port "${peer.address}/32" target) target.udpPorts
             ) role.forwardTargets
           )
-        ) role.peerAddresses
+        ) role.peers
       )
     );
   firewallRules = concatMapStringsSep "\n" roleRules roles;
@@ -106,6 +125,12 @@ in
 {
   options.homelab.homeAccessGateway = {
     enable = lib.mkEnableOption "the role-filtered household WireGuard gateway";
+
+    address = lib.mkOption {
+      type = lib.types.strMatching "([0-9]{1,3}\\.){3}[0-9]{1,3}/([0-9]|[12][0-9]|3[0-2])";
+      default = "10.77.1.1/24";
+      description = "IPv4 address and prefix assigned to the household gateway interface.";
+    };
 
     listenPort = lib.mkOption {
       type = lib.types.port;
@@ -125,11 +150,11 @@ in
       description = "Policy for household devices that need selected applications but no administration.";
     };
 
-    _testConfigFile = lib.mkOption {
+    _testPrivateKeyFile = lib.mkOption {
       type = lib.types.nullOr lib.types.path;
       default = null;
       internal = true;
-      description = "Test-only throwaway WireGuard configuration override.";
+      description = "Test-only throwaway WireGuard private-key file override.";
     };
   };
 
@@ -152,7 +177,15 @@ in
         message = "Household WireGuard peer addresses must be unique across roles.";
       }
       {
-        assertion = lib.all (role: role.peerAddresses == [ ] || roleHasAccess role) roles;
+        assertion = builtins.length (unique allPeerPublicKeys) == builtins.length allPeerPublicKeys;
+        message = "Household WireGuard public keys must be unique across roles.";
+      }
+      {
+        assertion = lib.all (address: address != gatewayAddress) allPeerAddresses;
+        message = "A household WireGuard peer may not use the gateway interface address.";
+      }
+      {
+        assertion = lib.all (role: role.peers == [ ] || roleHasAccess role) roles;
         message = "Every populated household access role must grant at least one explicit service.";
       }
       {
@@ -163,16 +196,22 @@ in
       }
     ];
 
-    sops.secrets.${secretName} = lib.mkIf productionConfiguration {
+    sops.secrets.${secretName} = lib.mkIf productionPrivateKey {
       sopsFile = ../../secrets/homeserver.yaml;
-      key = "homeAccessGatewayConfig";
+      key = "homeAccessGatewayPrivateKey";
       mode = "0400";
       restartUnits = [ "wg-quick-${interfaceName}.service" ];
     };
 
     networking.wg-quick.interfaces.${interfaceName} = {
       autostart = true;
-      configFile = configurationFile;
+      address = [ cfg.address ];
+      inherit (cfg) listenPort;
+      inherit privateKeyFile;
+      peers = map (peer: {
+        inherit (peer) publicKey;
+        allowedIPs = [ "${peer.address}/32" ];
+      }) allPeers;
     };
 
     networking.nat = {

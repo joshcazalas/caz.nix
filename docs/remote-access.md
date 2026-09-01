@@ -26,10 +26,16 @@ been enrolled. A conservative initial policy looks like this in
 ```nix
 homelab.homeAccessGateway = {
   enable = true;
+  address = "10.77.1.1/24";
   listenPort = 51821;
 
   administrator = {
-    peerAddresses = [ "10.77.1.2/32" ];
+    peers = [
+      {
+        address = "10.77.1.2";
+        publicKey = "ADMIN_DEVICE_PUBLIC_KEY";
+      }
+    ];
     gatewayTCPPorts = [
       22
       53
@@ -58,7 +64,12 @@ homelab.homeAccessGateway = {
   };
 
   resident = {
-    peerAddresses = [ "10.77.1.3/32" ];
+    peers = [
+      {
+        address = "10.77.1.3";
+        publicKey = "RESIDENT_DEVICE_PUBLIC_KEY";
+      }
+    ];
     gatewayTCPPorts = [
       53
       8123
@@ -68,23 +79,12 @@ homelab.homeAccessGateway = {
 };
 ```
 
-The encrypted `homeAccessGatewayConfig` value must bind those same addresses to
-the intended public keys:
-
-```ini
-[Interface]
-Address = 10.77.1.1/24
-PrivateKey = GATEWAY_PRIVATE_KEY
-ListenPort = 51821
-
-[Peer]
-PublicKey = ADMIN_DEVICE_PUBLIC_KEY
-AllowedIPs = 10.77.1.2/32
-
-[Peer]
-PublicKey = RESIDENT_DEVICE_PUBLIC_KEY
-AllowedIPs = 10.77.1.3/32
-```
+Only the gateway's bare private key belongs in the encrypted
+`homeAccessGatewayPrivateKey` value. Peer public keys are not secrets. The
+module generates the server's peer configuration from each role declaration,
+so the same peer object owns identity, its exact `/32` cryptokey route, and its
+firewall grants. A peer cannot accidentally receive a subnet-wide server
+`AllowedIPs` entry through a second configuration source.
 
 On an administrator phone or laptop, import a separate `home-access` tunnel:
 
@@ -110,7 +110,8 @@ Activation is intentionally ordered:
 
 1. Generate each tunnel in the official WireGuard client so its private key
    never leaves that device. Record only its public key.
-2. Add the exact `/32` peer to SOPS and the matching role policy in Nix.
+2. Store only the gateway private key in SOPS. Add each device's public key and
+   address to exactly one declarative role in Nix.
 3. Deploy, then forward only router UDP 51821 to the homeserver and create the
    DNS-only `home-vpn` record through the existing DDNS configuration.
 4. Test from cellular data: Home Assistant, allowed administration, blocked
@@ -119,9 +120,9 @@ Activation is intentionally ordered:
    set `settings.public.ssh = false`. LAN SSH remains available to trusted LAN
    clients; the gaming host is explicitly excluded from it.
 
-Removing one `[Peer]` block and its role address revokes one device without
-rotating everyone else. A stolen resident device therefore exposes only that
-resident role, not SSH, the gaming host, or other peers. A flat LAN still cannot
+Removing one declarative peer object revokes one device without rotating
+everyone else. A stolen resident device therefore exposes only that resident
+role, not SSH, the gaming host, or other peers. A flat LAN still cannot
 cryptographically stop a compromised machine from spoofing another LAN source
 address, so VLAN isolation remains an optional future hardening layer rather
 than a prerequisite for this design.

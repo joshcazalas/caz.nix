@@ -46,20 +46,7 @@ let
   residentTunnelAddress = "198.51.100.3";
   listenerPort = 51821;
 
-  gatewayFixture = pkgs.writeText "wg-home-test.conf" ''
-    [Interface]
-    Address = ${gatewayTunnelAddress}/32
-    PrivateKey = ${fixtureKeys.gateway}
-    ListenPort = ${toString listenerPort}
-
-    [Peer]
-    PublicKey = ${administratorPublicKey}
-    AllowedIPs = ${administratorTunnelAddress}/32
-
-    [Peer]
-    PublicKey = ${residentPublicKey}
-    AllowedIPs = ${residentTunnelAddress}/32
-  '';
+  gatewayPrivateKeyFile = pkgs.writeText "wg-home-private-key-test" fixtureKeys.gateway;
 
   clientFixture =
     privateKey: address:
@@ -158,10 +145,16 @@ pkgs.testers.runNixOSTest {
       };
       homelab.homeAccessGateway = {
         enable = true;
+        address = "${gatewayTunnelAddress}/32";
         listenPort = listenerPort;
-        _testConfigFile = toString gatewayFixture;
+        _testPrivateKeyFile = gatewayPrivateKeyFile;
         administrator = {
-          peerAddresses = [ "${administratorTunnelAddress}/32" ];
+          peers = [
+            {
+              address = administratorTunnelAddress;
+              publicKey = administratorPublicKey;
+            }
+          ];
           gatewayTCPPorts = [
             2222
             8123
@@ -176,7 +169,12 @@ pkgs.testers.runNixOSTest {
           ];
         };
         resident = {
-          peerAddresses = [ "${residentTunnelAddress}/32" ];
+          peers = [
+            {
+              address = residentTunnelAddress;
+              publicKey = residentPublicKey;
+            }
+          ];
           gatewayTCPPorts = [ 8123 ];
           gatewayUDPPorts = [ 53 ];
         };
@@ -309,6 +307,18 @@ pkgs.testers.runNixOSTest {
 
     gateway.succeed("iptables -w -C nixos-fw -i wg-home -j nixos-fw-log-refuse")
     gateway.succeed("iptables -w -C FORWARD -i wg-home -j DROP")
+    gateway.succeed("test \"$(wg show wg-home listen-port)\" = ${toString listenerPort}")
+    gateway.succeed("test \"$(wg show wg-home allowed-ips | wc -l)\" -eq 2")
+    gateway.succeed(
+      "wg show wg-home allowed-ips | awk "
+      "'$1 == \"${administratorPublicKey}\" && $2 == \"${administratorTunnelAddress}/32\" "
+      "{ found=1 } END { exit !found }'"
+    )
+    gateway.succeed(
+      "wg show wg-home allowed-ips | awk "
+      "'$1 == \"${residentPublicKey}\" && $2 == \"${residentTunnelAddress}/32\" "
+      "{ found=1 } END { exit !found }'"
+    )
     gateway.succeed(
       "iptables -w -C nixos-fw -i wg-home -s ${administratorTunnelAddress}/32 "
       "-p tcp --dport 2222 -m conntrack --ctstate NEW,ESTABLISHED,RELATED -j nixos-fw-accept"
