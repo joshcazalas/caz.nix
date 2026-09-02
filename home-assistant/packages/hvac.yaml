@@ -68,16 +68,39 @@ script:
       Set both cooling thermostats to 76 F during daylight or 72 F at night.
     icon: mdi:thermostat-auto
     mode: single
-    variables:
-      solar_period_known: >-
-        {{ states('sun.sun') in ['above_horizon', 'below_horizon'] }}
-      desired_temperature: >-
-        {{ 76 if is_state('sun.sun', 'above_horizon') else 72 }}
+    fields:
+      scheduled_temperature:
+        name: Scheduled temperature
+        description: >-
+          Optional explicit setpoint supplied by a sunrise or sunset trigger.
+          When omitted, use the current sun state.
+        required: false
+        selector:
+          number:
+            min: 62
+            max: 85
+            step: 1
+            unit_of_measurement: °F
     sequence:
+      # Step-level variables intentionally overwrite caller-supplied values.
+      # Script fields constrain the UI but are not a runtime safety boundary.
+      - variables:
+          solar_period_known: >-
+            {{ states('sun.sun') in ['above_horizon', 'below_horizon'] }}
+          desired_temperature: >-
+            {% if scheduled_temperature is defined
+                  and scheduled_temperature is not none %}
+              {{ scheduled_temperature | float(-999) }}
+            {% else %}
+              {{ 76 if is_state('sun.sun', 'above_horizon') else 72 }}
+            {% endif %}
       - choose:
           - conditions:
               - condition: template
                 value_template: "{{ solar_period_known }}"
+              - condition: template
+                value_template: >-
+                  {{ 62 <= (desired_temperature | float(-999)) <= 85 }}
               - condition: state
                 entity_id: climate.upstairs_thermostat
                 state: "cool"
@@ -119,6 +142,14 @@ script:
                 {% if not solar_period_known %}
                   Home Assistant does not currently know whether the sun is above
                   or below the horizon. Verify the configured home location.
+                {% elif (desired_temperature | float(-999)) == -999 %}
+                  Home Assistant refused an invalid automatic HVAC setpoint.
+                  No thermostat was changed.
+                {% elif not
+                    (62 <= (desired_temperature | float(-999)) <= 85) %}
+                  Home Assistant refused the requested
+                  {{ desired_temperature }} F setpoint because automatic HVAC
+                  temperatures must remain between 62 F and 85 F.
                 {% else %}
                   No setpoint was changed because both thermostats must be
                   available and in cool mode. Upstairs is
@@ -181,13 +212,29 @@ automation:
             id: startup
         then:
           - delay: "00:02:00"
-      - action: script.apply_hvac_sun_schedule
+      - choose:
+          - conditions:
+              - condition: trigger
+                id: sunset
+            sequence:
+              - action: script.apply_hvac_sun_schedule
+                data:
+                  scheduled_temperature: 72
+          - conditions:
+              - condition: trigger
+                id: sunrise
+            sequence:
+              - action: script.apply_hvac_sun_schedule
+                data:
+                  scheduled_temperature: 76
+        default:
+          - action: script.apply_hvac_sun_schedule
 
   - id: hvac_thermostat_availability
     alias: HVAC - Report thermostat availability
     description: >-
-      Report a thermostat that remains unavailable for ten minutes and clear
-      its notification when it recovers.
+      Report a thermostat that remains unavailable for ten minutes, clear its
+      notification when it recovers, and reconcile the current sun schedule.
     mode: parallel
     max: 4
     triggers:
@@ -233,6 +280,8 @@ automation:
             data:
               notification_id: >-
                 hvac_{{ trigger.entity_id | replace('.', '_') }}_unavailable
+          - delay: "00:00:10"
+          - action: script.apply_hvac_sun_schedule
 
   - id: hvac_filter_initialize_interval
     alias: HVAC - Initialize filter replacement interval
