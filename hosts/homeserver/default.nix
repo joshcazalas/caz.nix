@@ -74,6 +74,41 @@ in
     hostAddress = "192.168.1.127";
   };
 
+  homelab.homeAccessGateway = {
+    enable = true;
+    address = "10.77.1.1/24";
+    listenPort = 51821;
+
+    administrator = {
+      peers = [
+        {
+          address = "10.77.1.2";
+          publicKey = "Xp/G5VnkJjkH+/qUrmJ4JtNt42Zpz0p6UxYm5Oh0GhU=";
+        }
+      ];
+      gatewayTCPPorts = [
+        22
+        53
+        8123
+      ];
+      gatewayUDPPorts = [ 53 ];
+    };
+
+    resident = {
+      peers = [
+        {
+          address = "10.77.1.3";
+          publicKey = "3PMwSAEWls1YscBkZv1ro3jy7KgrzHq+spU++qGmlTE=";
+        }
+      ];
+      gatewayTCPPorts = [
+        53
+        8123
+      ];
+      gatewayUDPPorts = [ 53 ];
+    };
+  };
+
   # The gaming host is an intentionally low-trust target. Among private
   # homeserver services, it may use only DNS; it does not inherit SSH, storage,
   # Home Assistant, or administrative access merely because it sits on the

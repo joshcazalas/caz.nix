@@ -19,8 +19,9 @@ assigned to one of two deliberately small roles:
 - neither role receives arbitrary LAN access, peer-to-peer access, or an
   Internet default route.
 
-The module is present but intentionally disabled until real device keys have
-been enrolled. A conservative initial policy looks like this in
+The initial deployment keeps each peer pseudonymous and grants only the service
+set required by its role. A peer does not need a tunnel identity merely because
+an authorized client may reach a selected service on it later. The policy in
 `hosts/homeserver/default.nix`:
 
 ```nix
@@ -33,41 +34,22 @@ homelab.homeAccessGateway = {
     peers = [
       {
         address = "10.77.1.2";
-        publicKey = "ADMIN_DEVICE_PUBLIC_KEY";
+        publicKey = "ADMIN_CLIENT_PUBLIC_KEY";
       }
     ];
     gatewayTCPPorts = [
       22
       53
-      3000
-      8096
       8123
     ];
     gatewayUDPPorts = [ 53 ];
-    forwardTargets = [
-      {
-        address = config.homelab.gameStreamGateway.hostAddress;
-        tcpPorts = [
-          47984
-          47989
-          48010
-        ];
-        udpPorts = [
-          47998
-          47999
-          48000
-          48002
-          48010
-        ];
-      }
-    ];
   };
 
   resident = {
     peers = [
       {
         address = "10.77.1.3";
-        publicKey = "RESIDENT_DEVICE_PUBLIC_KEY";
+        publicKey = "APPLICATION_CLIENT_PUBLIC_KEY";
       }
     ];
     gatewayTCPPorts = [
@@ -79,6 +61,11 @@ homelab.homeAccessGateway = {
 };
 ```
 
+The administrator role may reach SSH, DNS, and Home Assistant on the gateway.
+The resident role may reach only DNS and Home Assistant. Neither peer may reach
+an arbitrary LAN address or the other peer, and the gaming tunnel inherits none
+of these grants.
+
 Only the gateway's bare private key belongs in the encrypted
 `homeAccessGatewayPrivateKey` value. Peer public keys are not secrets. The
 module generates the server's peer configuration from each role declaration,
@@ -86,17 +73,34 @@ so the same peer object owns identity, its exact `/32` cryptokey route, and its
 firewall grants. A peer cannot accidentally receive a subnet-wide server
 `AllowedIPs` entry through a second configuration source.
 
-On an administrator phone or laptop, import a separate `home-access` tunnel:
+Create each tunnel directly in the official client so that client generates and
+retains `CLIENT_PRIVATE_KEY`; never put it in this repository or SOPS. An
+administrator client uses:
 
 ```ini
 [Interface]
-PrivateKey = DEVICE_PRIVATE_KEY
+PrivateKey = CLIENT_PRIVATE_KEY
 Address = 10.77.1.2/32
-DNS = 192.168.1.124
+DNS = 10.77.1.1
 
 [Peer]
 PublicKey = GATEWAY_PUBLIC_KEY
-AllowedIPs = 192.168.1.124/32, 192.168.1.127/32
+AllowedIPs = 10.77.1.1/32
+Endpoint = home-vpn.joshcaz.com:51821
+PersistentKeepalive = 25
+```
+
+A resident application client uses a separate identity:
+
+```ini
+[Interface]
+PrivateKey = CLIENT_PRIVATE_KEY
+Address = 10.77.1.3/32
+DNS = 10.77.1.1
+
+[Peer]
+PublicKey = GATEWAY_PUBLIC_KEY
+AllowedIPs = 10.77.1.1/32
 Endpoint = home-vpn.joshcaz.com:51821
 PersistentKeepalive = 25
 ```
@@ -106,6 +110,13 @@ use `0.0.0.0/0` or the whole home subnet. The firewall is the authorization
 boundary, but narrow client routes prevent accidental traffic capture and make
 the intended scope visible on the device.
 
+Mobile clients should activate the tunnel on demand away from the trusted LAN.
+When the tunnel is active, `http://10.77.1.1:8123` reaches Home Assistant and
+`ssh homeserver-vpn` reaches the administrative endpoint. The managed WSL SSH
+profile keeps LAN, WireGuard, and transitional public aliases distinct. Consult
+the client platform's private enrollment notes rather than publishing device
+inventory in this repository.
+
 Activation is intentionally ordered:
 
 1. Generate each tunnel in the official WireGuard client so its private key
@@ -114,8 +125,9 @@ Activation is intentionally ordered:
    address to exactly one declarative role in Nix.
 3. Deploy, then forward only router UDP 51821 to the homeserver and create the
    DNS-only `home-vpn` record through the existing DDNS configuration.
-4. Test from cellular data: Home Assistant, allowed administration, blocked
-   ports, and peer isolation.
+4. Test every role from a genuinely external network: Home Assistant, allowed
+   administrator SSH, blocked resident SSH, blocked LAN targets, and peer
+   isolation.
 5. Only after repeated external tests, remove the router's TCP 22 forward and
    set `settings.public.ssh = false`. LAN SSH remains available to trusted LAN
    clients; the gaming host is explicitly excluded from it.
@@ -267,10 +279,11 @@ backup of the private key away from the server; never commit or copy the private
 key into this repository. `ssh-agent` can cache the unlocked key for the current
 login session without removing its at-rest encryption.
 
-The managed WSL SSH profile keeps the two network paths explicit: `ssh homeserver`
-uses the LAN resolver, while `ssh homeserver-remote` uses the public
-`ssh.joshcaz.com` endpoint. The public alias is for testing from a different
-network; it is not expected to resolve from the home LAN.
+The managed WSL SSH profile keeps all three network paths explicit:
+`ssh homeserver` uses the LAN resolver, `ssh homeserver-vpn` uses the stable
+WireGuard interface address, and `ssh homeserver-remote` uses the transitional
+public `ssh.joshcaz.com` endpoint. The public alias is for testing from a
+different network; it is not expected to resolve from the home LAN.
 
 After deploying:
 
