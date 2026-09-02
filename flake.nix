@@ -185,6 +185,10 @@
           } = true
           test ${pkgs.lib.escapeShellArg wslSshSettings.homeserver.data.IdentityFile} = '~/.ssh/id_ed25519'
           test ${pkgs.lib.escapeShellArg wslSshSettings.homeserver.data.IdentityAgent} = none
+          test ${pkgs.lib.escapeShellArg wslSshSettings."homeserver-vpn".data.HostName} = 10.77.1.1
+          test ${
+            pkgs.lib.escapeShellArg wslSshSettings."homeserver-vpn".data.IdentityFile
+          } = '~/.ssh/id_ed25519'
           test ${
             pkgs.lib.escapeShellArg wslSshSettings."homeserver-remote".data.HostName
           } = ssh.${settings.public.domain}
@@ -196,6 +200,7 @@
           test "$(readlink ${wslSshAgentSocketMask})" = /dev/null
 
           grep -Fqx 'Host homeserver' "$ssh_config"
+          grep -Fqx 'Host homeserver-vpn' "$ssh_config"
           grep -Fqx 'Host homeserver-remote' "$ssh_config"
           grep -Fq 'config_tmp="$config_path.hm-materialized"' "$activation"
           grep -Fq '/bin/install --mode 0600 "$config_path" "$config_tmp"' "$activation"
