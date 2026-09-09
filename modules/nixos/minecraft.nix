@@ -306,6 +306,11 @@ in
         };
         extraOptions = [
           "--init"
+          # Host DNS is deliberately blocked from Docker bridges by the
+          # private-service firewall. Paper installation needs public DNS
+          # on every restart, so do not inherit the host's LAN resolver.
+          "--dns=9.9.9.9"
+          "--dns=149.112.112.112"
           "--memory=8g"
           "--pids-limit=512"
           "--security-opt=no-new-privileges:true"

@@ -45,6 +45,13 @@ in
   # disabled until boot-success rollback has been tested on this hardware.
   homelab.releaseUpdater.enable = true;
 
+  # This host has 8 GB of RAM and also runs Minecraft. Parallel Rust builds
+  # exhausted host memory during a release and the kernel killed Java.
+  nix.settings = {
+    max-jobs = 1;
+    cores = 1;
+  };
+
   # Keep each explicitly reviewed public hostname synchronized when the
   # residential IPv4 address changes. The scoped Cloudflare token is decrypted
   # only at activation time and never enters the Nix store.
