@@ -145,6 +145,29 @@ the health gate, then remove it in the next one. This only applies to removals.
 Adding a service is safe in a single release, because the older gate simply
 does not know to look for it.
 
+## Journal and boot-generation retention
+
+The server sets journald's persistent-log budget to 512 MiB, its runtime-log
+budget to 64 MiB, and its maximum retention age to 30 days. Journald removes
+archived files to enforce these targets; active files can temporarily keep usage
+above the target, and volume or free-space pressure can shorten the available
+history. Export incident logs before they age out.
+
+Systemd-boot lists the five latest NixOS generations, bounding the generations
+whose kernel and initrd files occupy the 1 GiB EFI partition. This controls boot
+menu retention separately from the existing weekly Nix garbage collection of
+generations older than 30 days. It does not guarantee that every generation from
+the last month remains selectable at boot. Unattended reboot remains disabled.
+
+After deployment, inspect the applied policy and available recovery entries:
+
+```bash
+systemd-analyze cat-config systemd/journald.conf
+journalctl --disk-usage
+sudo bootctl list
+df -h /boot
+```
+
 ## Run it now
 
 The maintenance window is only the unattended default. An administrator can
