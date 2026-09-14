@@ -138,6 +138,7 @@ modules/nixos/cloudflare-ddns.nix scoped IPv4-only Cloudflare DNS updater
 secrets/                          sops-nix workflow for future runtime secrets
 docs/bootstrap-wsl.md             short WSL command reference
 docs/install-server.md            safe installation-day checklist
+docs/dns-recovery.md              temporary DNS fallback and return to AdGuard
 docs/home-assistant.md            container, onboarding, backups, and operations
 docs/minecraft.md                 pinned server, backups, and exposure checklist
 docs/ci-and-releases.md           update, validation, SBOM, and release design
