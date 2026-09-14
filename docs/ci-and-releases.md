@@ -3,8 +3,8 @@
 This repository uses a review-gated update pipeline:
 
 ```text
-weekly dependency PR -> CI builds real outputs -> human review and merge
-                     -> dated release -> SBOMs, provenance, checksums
+dependency PR -> CI builds real outputs -> human review and merge
+              -> dated release -> SBOMs, provenance, checksums
 ```
 
 Nothing in GitHub Actions has credentials or network access to the homeserver.
@@ -102,9 +102,18 @@ nix flake check --print-build-logs
 
 ## Dependency updates
 
-Dependabot groups all `flake.lock` inputs into one weekly PR and groups Actions
-updates into a separate PR. Nix updates currently activate only after this
-repository becomes public; GitHub Actions updates work while it is private.
+Dependabot checks root flake inputs every weekday at 09:17 America/Chicago.
+Auxide gets its own `auxide` group/PR; every other input stays in the
+`flake-inputs` group. The two-PR limit lets both groups have an update open at
+the same time. Both groups share the weekday schedule because scheduling is
+configured for the updater, not for individual groups. Actions updates remain
+in their separate weekly Monday PR, including the local cache action.
+
+Auxide updates follow the source commit consumed by `flake.lock`, independently
+of the upstream GitHub release or container publication. With the current
+branch-based input, its PR should change only the lockfile's Auxide node and any
+necessary transitive nodes; review the diff for unrelated root-input changes.
+The ordinary PR CI and human-review path applies to both Nix groups.
 
 The update PR is deliberately not auto-merged. A green build proves that Nix
 can evaluate and build the declared closures, but it cannot prove that a major
@@ -159,7 +168,7 @@ After the sanitized history becomes `main` and the repository becomes public:
 3. enable GitHub secret scanning and push protection;
 4. enable immutable releases before the first public release;
 5. enable private vulnerability reporting;
-6. verify that the weekly Nix Dependabot job is active.
+6. verify that the weekday Nix and weekly Actions Dependabot jobs are active.
 
 The history rewrite needed before publication is the one intentional exception
 to blocking force pushes. Enable the protection only after that rewrite lands.
