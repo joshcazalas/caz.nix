@@ -97,9 +97,11 @@ Then:
    dig +short map.joshcaz.com A
    ```
 
-   Both commands should return `192.168.1.124` on the LAN. Keep a fallback
-   plan: if the server is down, clients otherwise lose DNS. A future secondary
-   local resolver should carry the same declarative rewrites.
+   Both commands should return `192.168.1.124` on the LAN. Keep the
+   [DNS recovery guide](dns-recovery.md) available locally: it covers temporary
+   client/router DNS, restoring AdGuard, and a single-client drill. If the
+   server is down, clients otherwise lose DNS. A future secondary local resolver
+   should carry the same declarative rewrites.
 5. Open Home Assistant on `http://homeserver:8123`, create its owner account,
    and verify the location, time zone, and units. See `docs/home-assistant.md`.
 6. Provision the monitoring secrets and the external dead man's switch before
