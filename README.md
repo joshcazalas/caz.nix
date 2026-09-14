@@ -176,11 +176,12 @@ nix flake update
 Run `nix flake update` intentionally and review changes before switching the
 server. The lock file, once generated, belongs in Git.
 
-Dependabot proposes grouped weekly lock-file updates. Each reviewed merge to
-`main` produces a dated `caz.nix-*` release with SBOMs, provenance, closure
-metadata, checksums, and attestations. The homeserver verifies and deploys new
-releases during its maintenance window, with pre-deployment backups, health
-checks, and live-generation rollback. See
+Dependabot checks flake inputs each weekday, proposing a dedicated Auxide PR
+and a separate grouped PR for the other inputs. Actions updates remain weekly.
+Each reviewed merge to `main` produces a dated `caz.nix-*` release with SBOMs,
+provenance, closure metadata, checksums, and attestations. The homeserver
+verifies and deploys new releases during its maintenance window, with
+pre-deployment backups, health checks, and live-generation rollback. See
 [`docs/ci-and-releases.md`](docs/ci-and-releases.md) for the complete model,
 [`docs/server-updates.md`](docs/server-updates.md) for deployment operations,
 and [`docs/publication-checklist.md`](docs/publication-checklist.md)

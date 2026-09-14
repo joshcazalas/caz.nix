@@ -1,20 +1,24 @@
 version: 2
 
 updates:
-  # Dependabot's Nix updater currently supports public repositories. This entry
-  # becomes active when caz.nix is made public; see docs/ci-and-releases.md.
+  # Both root-flake groups share this weekday schedule. Keep Auxide separate
+  # so unrelated input updates cannot occupy its only available PR slot.
   - package-ecosystem: nix
     directory: /
     schedule:
-      interval: weekly
-      day: monday
+      interval: daily
       time: "09:17"
       timezone: America/Chicago
     groups:
+      auxide:
+        patterns:
+          - "auxide"
       flake-inputs:
         patterns:
           - "*"
-    open-pull-requests-limit: 1
+        exclude-patterns:
+          - "auxide"
+    open-pull-requests-limit: 2
     commit-message:
       prefix: "deps(nix)"
 
