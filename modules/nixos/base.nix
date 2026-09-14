@@ -13,7 +13,11 @@
   console.keyMap = "us";
 
   boot.loader = {
-    systemd-boot.enable = true;
+    systemd-boot = {
+      enable = true;
+      # Bound kernel/initrd retention on the 1 GiB EFI partition.
+      configurationLimit = 5;
+    };
     efi.canTouchEfiVariables = true;
   };
 
@@ -95,6 +99,11 @@
   };
 
   services = {
+    journald.extraConfig = ''
+      SystemMaxUse=512M
+      RuntimeMaxUse=64M
+      MaxRetentionSec=30day
+    '';
     fstrim.enable = true;
     smartd = {
       enable = true;
