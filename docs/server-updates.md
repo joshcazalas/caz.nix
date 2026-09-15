@@ -165,6 +165,28 @@ activation, the new one after it, and the restored one after a rollback.
 The pre-deployment backup is the opposite case and is intentionally left as the
 updater's own copy, because it protects the state that exists *now*.
 
+### HTTP probes have explicit success responses
+
+Dedicated health/readiness endpoints require HTTP `200`: Jellyfin, Prometheus,
+Alertmanager, Grafana, Auxide, its token provider, and Immich when enabled.
+AdGuard Home and Home Assistant's frontend `/` probes accept `200` or `302`,
+covering their login/onboarding redirects. Those frontend checks prove the UI
+responds; they do not prove authenticated application operations work.
+
+These match the documented [AdGuard Home login redirect](https://github.com/AdguardTeam/AdGuardHome/blob/master/AGHTechDoc.md#log-in-page)
+and [Home Assistant frontend responses](https://github.com/home-assistant/core/blob/2026.8.3/homeassistant/components/frontend/__init__.py#L802).
+The module declares each probe as `NAME=STATUS[,STATUS]=URL`. Any future
+authentication or redirect exception must be explicit for that endpoint.
+Unexpected responses, including `404`, `401`, `403`, and `5xx`, fail the current
+probes. Curl failures also fail even if a response began with `200` before the
+connection broke or timed out. Redirects are not followed, and `.curlrc` settings
+cannot alter the probe behavior.
+
+Failures identify the probe and unexpected status (with its accepted statuses)
+or a transport error. The normal wait and stabilization recheck still apply.
+DNS lookups and Minecraft's RCON check continue to exercise their existing
+application operations.
+
 ### A failing check is confirmed before it rolls anything back
 
 Every check is a point-in-time probe, and the DNS one leaves the machine to
