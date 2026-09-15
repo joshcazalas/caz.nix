@@ -81,8 +81,14 @@ else
         wsl=true
         ;;
 
-      scripts/check-server-health.sh | scripts/pre-deploy-backup.sh | scripts/stage-server-release.sh | \
-        scripts/release-notifications.py | tests/test_release_notifications.py)
+      scripts/stage-server-release.sh | scripts/check-deployment-storage.py)
+        homeserver=true
+        integration=true
+        ;;
+
+      scripts/check-server-health.sh | scripts/pre-deploy-backup.sh | \
+        scripts/release-notifications.py | tests/test_release_notifications.py | \
+        tests/test_deployment_storage.py)
         homeserver=true
         ;;
 
