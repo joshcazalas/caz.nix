@@ -2,9 +2,9 @@
 
 Use separate trust paths rather than treating every person, device, and web app
 the same. Public services remain public by deliberate exception; private
-household access uses role-filtered WireGuard; emergency administration keeps
-the existing hardened SSH path until the VPN has been proven from outside the
-home.
+household access uses role-filtered WireGuard. Remote administration uses SSH
+through `wg-home`; trusted LAN SSH and the local console provide recovery paths.
+External VPN SSH was verified after removing the router's TCP 22 forward.
 
 ## Private household access
 
@@ -113,7 +113,7 @@ the intended scope visible on the device.
 Mobile clients should activate the tunnel on demand away from the trusted LAN.
 When the tunnel is active, `http://10.77.1.1:8123` reaches Home Assistant and
 `ssh homeserver-vpn` reaches the administrative endpoint. The managed WSL SSH
-profile keeps LAN, WireGuard, and transitional public aliases distinct. Consult
+profile keeps the LAN alias separate from the remote WireGuard aliases. Consult
 the client platform's private enrollment notes rather than publishing device
 inventory in this repository.
 
@@ -131,6 +131,14 @@ Activation is intentionally ordered:
 5. Only after repeated external tests, remove the router's TCP 22 forward and
    set `settings.public.ssh = false`. LAN SSH remains available to trusted LAN
    clients; the gaming host is explicitly excluded from it.
+
+The TCP 22 forward has now been removed and a fresh external VPN SSH login
+succeeded. The repository disables public SSH and retains UDP 51821 for
+`wg-home`. Deploy the server configuration to apply the host firewall and key
+changes; apply Home Manager on the laptop to move `homeserver-remote` to the
+VPN address. `homeserver-vpn` already uses that address. Disabling public SSH
+also stops DDNS updates for `ssh.joshcaz.com`; any existing DNS record is not
+automatically deleted and does not grant access.
 
 Removing one declarative peer object revokes one device without rotating
 everyone else. A stolen resident device therefore exposes only that resident
@@ -229,13 +237,12 @@ using ordinary CDN service for disproportionate video or large-file delivery:
 - <https://developers.cloudflare.com/tunnel/>
 - <https://developers.cloudflare.com/fundamentals/reference/policies-compliances/delivering-videos-with-cloudflare/>
 
-## Transitional public administration path
+## Administration over WireGuard
 
-Until `wg-home` has passed its external pilot, the administration endpoint is
-ordinary OpenSSH, so Windows, WSL, macOS, and Linux can use their existing
-`ssh` command. There is no VPN agent, account, or background client. A device
-still needs the administrator's private key; a username or server password is
-never sufficient.
+Away from home, activate the administrator's `wg-home` tunnel and connect with
+`ssh homeserver-vpn`. WireGuard controls network access, and OpenSSH still
+requires the administrator's authorized SSH key. At home, `ssh homeserver`
+continues to use the trusted LAN path.
 
 The declarative policy layers the following controls:
 
@@ -246,29 +253,24 @@ The declarative policy layers the following controls:
 - local TCP forwarding remains available for private web dashboards;
 - each connection gets at most three authentication attempts and each source
   gets at most three concurrent unauthenticated connections;
-- Fail2ban blocks an Internet source after five logged failures in ten minutes.
-  The first ban is one hour and repeat bans grow to at most one week;
-- private IPv4 ranges are exempt from Fail2ban so a mistake on the home LAN
-  cannot remove the local recovery path;
 - `sudo` requires the local account password, which sshd does not accept.
 
-Changing TCP 22 to an unusual port can reduce log noise but does not add an
-authentication boundary, so this setup keeps the standard port and ordinary SSH
-commands. Some guest networks block outbound SSH; use a trusted mobile hotspot
-instead of weakening the endpoint to work around that policy.
+Fail2ban is disabled while both public SSH and public Jellyfin are disabled.
+Enabling public Jellyfin enables its jail without enabling the SSH jail. If
+public SSH is explicitly enabled again, its jail blocks a source after five
+failures in ten minutes, starting with a one-hour ban and increasing to one
+week. Private IPv4 ranges remain exempt.
 
-Before merging or deploying this policy, verify both credentials while still on
-the LAN:
+Verify both the SSH key and the separate sudo password through the VPN:
 
 ```bash
-ssh -o PreferredAuthentications=publickey joshcaz@homeserver
+ssh homeserver-vpn
 sudo -k
 sudo true
 ```
 
 The first command must use the intended private key, and the last command must
-accept the local account password. Put a passphrase on the private key before
-publishing SSH if it does not already have one:
+accept the local account password. Keep a passphrase on the SSH private key:
 
 ```bash
 ssh-keygen -p -f ~/.ssh/id_ed25519
@@ -279,36 +281,31 @@ backup of the private key away from the server; never commit or copy the private
 key into this repository. `ssh-agent` can cache the unlocked key for the current
 login session without removing its at-rest encryption.
 
-The managed WSL SSH profile keeps all three network paths explicit:
-`ssh homeserver` uses the LAN resolver, `ssh homeserver-vpn` uses the stable
-WireGuard interface address, and `ssh homeserver-remote` uses the transitional
-public `ssh.joshcaz.com` endpoint. The public alias is for testing from a
-different network; it is not expected to resolve from the home LAN.
+The managed WSL SSH profile uses the LAN resolver for `ssh homeserver`.
+Both `ssh homeserver-vpn` and `ssh homeserver-remote` use `10.77.1.1` while
+public SSH is disabled. Server aliases require the key's passphrase for each
+new connection rather than using the agent. Only the current administrator
+laptop's SSH public key is declared in `settings.nix`.
 
 After deploying:
 
-1. Confirm `ssh.joshcaz.com` is a **DNS-only** A record and resolves to the same
-   IPv4 address as `curl -4fsS https://api.ipify.org` on the server.
-2. In the router, forward external TCP 22 to TCP 22 on the server's reserved
-   LAN address. Do not use DMZ, a port range, or UPnP.
-3. Keep an existing LAN SSH session open during the first test.
-4. Disconnect the laptop from home Wi-Fi, use a phone hotspot, and run
-   `ssh joshcaz@ssh.joshcaz.com`.
-5. Confirm the protections on the server:
+1. Keep an existing VPN SSH session open and confirm a fresh
+   `ssh homeserver-vpn` connection succeeds from outside home.
+2. Confirm the router still forwards UDP 51821 to the server's reserved LAN
+   address and has no TCP 22 forward.
+3. Confirm the services and authorized public-key fingerprints on the server:
 
    ```bash
-   systemctl is-active sshd fail2ban
-   sudo fail2ban-client status sshd
-   sudo ss -ltnp | rg ':22\\b'
+   systemctl is-active sshd wg-quick-wg-home
+   systemctl is-active fail2ban # expected: inactive with public SSH/Jellyfin off
+   ssh-keygen -lf /etc/ssh/authorized_keys.d/joshcaz
    ```
 
-If a trusted external address is accidentally banned, recover from the LAN and
-run `sudo fail2ban-client set sshd unbanip ADDRESS`. Do not permanently exempt a
-mobile or residential public address because it can later belong to someone
-else.
+If WireGuard fails while away, use trusted LAN SSH or the local console when
+home. The public SSH endpoint is no longer a recovery path.
 
 Private dashboards remain private. Reach them through the same SSH connection
-without installing a VPN client:
+with `wg-home` active:
 
 ```bash
 ssh \
@@ -318,7 +315,7 @@ ssh \
   -L 8123:127.0.0.1:8123 \
   -L 9093:127.0.0.1:9093 \
   -L 9095:127.0.0.1:9095 \
-  joshcaz@ssh.joshcaz.com
+  homeserver-vpn
 ```
 
 While that session is open, the remote laptop can browse AdGuard at
