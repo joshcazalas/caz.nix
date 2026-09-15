@@ -14,7 +14,8 @@ usage: caz-deploy-server-release [--check-only | --deploy-now] [--force]
 Verify the latest immutable caz.nix release, reproduce its homeserver build,
 create application-consistent local backups, activate it, require service
 health to stabilize, and roll back automatically if activation is unhealthy.
-The command never reboots the machine.
+The command never reboots the machine. Manual runs send no deployment notices;
+notifications are reserved for starts triggered by caz-release-updater.timer.
 
   --check-only  verify and build without changing or recording system state
   --deploy-now  deploy immediately (this is the default when run manually)
@@ -158,7 +159,38 @@ if [[ "${check_only}" == false ]]; then
 fi
 
 work_directory="$(mktemp -d "${runtime_parent}/caz-release.XXXXXX")"
-trap 'rm -rf "${work_directory}"' EXIT
+notification_phase=discovery
+rollback_status=not-needed
+
+notify_release() {
+  local event="$1"
+  # systemd supplies TRIGGER_UNIT for timer starts. Direct CLI and manual
+  # systemctl starts stay quiet, even when the helper is configured.
+  if [[ "$check_only" == false && "${TRIGGER_UNIT:-}" == caz-release-updater.timer \
+    && -n "${CAZ_RELEASE_NOTIFICATION_COMMAND:-}" ]]; then
+    if ! "$CAZ_RELEASE_NOTIFICATION_COMMAND" --queue "${state_directory}/notifications" \
+      enqueue "$event" --repository "$repository" --release "${release_tag:-unknown}" \
+      --phase "$notification_phase" --reboot-required "${reboot_required:-false}" \
+      --rollback-status "$rollback_status" \
+      --instance "${CAZ_RELEASE_NOTIFICATION_INSTANCE:-homeserver}"; then
+      echo "WARNING: could not queue the deployment notification; deployment handling continues." >&2
+    fi
+  fi
+}
+
+cleanup_before_activation() {
+  local exit_status=$?
+  trap - EXIT INT TERM
+  if (( exit_status != 0 )); then
+    notify_release failed
+  fi
+  rm -rf -- "$work_directory"
+  exit "$exit_status"
+}
+
+trap cleanup_before_activation EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 api_get() {
   local url="$1"
@@ -310,11 +342,13 @@ if [[ "${check_only}" == false && -e "$failed_state" && "$force" == false ]]; th
 fi
 
 if [[ "${check_only}" == false ]]; then
+  notification_phase=preflight
   echo "==> Verifying live activation access"
   verify_activation_access
 fi
 
 echo "==> Downloading the signed deployment metadata"
+notification_phase=verification
 download_asset manifest.json
 download_asset SHA256SUMS
 
@@ -422,7 +456,15 @@ expected_derivation="$(jq --raw-output '.outputs.homeserver.derivation' \
   "${work_directory}/manifest.json")"
 flake_reference="github:${repository}/${commit_sha}"
 
+# A release applied manually with nixos-rebuild may not have an acceptance
+# record yet. Quietly verify/adopt it instead of announcing it as a new update.
+if [[ "$check_only" == false \
+  && "$(readlink --canonicalize /run/current-system)" != "$expected_store_path" ]]; then
+  notify_release available
+fi
+
 echo "==> Reproducing the exact homeserver build from ${commit_sha}"
+notification_phase=build
 # `mapfile < <(nix build ...)` reports mapfile's own exit status, so `set -e`
 # never sees a failed build and the count check below reports a missing output
 # instead of the error Nix actually printed. Redirect and test the build itself
@@ -463,6 +505,7 @@ if [[ "${check_only}" == true ]]; then
   exit 0
 fi
 
+notification_phase=preflight
 health_wait_seconds="${CAZ_RELEASE_HEALTH_WAIT_SECONDS:-600}"
 stabilization_seconds="${CAZ_RELEASE_STABILIZATION_SECONDS:-60}"
 for value in "$health_wait_seconds" "$stabilization_seconds"; do
@@ -590,8 +633,10 @@ flock --exclusive 8
 current_store_path="$(readlink --canonicalize /run/current-system)"
 if [[ "$current_store_path" == "$built_store_path" ]]; then
   echo "==> ${release_tag} is already the running system; adopting it as verified"
+  notification_phase=activation
   nix-env --profile /nix/var/nix/profiles/system --set "$built_store_path"
   "${built_store_path}/bin/switch-to-configuration" boot
+  notification_phase=health
   server_health \
     --wait "$health_wait_seconds" \
     --stabilize "$stabilization_seconds"
@@ -600,15 +645,18 @@ if [[ "$current_store_path" == "$built_store_path" ]]; then
   if reboot_is_required; then
     reboot_required=true
   fi
+  notification_phase=recording
   write_accepted_state already-running "$current_store_path" "$reboot_required"
   echo "Release ${release_tag} is verified, healthy, and recorded."
   exit 0
 fi
 
 echo "==> Verifying the current generation before changing it"
+notification_phase=preflight
 server_health --wait 60
 
 echo "==> Protecting mutable application state before activation"
+notification_phase=backup
 CAZ_CONTAINER_MAINTENANCE_LOCK_HELD=true caz-pre-deployment-backup
 
 previous_store_path="$current_store_path"
@@ -621,7 +669,7 @@ rollback_required=false
 
 rollback_deployment() {
   local reason="$1"
-  local rollback_status=failed
+  rollback_status=failed
 
   echo "Deployment failed: ${reason}" >&2
   echo "==> Rolling back to ${previous_store_path}" >&2
@@ -645,12 +693,21 @@ rollback_deployment() {
   [[ "$rollback_status" == succeeded ]]
 }
 
+notify_rollback() {
+  if [[ "$rollback_status" == succeeded ]]; then
+    notify_release rolled-back
+  else
+    notify_release rollback-failed
+  fi
+}
+
 cleanup_after_activation() {
   local exit_status=$?
   trap - EXIT INT TERM
 
   if [[ "$rollback_required" == true ]]; then
     rollback_deployment "the deployment supervisor exited unexpectedly" || true
+    notify_rollback
   fi
   rm -rf -- "$work_directory"
   exit "$exit_status"
@@ -665,6 +722,7 @@ fail_and_rollback() {
     echo "CRITICAL: automatic rollback did not restore a healthy server." >&2
   fi
   rollback_required=false
+  notify_rollback
   trap - EXIT INT TERM
   rm -rf -- "$work_directory"
   exit 1
@@ -677,6 +735,7 @@ trap 'exit 143' TERM
 rollback_required=true
 
 echo "==> Activating verified release ${release_tag}"
+notification_phase=activation
 nix-env --profile /nix/var/nix/profiles/system --set "$built_store_path"
 if ! "${built_store_path}/bin/switch-to-configuration" switch; then
   fail_and_rollback "switch-to-configuration returned an error"
@@ -687,6 +746,7 @@ if [[ "$(readlink --canonicalize /run/current-system)" != "$built_store_path" ]]
 fi
 
 echo "==> Waiting for the deployed services to stabilize"
+notification_phase=health
 if ! server_health \
   --wait "$health_wait_seconds" \
   --stabilize "$stabilization_seconds"; then
@@ -697,9 +757,11 @@ reboot_required=false
 if reboot_is_required; then
   reboot_required=true
 fi
+notification_phase=recording
 write_accepted_state deployed "$previous_store_path" "$reboot_required"
 
 rollback_required=false
+notify_release deployed
 trap - EXIT INT TERM
 rm -rf -- "$work_directory"
 
