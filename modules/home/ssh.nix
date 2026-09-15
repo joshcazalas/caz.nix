@@ -103,14 +103,14 @@ in
 
       # The household WireGuard interface gives the server a stable address
       # that is routable only while the narrow home-access tunnel is active.
-      # Keep this separate during the external pilot so neither VPN failure nor
-      # public-SSH retirement can silently change the ordinary LAN alias.
+      # Keep the VPN destination separate from the ordinary LAN alias.
       "homeserver-vpn" = serverSettings // {
         HostName = "10.77.1.1";
       };
 
       "homeserver-remote" = serverSettings // {
-        HostName = "ssh.${settings.public.domain}";
+        # Preserve the familiar remote command after public SSH is retired.
+        HostName = if settings.public.ssh then "ssh.${settings.public.domain}" else "10.77.1.1";
       };
     };
   };

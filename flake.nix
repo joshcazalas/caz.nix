@@ -212,9 +212,11 @@
           test ${
             pkgs.lib.escapeShellArg wslSshSettings."homeserver-vpn".data.IdentityFile
           } = '~/.ssh/id_ed25519'
-          test ${
-            pkgs.lib.escapeShellArg wslSshSettings."homeserver-remote".data.HostName
-          } = ssh.${settings.public.domain}
+          test ${pkgs.lib.escapeShellArg wslSshSettings."homeserver-remote".data.HostName} = ${
+            pkgs.lib.escapeShellArg (
+              if settings.public.ssh then "ssh.${settings.public.domain}" else "10.77.1.1"
+            )
+          }
           test ${
             pkgs.lib.escapeShellArg wslSshSettings."homeserver-remote".data.IdentityFile
           } = '~/.ssh/id_ed25519'

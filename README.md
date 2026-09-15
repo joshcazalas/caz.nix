@@ -50,14 +50,14 @@ their standard Bash integrations.
 
 | Service | Default | Reachability | Purpose |
 | --- | --- | --- | --- |
-| SSH | on | Public TCP 22 | Key-only administration; Fail2ban-protected |
+| SSH | on | Trusted LAN or administrator WireGuard | Key-only administration |
 | Samba | on | LAN only | Windows-friendly NAS shares |
 | Jellyfin | on | LAN; public is opt-in | Media streaming and per-person accounts |
 | AdGuard Home | on | LAN or SSH forwarding | Network DNS filtering; simpler NixOS fit than Pi-hole |
 | Prometheus + Alertmanager | on | Loopback; SSH forwarding | Metrics, declarative alert rules validated in CI, email and Discord notifications |
 | Grafana | on | Loopback; SSH forwarding | Provisioned dashboard over the Prometheus data source |
 | Cloudflare DDNS | on | Outbound HTTPS only | Keep reviewed public IPv4 records synchronized |
-| Household WireGuard | off pending peer enrollment | Exact private services by role | Per-device administrator/resident access without a full-mesh LAN VPN |
+| Household WireGuard | on | Public UDP 51821; exact private services by role | Per-device administrator/resident access without a full-mesh LAN VPN |
 | Home Assistant Container | on | LAN or SSH forwarding | Local automation, dashboards, and device integration |
 | Immich | off | LAN or SSH forwarding initially | Photo library, not a backup by itself |
 | Minecraft | on | LAN TCP 25565; Internet after manual DNS/router setup | Pinned Paper server with a locally managed whitelist and daily backups |
@@ -68,11 +68,13 @@ The host firewall accepts storage, monitoring, discovery, and DNS traffic only
 from RFC 1918 private IPv4 sources, with explicit per-address restrictions for
 low-trust LAN clients such as the gaming host. WireGuard interfaces do not
 inherit that broad LAN policy; their exact source, destination, and port grants
-are defined separately. Public SSH is restricted to the declared administrator
-and public-key authentication, with five failures in ten minutes earning a
-one-hour Fail2ban block. Minecraft TCP 25565 remains the other globally allowed
-port. IPv6 is temporarily disabled until its firewall and external reachability
-are reviewed and tested deliberately.
+are defined separately. SSH accepts only the declared administrator and
+public-key authentication through the trusted LAN or administrator WireGuard
+peer. The router's TCP 22 forward has been removed. Fail2ban runs only when
+public SSH or public Jellyfin is enabled; both are currently disabled.
+Minecraft TCP 25565 and Caddy TCP 80/443 remain deliberately public services.
+IPv6 is temporarily disabled until its firewall and external reachability are
+reviewed and tested deliberately.
 
 Minecraft and the optional public Jellyfin endpoint have separate, explicitly
 reviewed exposure paths. Jellyfin's design is:

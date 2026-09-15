@@ -4,7 +4,6 @@
     gitEmail = "73436834+joshcazalas@users.noreply.github.com";
     sshPublicKeys = [
       "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJPPR7VdBolKryex6C9qgqq6XQU5snK1Z3HcEkqRkK/a"
-      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKXty6E2n/hPoz1jIwHVKk5RWmOGBSZdrqgSJ7pMZW3J"
     ];
   };
 
@@ -23,7 +22,8 @@
   # declared. A domain name alone never opens a firewall port or service.
   public = {
     domain = "joshcaz.com";
-    ssh = true;
+    # Remote administration uses wg-home; trusted LAN SSH remains available.
+    ssh = false;
     jellyfin = false;
     # A read-only static tile server. Much smaller attack surface than
     # Jellyfin, but still a deliberate Internet exposure: it needs the router

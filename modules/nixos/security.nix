@@ -17,7 +17,7 @@ in
   # The first ban lasts one hour. Repeat offenders are banned progressively
   # longer, up to one week, across both SSH and public application jails.
   services.fail2ban = {
-    enable = true;
+    enable = settings.public.ssh || settings.public.jellyfin;
     maxretry = 5;
     bantime = "1h";
     ignoreIP = privateIPv4Ranges;
@@ -31,12 +31,15 @@ in
     jails = {
       DEFAULT.settings.findtime = "10m";
 
-      # NixOS supplies and enables the standard sshd jail automatically when
-      # both OpenSSH and Fail2ban are enabled. Keep its policy explicit here.
-      sshd.settings = {
-        maxretry = 5;
-        findtime = "10m";
-        bantime = "1h";
+      # Enable the SSH jail only when SSH is public, including when Fail2ban
+      # is running solely to protect a public Jellyfin endpoint.
+      sshd = {
+        enabled = settings.public.ssh;
+        settings = {
+          maxretry = 5;
+          findtime = "10m";
+          bantime = "1h";
+        };
       };
 
       # Jellyfin logs the real source only when Caddy's loopback address is in
@@ -92,6 +95,7 @@ in
           && config.services.openssh.settings.KbdInteractiveAuthentication == false
           && config.services.openssh.settings.PermitRootLogin == "no"
           && config.services.fail2ban.enable
+          && config.services.fail2ban.jails.sshd.enabled
         );
       message = "Public SSH requires key-only OpenSSH and Fail2ban.";
     }
