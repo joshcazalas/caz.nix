@@ -1,6 +1,7 @@
 {
   config,
   lib,
+  pkgs,
   ...
 }:
 let
@@ -27,6 +28,18 @@ in
         The Sunshine host's reserved LAN IPv4 address. Authenticated game-stream
         clients can reach only this address and only Sunshine's streaming ports.
       '';
+    };
+
+    wakeOnLan = {
+      enable = lib.mkEnableOption "delivery of Moonlight wake packets while the host cannot answer ARP";
+      interface = lib.mkOption {
+        type = lib.types.strMatching "[a-zA-Z0-9_.:-]+";
+        description = "The physical LAN interface directly connected to the gaming host's subnet.";
+      };
+      macAddress = lib.mkOption {
+        type = lib.types.strMatching "([[:xdigit:]]{2}:){5}[[:xdigit:]]{2}";
+        description = "The host's Ethernet MAC address, matching its DHCP reservation.";
+      };
     };
 
     _testConfigFile = lib.mkOption {
@@ -67,6 +80,38 @@ in
     networking.nat = {
       enable = true;
       internalInterfaces = [ interfaceName ];
+    };
+
+    # Moonlight sends its magic packet to the normal streaming UDP ports as
+    # well as port 9. Existing forwarding rules already permit those packets.
+    # A permanent neighbor lets the gateway deliver them after the sleeping
+    # host stops answering ARP. No extra listener, LAN access, or client route
+    # is needed. Windows must allow magic-packet wake on this Ethernet NIC.
+    systemd.services.game-stream-host-neighbor = lib.mkIf cfg.wakeOnLan.enable {
+      description = "Keep the gaming host's Ethernet address available for Wake-on-LAN";
+      wantedBy = [ "multi-user.target" ];
+      wants = [ "network-online.target" ];
+      after = [
+        "network-online.target"
+        "sys-subsystem-net-devices-${cfg.wakeOnLan.interface}.device"
+      ];
+      bindsTo = [ "sys-subsystem-net-devices-${cfg.wakeOnLan.interface}.device" ];
+      path = [ pkgs.iproute2 ];
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+        CapabilityBoundingSet = [ "CAP_NET_ADMIN" ];
+        NoNewPrivileges = true;
+        ProtectSystem = "strict";
+        ProtectHome = true;
+      };
+      script = ''
+        ip neigh replace ${cfg.hostAddress} lladdr ${cfg.wakeOnLan.macAddress} \
+          nud permanent dev ${cfg.wakeOnLan.interface}
+      '';
+      preStop = ''
+        ip neigh del ${cfg.hostAddress} dev ${cfg.wakeOnLan.interface} || true
+      '';
     };
 
     networking.firewall = {

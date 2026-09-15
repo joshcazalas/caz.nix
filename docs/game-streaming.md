@@ -30,11 +30,11 @@ does not inherit `wg-game` peers.
 
 | Owner | State |
 | --- | --- |
-| NixOS | WireGuard listener, encrypted client peers, DDNS, forwarding, NAT, and isolation |
-| Windows host | Sunshine package, service, localhost-only Web UI, UPnP off, and private-LAN firewall |
+| NixOS | WireGuard listener, encrypted client peers, DDNS, forwarding, NAT, isolation, and the Ethernet neighbor entry for waking |
+| Windows host | Sunshine package, service, virtual-display selection and modes, localhost-only Web UI, UPnP off, and private-LAN firewall |
 | Windows client | Moonlight and WireGuard packages plus one WireGuard-owned tunnel |
 | WSL | Thin launcher for native Windows PowerShell and WinGet |
-| Operator | Router forward, DHCP reservation, peer admission, Sunshine credentials, and Moonlight pairing |
+| Operator | Router forward, Ethernet DHCP reservation, peer admission, signed display-driver installation, hardware wake settings, Sunshine credentials, and Moonlight pairing |
 
 The repository never needs Windows Git, a Windows checkout, or a custom DSC
 resource. The WSL checkout may use anonymous HTTPS and therefore does not need a
@@ -97,6 +97,18 @@ actual credentials and cached sessions are absent.
 
 ## Windows baseline
 
+Install the signed [Virtual Display Driver](https://github.com/VirtualDrivers/Virtual-Display-Driver)
+on the **gaming host**, with its physical TV on for initial setup:
+
+```powershell
+winget install --id VirtualDrivers.Virtual-Display-Driver --exact --source winget
+```
+
+Open **VDD Control**, install its **display** driver, and confirm Windows Display
+Settings shows one additional monitor. The current WinGet package installs the
+control app; it does not itself install the display device. Keep the adapter
+enabled. Do not install this driver on the Moonlight laptops.
+
 Run the focused host role from the host's WSL checkout:
 
 ```bash
@@ -109,6 +121,29 @@ It uses ordinary WinGet to install Sunshine when absent, then applies the stable
 host policy directly in one elevated PowerShell process. It does not install or
 configure WireGuard on the host. Create Sunshine's local Web UI credentials at
 `https://localhost:47990` and keep the Windows network marked `Private`.
+
+The host role verifies the real display adapter, adds 720p/800p/1080p/1200p/
+1440p/1600p modes at 30 and 60 Hz while preserving other driver settings, and
+selects the virtual monitor using its machine-specific Sunshine `device_id`.
+Sunshine activates that monitor and makes it primary during streaming, then
+restores the previous layout when the last client disconnects. The TV may
+remain a secondary display; this is still the same Windows console session.
+The host role never silently falls back to capturing the TV.
+
+In Moonlight, enable **Optimize game settings** to let Sunshine match the virtual
+display's resolution to the client. Sunshine also matches the requested frame
+rate when the display supports it. The driver and Sunshine configuration files
+get a one-time local `.before-headless` backup. The bootstrap uses Sunshine's
+native display management, not preparation commands or a background monitor
+switching task.
+
+If selection fails, inspect **Troubleshooting** in Sunshine for its latest
+display list. The driver must appear there exactly once. A disabled display in
+Windows Display Settings is acceptable; a disabled driver in Device Manager is
+not. To undo display selection, clear **Display ID** and disable display-device
+configuration in Sunshine, save/restart, then disable or uninstall VDD locally.
+Before major GPU/chipset-driver updates, follow the VDD project's guidance to
+uninstall VDD, update the GPU driver, reinstall VDD, and rerun the host role.
 
 On every Windows client, run:
 
@@ -125,6 +160,45 @@ should authorize.
 Both commands stage only one PowerShell file under `%LOCALAPPDATA%` for the UAC
 boundary and remove it afterward. `--check` validates stable package and policy
 state. Tunnel presence and handshake state are printed as observations.
+
+## Wake from sleep
+
+Turning off the TV does not require sleeping the PC. The virtual display keeps
+capture independent of the TV; waking the computer itself requires hardware
+support and a separate acceptance test.
+
+The gateway's `wakeOnLan` configuration pins the host's Ethernet MAC to its
+reserved IP on the homeserver's physical LAN interface. Moonlight sends its
+magic packet on Sunshine's existing UDP ports, so both clients can use
+**Wake PC** through their existing game tunnel. The permanent neighbor entry
+lets those packets reach the NIC even after the PC stops answering ARP during
+sleep. No UDP 9 forward, new server listener, or broader VPN access is needed.
+Keep this MAC, the Ethernet DHCP reservation, and the physical interface in
+`hosts/homeserver/default.nix` synchronized if hardware changes.
+
+On the gaming PC:
+
+1. Check `powercfg /a` for supported sleep states.
+2. Enable Wake-on-LAN/PCIe wake in the motherboard's BIOS/UEFI if needed.
+3. For the wired NIC in Device Manager, enable **Wake on Magic Packet** and
+   **Allow this device to wake the computer**. Prefer magic-packet-only wake
+   over waking on arbitrary traffic. Options depend on the NIC and sleep model.
+4. Connect Moonlight once while the PC is awake on Ethernet so each client learns
+   the current Ethernet MAC. Existing Wi-Fi pairing does not prove it has the
+   right wake address.
+5. With the TV off, sleep the PC and use Moonlight's **Wake PC**. Repeat through
+   WireGuard from an external network, then after extended idle. A successful
+   wake must lead to usable video and input.
+
+The integration test proves magic-packet delivery when the target refuses ARP;
+it cannot emulate a physical NIC waking the Windows PC. Keep automatic PC sleep
+disabled until the real sleep/wake test passes. Windows shutdown, hibernation,
+Modern Standby, and ordinary sleep can have different wake support; do not
+infer shutdown support from a successful sleep test.
+
+References: [Moonlight wake implementation](https://github.com/moonlight-stream/moonlight-qt/blob/master/app/backend/nvcomputer.cpp),
+[Moonlight wake guide](https://github.com/moonlight-stream/moonlight-docs/wiki/WOL-%28Wake-On-LAN%29),
+and [Windows power states](https://learn.microsoft.com/en-us/windows/win32/power/system-power-states).
 
 ## Migrate the existing deployment
 
@@ -311,9 +385,13 @@ external network:
 4. Stream at the intended resolution, frame rate, and bitrate for at least
    fifteen minutes. Use Moonlight statistics (`Ctrl+Alt+Shift+S` on PC) to
    compare direct-LAN and remote performance.
-5. Record display/EDID, power, reboot, Windows login-screen, shared-console, and
-   simultaneous local/remote behavior as pilot evidence—not declarative state.
+5. With the TV off, prove a new Desktop stream, disconnect/reconnect, idle, and
+   a reboot to the Windows login screen. Confirm image and input rather than
+   relying only on Moonlight's frame-rate overlay. Repeat through the VPN.
+6. Prove sleep/wake with the TV off using the steps above before enabling
+   unattended PC sleep. Record shared-console and simultaneous local/remote
+   behavior as pilot evidence.
 
 Keep home/away switching manual until repetition proves that automating it is
-worth another moving part. Wake-on-LAN, virtual service addresses, scheduled key
-rotation, and adding further `wg-home` forwarding targets are separate projects.
+worth another moving part. Virtual service addresses, scheduled key rotation,
+and adding further `wg-home` forwarding targets remain separate projects.
