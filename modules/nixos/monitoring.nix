@@ -63,6 +63,31 @@ let
     ];
   };
 
+  # These are historical events, not ongoing incidents. Keep their titles
+  # explicit and avoid a misleading "resolved" follow-up for a success event.
+  deploymentReceiver = {
+    name = "deployment-events";
+    email_configs = map (
+      receiver:
+      receiver
+      // {
+        send_resolved = false;
+        headers.subject = "[deployment] {{ .CommonAnnotations.summary }} on {{ .CommonLabels.instance }}";
+        html = "<p>{{ .CommonAnnotations.summary }}</p><p>{{ .CommonAnnotations.description }}</p>";
+        text = "{{ .CommonAnnotations.summary }}: {{ .CommonAnnotations.description }}";
+      }
+    ) primaryReceiver.email_configs;
+    discord_configs = map (
+      receiver:
+      receiver
+      // {
+        send_resolved = false;
+        title = "{{ .CommonAnnotations.summary }} on {{ .CommonLabels.instance }}";
+        message = "{{ .CommonAnnotations.description }}";
+      }
+    ) primaryReceiver.discord_configs;
+  };
+
   # The watchdog must never reach a human channel. Its only job is to keep an
   # off-site check fed so that silence itself becomes an alert.
   deadManSwitchReceiver = {
@@ -87,7 +112,18 @@ let
       group_wait = "30s";
       group_interval = "5m";
       repeat_interval = "4h";
-      routes = optionals cfg.deadManSwitch.enable [
+      routes = [
+        {
+          receiver = deploymentReceiver.name;
+          matchers = [ "component=\"deployment-event\"" ];
+          group_by = [ "event_id" ];
+          group_wait = "0s";
+          group_interval = "1m";
+          # Submitted events expire after ten minutes, before this can repeat.
+          repeat_interval = "24h";
+        }
+      ]
+      ++ optionals cfg.deadManSwitch.enable [
         {
           receiver = deadManSwitchReceiver.name;
           matchers = [ "alertname=\"Watchdog\"" ];
@@ -114,6 +150,7 @@ let
 
     receivers = [
       primaryReceiver
+      deploymentReceiver
     ]
     ++ optionals cfg.deadManSwitch.enable [ deadManSwitchReceiver ];
   };

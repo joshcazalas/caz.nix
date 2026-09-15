@@ -133,6 +133,29 @@
 
       checks.${system} = {
         homeserver = self.nixosConfigurations.${settings.server.hostName}.config.system.build.toplevel;
+        release-notifications =
+          pkgs.runCommand "check-release-notifications"
+            {
+              nativeBuildInputs = [
+                pkgs.python3
+                pkgs.bash
+                pkgs.coreutils
+                pkgs.fakeroot
+                pkgs.jq
+                pkgs.util-linux
+                pkgs.prometheus-alertmanager
+              ];
+              alertmanagerConfig = builtins.toJSON homeserver.config.services.prometheus.alertmanager.configuration;
+              passAsFile = [ "alertmanagerConfig" ];
+            }
+            ''
+              cp -r ${./scripts} scripts
+              mkdir tests
+              cp ${./tests/test_release_notifications.py} tests/test_release_notifications.py
+              export ALERTMANAGER_CONFIG_FILE="$alertmanagerConfigPath"
+              python -m unittest discover -s tests -p 'test_release_notifications.py' -v
+              touch "$out"
+            '';
         game-stream-gateway = import ./tests/game-stream-gateway.nix {
           inherit pkgs;
           inherit (inputs) sops-nix;

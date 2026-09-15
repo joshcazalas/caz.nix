@@ -33,7 +33,7 @@ while IFS= read -r check_name; do
   [[ -n "${check_name}" ]] || continue
 
   case "${check_name}" in
-    homeserver) check_group=homeserver ;;
+    homeserver | release-notifications) check_group=homeserver ;;
     wsl-*) check_group=wsl ;;
     game-stream-* | home-access-gateway | network-policy) check_group=integration ;;
     *)

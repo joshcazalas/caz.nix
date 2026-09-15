@@ -168,6 +168,66 @@ sudo bootctl list
 df -h /boot
 ```
 
+## Deployment notifications
+
+When homelab monitoring is enabled, timer-triggered updater runs queue events for
+the existing Alertmanager email and Discord channels. No new credentials are
+needed. Manual `sudo caz-deploy-server-release` runs (including `--force`) and
+manual `systemctl start caz-release-updater.service` runs send no deployment
+notices, including failures and rollback outcomes. Ordinary `nixos-rebuild`
+commands also do not use this event mechanism.
+
+The updater uses systemd's `TRIGGER_UNIT=caz-release-updater.timer` marker.
+If the marker is absent or names another trigger, the run stays quiet. Systemd
+reports trigger provenance on a best-effort basis; simultaneous triggers can
+coalesce. Existing persistent service-health alerts still apply to manual work.
+
+| Event | Message |
+| --- | --- |
+| New release | Metadata identifies a release different from the running generation. Reproduction and activation checks are still pending. |
+| Accepted release | Deployment is healthy. The message states whether a kernel/initrd reboot is required. |
+| Failure before live switching | The failed stage: discovery, verification, build, preflight, backup, or recording. Logs retain the detailed error. |
+| Failed activation or health check | Whether rollback restored a healthy previous generation, or which rollback step failed. |
+
+Routine checks of an already accepted or quarantined release are quiet.
+When a timer run verifies and adopts a release already applied manually with
+`nixos-rebuild`, it also skips the new-release and success notices.
+`--check-only`, `--status`, and an invocation that finds another updater running
+also send no events.
+Failure of the already-running adoption/boot-entry refresh path is reported with
+its activation or health stage; it does not claim a live rollback occurred.
+
+Queue files live under `/var/lib/caz-release-updater/notifications`, with access
+restricted to root. `caz-release-notifications.timer` submits them to the
+loopback-only Alertmanager every minute, in order. A failed hand-off leaves the
+event queued for retry; notification errors do not change deployment or rollback
+outcomes. Each attempt has distinct event IDs, reused on delivery retries.
+Unsubmitted events expire after 14 days with a journal message.
+
+Alertmanager acceptance removes an event from the local queue. Delivery to the
+mailbox or Discord is then handled by Alertmanager; API acceptance is not proof
+of external delivery. These are best-effort event notices with a ten-minute
+delivery window after submission and no repeated or resolved follow-up messages.
+They can be lost if Alertmanager restarts after acceptance or the external
+channels stay unavailable beyond that window. Existing persistent service-failure
+alerts and the external dead man's switch continue to cover ongoing incidents.
+A stopped process that cannot run its exit handler, including SIGKILL or host
+power loss, cannot queue a terminal event.
+
+Inspect delivery without generating a test notification:
+
+```bash
+systemctl status caz-release-notifications.timer caz-release-notifications.service
+sudo journalctl -u caz-release-notifications.service -n 100 --no-pager
+sudo find /var/lib/caz-release-updater/notifications -maxdepth 1 -name '*.json' -printf '%f\n'
+```
+
+Set `homelab.releaseUpdater.notifications.enable = false` to stop new event
+production and the delivery timer. Pending files remain for a later re-enable
+subject to the retention window. The first deployment introducing this feature
+is supervised by the old updater, so it will not emit the newly added events;
+subsequent invocations use the new updater.
+
 ## Run it now
 
 The maintenance window is only the unattended default. An administrator can

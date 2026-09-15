@@ -25,6 +25,13 @@ and checked by `promtool` while the system builds.
 | Memory | available memory and OOM kills |
 | Total host loss | the external dead man's switch below |
 
+Timer-triggered release updates also submit individual deployment events through
+the same email and Discord settings; manual runs stay quiet. A dedicated route
+gives them descriptive titles and suppresses repeat/resolution notices. See
+[deployment notifications](server-updates.md#deployment-notifications) for event
+coverage, local queue inspection, and delivery limitations. Persistent
+service-failure and timer alerts continue to use the normal incident route.
+
 A failed backup, a failed deployment, and a crashed service all surface as a
 failed systemd unit, so one rule covers all three. The timer staleness rules
 exist because a unit that *never runs* never fails.

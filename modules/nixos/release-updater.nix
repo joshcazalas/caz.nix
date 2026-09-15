@@ -27,6 +27,10 @@ let
   ];
   updaterServiceConfig = config.systemd.services.caz-release-updater.serviceConfig;
 
+  notificationCommand = pkgs.writeShellScriptBin "caz-release-notifications" ''
+    exec ${lib.getExe pkgs.python3} ${../../scripts/release-notifications.py} "$@"
+  '';
+
   minecraftEnabled = config.homelab.minecraft.enable;
   homeAssistantEnabled = config.homelab.homeAssistant.enable;
   homeAssistantUnit = "docker-homeassistant.service";
@@ -179,6 +183,10 @@ let
       export CAZ_RELEASE_HEALTH_WAIT_SECONDS=${toString cfg.healthWaitSeconds}
       export CAZ_RELEASE_STABILIZATION_SECONDS=${toString cfg.stabilizationSeconds}
       export CAZ_CONTAINER_MAINTENANCE_LOCK=${lib.escapeShellArg containerMaintenanceLock}
+      export CAZ_RELEASE_NOTIFICATION_COMMAND=${
+        lib.escapeShellArg (if cfg.notifications.enable then lib.getExe notificationCommand else "")
+      }
+      export CAZ_RELEASE_NOTIFICATION_INSTANCE=${lib.escapeShellArg config.networking.hostName}
 
       ${builtins.readFile ../../scripts/stage-server-release.sh}
     '';
@@ -223,10 +231,20 @@ in
       default = 3;
       description = "Number of local pre-deployment application-state archives to retain.";
     };
+
+    notifications.enable = lib.mkOption {
+      type = lib.types.bool;
+      default = config.homelab.monitoring.enable;
+      description = "Queue timer-triggered deployment events for the existing local Alertmanager email/Discord receiver; manual runs stay quiet.";
+    };
   };
 
   config = lib.mkIf cfg.enable {
     assertions = [
+      {
+        assertion = !cfg.notifications.enable || config.homelab.monitoring.enable;
+        message = "Release notifications require the existing homelab monitoring configuration.";
+      }
       {
         assertion = minecraftEnabled;
         message = "The initial release updater safety policy requires the Minecraft backup service.";
@@ -257,6 +275,38 @@ in
     systemd.tmpfiles.rules = [
       "d /var/backup/caz-release-updater 0700 root root -"
     ];
+
+    systemd.services.caz-release-notifications = lib.mkIf cfg.notifications.enable {
+      description = "Submit queued deployment events to local Alertmanager";
+      wants = [ "alertmanager.service" ];
+      after = [ "alertmanager.service" ];
+      serviceConfig = {
+        Type = "oneshot";
+        ExecStart = ''
+          ${lib.getExe notificationCommand} --queue /var/lib/caz-release-updater/notifications drain --endpoint http://127.0.0.1:${toString config.services.prometheus.alertmanager.port}/api/v2/alerts
+        '';
+        StateDirectory = "caz-release-updater";
+        StateDirectoryMode = "0700";
+        UMask = "0077";
+        TimeoutStartSec = "90s";
+        ProtectSystem = "strict";
+        ProtectHome = true;
+        PrivateTmp = true;
+        NoNewPrivileges = true;
+        RestrictAddressFamilies = [ "AF_INET" ];
+        IPAddressDeny = "any";
+        IPAddressAllow = "127.0.0.1/32";
+      };
+    };
+
+    systemd.timers.caz-release-notifications = lib.mkIf cfg.notifications.enable {
+      description = "Retry queued deployment notifications every minute";
+      wantedBy = [ "timers.target" ];
+      timerConfig = {
+        OnBootSec = "1m";
+        OnUnitInactiveSec = "1m";
+      };
+    };
 
     systemd.services.caz-release-updater = {
       description = "Verify, deploy, and health-check the latest caz.nix homeserver release";
