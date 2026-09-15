@@ -212,7 +212,9 @@ function Add-VirtualDisplayModes {
         )
         if ($null -eq $resolution) {
             $resolution = $Configuration.CreateElement('resolution')
-            foreach ($field in @{ width = $width; height = $height }.GetEnumerator()) {
+            # VDD 25.7.23 consumes XML sequentially and records a resolution
+            # when reading height, so width must always precede height.
+            foreach ($field in ([ordered]@{ width = $width; height = $height }).GetEnumerator()) {
                 $element = $Configuration.CreateElement($field.Key)
                 $element.InnerText = $field.Value
                 $null = $resolution.AppendChild($element)
