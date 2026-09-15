@@ -133,6 +133,19 @@
 
       checks.${system} = {
         homeserver = self.nixosConfigurations.${settings.server.hostName}.config.system.build.toplevel;
+        deployment-storage =
+          pkgs.runCommand "check-deployment-storage"
+            {
+              nativeBuildInputs = [ pkgs.python3 ];
+            }
+            ''
+              mkdir scripts tests
+              cp ${./scripts/check-deployment-storage.py} scripts/check-deployment-storage.py
+              cp ${./tests/test_deployment_storage.py} tests/test_deployment_storage.py
+              python -m unittest discover -s tests -p 'test_deployment_storage.py' -v
+              touch "$out"
+            '';
+        deployment-storage-integration = import ./tests/deployment-storage.nix { inherit pkgs; };
         release-notifications =
           pkgs.runCommand "check-release-notifications"
             {

@@ -2,6 +2,7 @@
   config,
   lib,
   pkgs,
+  settings,
   ...
 }:
 let
@@ -138,6 +139,59 @@ let
     # Stop the container before archiving its SQLite database. This protects
     # UI-managed integrations, automations, credentials, and history together.
     ++ optionals homeAssistantEnabled [ homeAssistantStatePath ];
+
+  storagePaths = lib.unique (
+    [
+      "/"
+      "/nix/store"
+      "/nix/var/nix/profiles"
+      config.boot.loader.efi.efiSysMountPoint
+      "/var/lib/caz-release-updater"
+      "/var/backup/caz-release-updater"
+      settings.server.dataRoot
+      "${settings.server.dataRoot}/media"
+      "${settings.server.dataRoot}/shares"
+    ]
+    ++ map (path: "/${path}") backupStatePaths
+    ++ optionals minecraftEnabled [
+      config.homelab.minecraft.dataDir
+      config.homelab.minecraft.backupDir
+    ]
+  );
+  # Longest containing mount wins. A missing mount must not silently fall back
+  # to the parent filesystem, including /boot falling back to the root NVMe.
+  filesystemFor =
+    path:
+    config.fileSystems.${
+      builtins.head (
+        lib.sort (a: b: builtins.stringLength a > builtins.stringLength b) (
+          builtins.filter (mount: mount == "/" || path == mount || lib.hasPrefix "${mount}/" path) (
+            builtins.attrNames config.fileSystems
+          )
+        )
+      )
+    };
+  storageRequirements = map (path: {
+    inherit path;
+    filesystem = {
+      inherit (filesystemFor path) mountPoint device fsType;
+    };
+    minimumFreeMiB =
+      if path == config.boot.loader.efi.efiSysMountPoint then
+        cfg.storagePreflight.minimumBootFreeMiB
+      else
+        cfg.storagePreflight.minimumFreeMiB;
+    inherit (cfg.storagePreflight) minimumFreeInodes;
+  }) storagePaths;
+  storagePreflight = pkgs.writeShellApplication {
+    name = "caz-check-deployment-storage";
+    runtimeInputs = [ pkgs.util-linux ];
+    text = ''
+      exec ${lib.getExe pkgs.python3} ${../../scripts/check-deployment-storage.py} \
+        --config ${pkgs.writeText "deployment-storage.json" (builtins.toJSON storageRequirements)} "$@"
+    '';
+  };
+
   preDeployBackup = pkgs.writeShellApplication {
     name = "caz-pre-deployment-backup";
     runtimeInputs = [
@@ -174,6 +228,7 @@ let
       # The pre-deployment backup describes the state that exists *now*, so the
       # copy built alongside this updater is the correct one.
       preDeployBackup
+      storagePreflight
       # serverHealth is deliberately absent. The health gate must describe the
       # generation that is actually running, so the script resolves it through
       # /run/current-system instead. Putting it back here would silently
@@ -237,6 +292,24 @@ in
       default = config.homelab.monitoring.enable;
       description = "Queue timer-triggered deployment events for the existing local Alertmanager email/Discord receiver; manual runs stay quiet.";
     };
+
+    storagePreflight = {
+      minimumFreeMiB = lib.mkOption {
+        type = lib.types.ints.positive;
+        default = 2048;
+        description = "Minimum available MiB on the store, state, and backup filesystems before deployment work.";
+      };
+      minimumBootFreeMiB = lib.mkOption {
+        type = lib.types.ints.positive;
+        default = 128;
+        description = "Minimum available MiB on the EFI filesystem before deployment work.";
+      };
+      minimumFreeInodes = lib.mkOption {
+        type = lib.types.ints.positive;
+        default = 1024;
+        description = "Minimum available inodes on filesystems that report an inode pool.";
+      };
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -268,6 +341,7 @@ in
 
     environment.systemPackages = [
       preDeployBackup
+      storagePreflight
       serverHealth
       updater
     ];

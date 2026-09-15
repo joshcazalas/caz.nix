@@ -104,6 +104,51 @@ has been built. Bootstrap such a correction once from an unrestricted root
 shell with `sudo caz-deploy-server-release`; after that successful switch, the
 timer starts future runs under the corrected unit.
 
+### Storage preflight
+
+Before building a new release, the updater checks the configured filesystems
+behind the Nix store, system profiles, deployment state, local backup directories,
+shared media/shares, and enabled services' archived state. It checks again after
+acquiring the maintenance lock, before backups or an already-running generation's
+boot-entry refresh, and after backups before live activation.
+
+Each required directory must exist on its declared mount, filesystem type, and
+block device. An unmounted EFI partition cannot silently fall back to `/`.
+Read-only filesystems and directories the updater cannot write/search are
+rejected. NixOS's normal read-only `/nix/store` bind mount is allowed when its
+underlying root filesystem remains writable. These checks follow the existing
+local block-device layout; a different storage design needs a corresponding
+preflight update.
+
+The default minimums are 2,048 MiB available on store/state/backup storage,
+128 MiB on EFI, and 1,024 available inodes where the filesystem reports an inode
+pool. They use space available without consuming the filesystem's reserved
+blocks. These are minimum headroom checks, not size estimates or reservations:
+a large build, backup, or kernel/initrd can still need more space, and other
+writers can consume it after a check. The updater does not delete files, run
+garbage collection, prune boot entries, or repair mounts to make a check pass.
+
+Run the same read-only inspection independently:
+
+```bash
+sudo caz-check-deployment-storage
+```
+
+Failures identify the affected path and missing mount, device mismatch, access
+problem, or available capacity. Restore the configured storage or free space and
+retry. A storage failure before activation leaves the current generation running
+and does not quarantine the release; `--force` does not bypass this check. If the
+post-backup check fails, the completed local backups remain. Scheduled failures
+use the existing preflight notification, and manual runs remain quiet.
+
+The thresholds are configurable under `homelab.releaseUpdater.storagePreflight`:
+`minimumFreeMiB`, `minimumBootFreeMiB`, and `minimumFreeInodes`. The checker bundled
+with the updater describes the storage in use before deployment, just like its
+backup command. The first release introducing it is supervised by the previous
+updater; subsequent invocations perform these checks. `--check-only` remains a
+provenance/build check and skips the deployment storage gate. This does not prove
+application-data integrity or replace the deferred restore and hardware drills.
+
 ### Which generation defines "healthy"
 
 The updater deliberately keeps running from the previous generation while it
