@@ -77,6 +77,7 @@ pkgs.testers.runNixOSTest {
       pkgs.dosfstools
       pkgs.e2fsprogs
       pkgs.jq
+      pkgs.parted
     ];
     system.stateVersion = "26.05";
   };
@@ -84,9 +85,13 @@ pkgs.testers.runNixOSTest {
     start_all()
     server.wait_for_unit("multi-user.target")
     server.succeed("mkfs.ext4 -F -L PREFLIGHT_DATA /dev/vdb")
-    server.succeed("mkfs.vfat -n TEST_EFI /dev/vdc")
+    # Use a partitioned EFI disk like the server. Whole-disk mkfs.fat can
+    # create a fake MBR entry, making udev's label point at vdc1 while a mount
+    # of vdc reports the whole-disk device number instead.
+    server.succeed("parted --script /dev/vdc mklabel gpt mkpart ESP fat32 1MiB 100% set 1 esp on")
+    server.succeed("udevadm settle; mkfs.vfat -F 32 -n TEST_EFI /dev/vdc1")
     server.succeed("udevadm settle; mkdir -p /mnt/state /mnt/efi")
-    server.succeed("mount /dev/vdb /mnt/state; mount /dev/vdc /mnt/efi; mkdir /mnt/state/app")
+    server.succeed("mount /dev/vdb /mnt/state; mount /dev/vdc1 /mnt/efi; mkdir /mnt/state/app")
     listing = server.succeed("find /mnt/state /mnt/efi -printf '%p\\n' | sort")
     server.succeed("caz-check-deployment-storage")
     assert listing == server.succeed("find /mnt/state /mnt/efi -printf '%p\\n' | sort")
@@ -119,7 +124,7 @@ pkgs.testers.runNixOSTest {
 
     server.succeed("mount /dev/vdb /mnt/efi")
     assert "mounted device does not match" in server.fail("caz-check-deployment-storage 2>&1")
-    server.succeed("umount /mnt/efi; mount /dev/vdc /mnt/efi")
+    server.succeed("umount /mnt/efi; mount /dev/vdc1 /mnt/efi")
 
     # Fill only a disposable test disk, leaving less than its 8 MiB threshold.
     server.succeed("available=$(df --output=avail -B1 /mnt/state | tail -1); fallocate -l $((available - 4*1024*1024)) /mnt/state/fill")
