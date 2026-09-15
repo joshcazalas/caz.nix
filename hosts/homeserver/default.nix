@@ -79,6 +79,11 @@ in
     listenPort = 51820;
     # The Sunshine host is a separate Windows machine, not the homeserver.
     hostAddress = "192.168.1.127";
+    wakeOnLan = {
+      enable = true;
+      interface = "eno2";
+      macAddress = "fc:9d:05:05:7b:f0";
+    };
   };
 
   homelab.homeAccessGateway = {

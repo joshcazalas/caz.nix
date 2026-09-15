@@ -40,6 +40,7 @@ let
   client2ExternalAddress = "203.0.113.3";
   gatewayLanAddress = "192.0.2.1";
   hostLanAddress = "192.0.2.2";
+  hostMacAddress = "02:00:00:00:00:02";
   otherLanAddress = "192.0.2.3";
   gatewayTunnelAddress = "198.51.100.1";
   clientTunnelAddress = "198.51.100.2";
@@ -140,6 +141,11 @@ pkgs.testers.runNixOSTest {
         hostAddress = hostLanAddress;
         listenPort = listenerPort;
         _testConfigFile = toString gatewayFixture;
+        wakeOnLan = {
+          enable = true;
+          interface = "eth2";
+          macAddress = hostMacAddress;
+        };
       };
       systemd.services.gateway-test-listener = tcpListener {
         address = gatewayTunnelAddress;
@@ -152,6 +158,7 @@ pkgs.testers.runNixOSTest {
     host = {
       imports = [ commonNode ];
       virtualisation.vlans = [ 2 ];
+      networking.interfaces.eth1.macAddress = hostMacAddress;
       networking.interfaces.eth1.ipv4.addresses = [
         {
           address = hostLanAddress;
@@ -229,6 +236,7 @@ pkgs.testers.runNixOSTest {
     start_all()
 
     gateway.wait_for_unit("wg-quick-wg-game.service")
+    gateway.wait_for_unit("game-stream-host-neighbor.service")
     gateway.wait_for_unit("gateway-test-listener.service")
     host.wait_for_unit("host-stream-listener.service")
     host.wait_for_unit("host-stream-udp.service")
@@ -261,6 +269,24 @@ pkgs.testers.runNixOSTest {
     client2.wait_until_succeeds(
       "curl --fail --silent --max-time 5 http://${hostLanAddress}:47989/ >/dev/null"
     )
+
+    # Model a sleeping NIC that no longer answers ARP. The same 102-byte
+    # payload/streaming port used by Moonlight must still reach that NIC.
+    # The UDP echo proves delivery; a VM cannot prove physical wake support.
+    wake_probe = (
+      "python -c \"import socket; "
+      "s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM); s.settimeout(2); "
+      "p=b'\\xff'*6+bytes.fromhex('020000000002')*16; "
+      "s.sendto(p,('${hostLanAddress}',47998)); assert s.recv(102)==p\""
+    )
+    host.succeed("sysctl -w net.ipv4.conf.eth1.arp_ignore=8")
+    gateway.succeed("systemctl stop game-stream-host-neighbor.service")
+    client.fail(wake_probe)
+    gateway.succeed("systemctl start game-stream-host-neighbor.service")
+    gateway.succeed("ip neigh show ${hostLanAddress} dev eth2 | grep -q PERMANENT")
+    client.succeed(wake_probe)
+    client2.succeed(wake_probe)
+    host.succeed("sysctl -w net.ipv4.conf.eth1.arp_ignore=0")
 
     client.fail("curl --fail --silent --connect-timeout 2 http://${hostLanAddress}:9999/")
     client.succeed(
