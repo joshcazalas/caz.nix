@@ -82,6 +82,11 @@ if ($configuration.OuterXml -ne $before) { throw 'A repeated configuration chang
 
 $globalConfiguration = [xml]'<vdd_settings><global><g_refresh_rate>30</g_refresh_rate><g_refresh_rate>60</g_refresh_rate></global><resolutions /></vdd_settings>'
 $null = Add-VirtualDisplayModes -Configuration $globalConfiguration
+foreach ($resolution in $globalConfiguration.SelectNodes('//resolution')) {
+    if ($resolution.FirstChild.LocalName -ne 'width' -or $resolution.FirstChild.NextSibling.LocalName -ne 'height') {
+        throw 'Display dimensions are not ordered for the released driver parser.'
+    }
+}
 if ($globalConfiguration.SelectNodes('//resolution/refresh_rate').Count -ne 0) {
     throw 'Global refresh rates were duplicated in individual resolutions.'
 }
