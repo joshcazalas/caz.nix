@@ -47,6 +47,19 @@ for value in "$wait_seconds" "$stabilization_seconds"; do
 done
 
 declare -a failures=()
+declare -a http_names=() http_statuses=() http_urls=()
+
+# Each configured probe declares the responses that actually mean success.
+# Parse once so a malformed contract fails before the timed health loop.
+for endpoint in ${CAZ_HEALTH_HTTP_ENDPOINTS:-}; do
+  if [[ ! "$endpoint" =~ ^([A-Za-z0-9_.-]+)=([1-5][0-9]{2}(,[1-5][0-9]{2})*)=(https?://[^[:space:]]+)$ ]]; then
+    echo "Invalid HTTP health probe; expected NAME=STATUS[,STATUS]=URL." >&2
+    exit 2
+  fi
+  http_names+=("${BASH_REMATCH[1]}")
+  http_statuses+=("${BASH_REMATCH[2]}")
+  http_urls+=("${BASH_REMATCH[4]}")
+done
 
 check_systemd_unit() {
   local unit="$1"
@@ -58,21 +71,22 @@ check_systemd_unit() {
 
 check_http() {
   local name="$1"
-  local url="$2"
+  local expected_statuses="$2"
+  local url="$3"
   local status
 
-  status="$(curl \
+  # Ignore .curlrc: following redirects or --fail would change the contract.
+  # A transport failure is unhealthy even if headers already said 200.
+  if ! status="$(curl --disable \
     --silent \
     --show-error \
     --max-time 5 \
     --output /dev/null \
     --write-out '%{http_code}' \
-    "$url" 2>/dev/null || true)"
-
-  # A redirect or authentication response still proves that the intended HTTP
-  # application is accepting and processing requests. Server errors do not.
-  if [[ ! "$status" =~ ^[234][0-9][0-9]$ ]]; then
-    failures+=("http:$name")
+    "$url" 2>/dev/null)"; then
+    failures+=("http:$name:transport")
+  elif [[ ",$expected_statuses," != *",$status,"* ]]; then
+    failures+=("http:$name:status=$status(expected=$expected_statuses)")
   fi
 }
 
@@ -87,8 +101,8 @@ check_once() {
     check_systemd_unit "$unit"
   done
 
-  for endpoint in ${CAZ_HEALTH_HTTP_ENDPOINTS:-}; do
-    check_http "${endpoint%%=*}" "${endpoint#*=}"
+  for index in "${!http_names[@]}"; do
+    check_http "${http_names[$index]}" "${http_statuses[$index]}" "${http_urls[$index]}"
   done
 
   if [[ "${CAZ_HEALTH_CHECK_DNS:-false}" == true ]]; then

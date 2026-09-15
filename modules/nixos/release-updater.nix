@@ -75,26 +75,27 @@ let
     "minecraft-proxy.socket"
   ];
   httpEndpoints =
-    optionals config.services.jellyfin.enable [ "jellyfin=http://127.0.0.1:8096/health" ]
-    ++ optionals config.services.adguardhome.enable [ "adguardhome=http://127.0.0.1:3000/" ]
+    # NAME=accepted-statuses=URL. Only frontend probes accept a redirect;
+    # dedicated health/readiness endpoints must actually report success.
+    optionals config.services.jellyfin.enable [ "jellyfin=200=http://127.0.0.1:8096/health" ]
+    ++ optionals config.services.adguardhome.enable [ "adguardhome=200,302=http://127.0.0.1:3000/" ]
     ++ optionals config.services.prometheus.enable [
-      "prometheus=http://127.0.0.1:${toString config.services.prometheus.port}/-/healthy"
+      "prometheus=200=http://127.0.0.1:${toString config.services.prometheus.port}/-/healthy"
     ]
     ++ optionals config.services.prometheus.alertmanager.enable [
-      "alertmanager=http://127.0.0.1:${toString config.services.prometheus.alertmanager.port}/-/healthy"
+      "alertmanager=200=http://127.0.0.1:${toString config.services.prometheus.alertmanager.port}/-/healthy"
     ]
     ++ optionals config.services.grafana.enable [
-      "grafana=http://127.0.0.1:${toString config.services.grafana.settings.server.http_port}/api/health"
+      "grafana=200=http://127.0.0.1:${toString config.services.grafana.settings.server.http_port}/api/health"
     ]
-    ++ optionals homeAssistantEnabled [ "home-assistant=http://127.0.0.1:8123/" ]
-    ++ optionals config.homelab.immich.enable [ "immich=http://127.0.0.1:2283/api/server/ping" ]
-    ++ optionals config.services.auxide.enable [ "auxide=http://127.0.0.1:9090/health/ready" ]
+    ++ optionals homeAssistantEnabled [ "home-assistant=200,302=http://127.0.0.1:8123/" ]
+    ++ optionals config.homelab.immich.enable [ "immich=200=http://127.0.0.1:2283/api/server/ping" ]
+    ++ optionals config.services.auxide.enable [ "auxide=200=http://127.0.0.1:9090/health/ready" ]
     # The unit check above proves systemd still has it; this proves the token
-    # server inside actually answers. `/ping` rather than `/`, which 404s --
-    # and a 404 counts as healthy here, since it still shows an application
-    # processing requests.
+    # server's /ping endpoint actually succeeds, not merely that a listener
+    # can return a 404 for an unknown route.
     ++ optionals providerEnabled [
-      "auxide-pot-provider=http://127.0.0.1:${toString config.services.auxide.poTokenProvider.port}/ping"
+      "auxide-pot-provider=200=http://127.0.0.1:${toString config.services.auxide.poTokenProvider.port}/ping"
     ];
 
   serverHealth = pkgs.writeShellApplication {
