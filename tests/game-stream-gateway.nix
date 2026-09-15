@@ -93,6 +93,7 @@ let
     };
     environment.systemPackages = [
       pkgs.curl
+      pkgs.python3
       pkgs.socat
       pkgs.wireguard-tools
     ];
