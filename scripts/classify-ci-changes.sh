@@ -92,6 +92,10 @@ else
         homeserver=true
         ;;
 
+      tests/test_server_health.py)
+        homeserver=true
+        ;;
+
       tests/*)
         integration=true
         ;;

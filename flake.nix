@@ -169,6 +169,23 @@
               python -m unittest discover -s tests -p 'test_release_notifications.py' -v
               touch "$out"
             '';
+        server-health =
+          pkgs.runCommand "check-server-health"
+            {
+              nativeBuildInputs = [
+                pkgs.python3
+                pkgs.bash
+                pkgs.curl
+                pkgs.coreutils
+              ];
+            }
+            ''
+              mkdir scripts tests
+              cp ${./scripts/check-server-health.sh} scripts/check-server-health.sh
+              cp ${./tests/test_server_health.py} tests/test_server_health.py
+              python -m unittest discover -s tests -p 'test_server_health.py' -v
+              touch "$out"
+            '';
         game-stream-gateway = import ./tests/game-stream-gateway.nix {
           inherit pkgs;
           inherit (inputs) sops-nix;
