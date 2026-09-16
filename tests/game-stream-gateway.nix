@@ -95,7 +95,6 @@ let
       pkgs.curl
       pkgs.python3
       pkgs.socat
-      pkgs.tcpdump
       pkgs.wireguard-tools
     ];
     system.stateVersion = "26.05";
@@ -118,6 +117,19 @@ let
         Restart = "on-failure";
       };
     };
+
+  # A socat UDP client sends an empty datagram at EOF. With UDP-RECVFROM,fork,
+  # that leaves an echo child consuming later clients' packets without replies.
+  # Keep one socket and echo each datagram, including the empty one, to its sender.
+  udpEcho = pkgs.writeText "game-stream-udp-echo.py" ''
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as listener:
+        listener.bind(("${hostLanAddress}", 47998))
+        while True:
+            payload, peer = listener.recvfrom(65535)
+            listener.sendto(payload, peer)
+  '';
 in
 pkgs.testers.runNixOSTest {
   name = "game-stream-gateway";
@@ -201,7 +213,7 @@ pkgs.testers.runNixOSTest {
           requires = [ "network-addresses-eth1.service" ];
           after = [ "network-addresses-eth1.service" ];
           serviceConfig = {
-            ExecStart = "${pkgs.socat}/bin/socat UDP4-RECVFROM:47998,bind=${hostLanAddress},fork EXEC:${pkgs.coreutils}/bin/cat";
+            ExecStart = "${pkgs.python3}/bin/python ${udpEcho}";
             Restart = "on-failure";
           };
         };
@@ -278,19 +290,14 @@ pkgs.testers.runNixOSTest {
     wake_probe = (
       "python -c \"import socket; "
       "s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM); s.settimeout(5); "
-      "p=b'\\xff'*6+bytes.fromhex('020000000002')*16; "
-      "s.sendto(p,('${hostLanAddress}',47998)); assert s.recv(102)==p\""
+      "p=b'\\xff'*6+bytes.fromhex('${builtins.replaceStrings [ ":" ] [ "" ] hostMacAddress}')*16; "
+      "s.sendto(p,('${hostLanAddress}',47998)); assert s.recv(65535)==p\""
     )
-    for machine, interface in [(gateway, "eth2"), (host, "eth1")]:
-        machine.succeed(
-            f"systemd-run --unit=wake-packet-trace tcpdump -l -n -e -vv -i {interface} "
-            "'arp or udp port 47998'"
-        )
-        machine.wait_for_unit("wake-packet-trace.service")
-    try:
+    with subtest("Wake packets survive a host that does not answer ARP"):
+        host.succeed("test $(cat /sys/class/net/eth1/address) = ${hostMacAddress}")
+        # Prove the binary echo works for both peers before simulating sleep.
         client.succeed(wake_probe)
         client2.succeed(wake_probe)
-        host.succeed("test $(cat /sys/class/net/eth1/address) = ${hostMacAddress}")
         host.succeed("sysctl -w net.ipv4.conf.eth1.arp_ignore=8")
         gateway.succeed("systemctl stop game-stream-host-neighbor.service")
         client.fail(wake_probe)
@@ -298,10 +305,6 @@ pkgs.testers.runNixOSTest {
         gateway.succeed("ip neigh show ${hostLanAddress} dev eth2 | grep -q PERMANENT")
         client.succeed(wake_probe)
         client2.succeed(wake_probe)
-    finally:
-        for machine in [gateway, host]:
-            print(machine.succeed("ip -4 route; ip neigh; journalctl -u wake-packet-trace --no-pager"))
-            machine.succeed("systemctl stop wake-packet-trace.service")
         host.succeed("sysctl -w net.ipv4.conf.eth1.arp_ignore=0")
 
     client.fail("curl --fail --silent --connect-timeout 2 http://${hostLanAddress}:9999/")
