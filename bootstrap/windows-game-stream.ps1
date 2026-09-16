@@ -16,6 +16,13 @@ $ErrorActionPreference = 'Stop'
 
 $SunshineExecutable = Join-Path $env:ProgramFiles 'Sunshine\sunshine.exe'
 $SunshineConfiguration = Join-Path $env:ProgramFiles 'Sunshine\config\sunshine.conf'
+$SunshineLog = Join-Path $env:ProgramFiles 'Sunshine\config\sunshine.log'
+$HostDisplaySettings = @{
+    dd_configuration_option = 'ensure_primary'
+    dd_resolution_option = 'auto'
+    dd_refresh_rate_option = 'auto'
+    dd_config_revert_on_disconnect = 'enabled'
+}
 $MoonlightExecutable = Join-Path $env:ProgramFiles 'Moonlight Game Streaming\Moonlight.exe'
 $WireGuardExecutable = Join-Path $env:ProgramFiles 'WireGuard\wireguard.exe'
 $LegacyTunnelService = 'WireGuardTunnel$game-stream'
@@ -102,6 +109,160 @@ function Get-SunshineService {
         return $null
     }
     return Get-Service -Name $service.Name
+}
+
+function Get-VirtualDisplayDevice {
+    # Device instance numbers and friendly names can change after reinstalling.
+    # Match the driver's hardware ID instead, without including absent devices.
+    foreach ($device in @(Get-PnpDevice -Class Display -PresentOnly -ErrorAction SilentlyContinue)) {
+        $hardwareIds = Get-PnpDeviceProperty `
+            -InstanceId $device.InstanceId `
+            -KeyName DEVPKEY_Device_HardwareIds `
+            -ErrorAction SilentlyContinue
+        if ($null -ne $hardwareIds -and @($hardwareIds.Data) -contains 'Root\MttVDD') {
+            $device
+        }
+    }
+}
+
+function Get-VirtualDisplayIdFromLog {
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Content,
+        [DateTime]$Since = [DateTime]::MinValue
+    )
+
+    # Sunshine documents these device_id values as the Windows output_name.
+    # Only inspect the newest enumeration; a previous boot may describe a
+    # removed display. Never fall back to the TV or a numbered DISPLAY name.
+    $marker = 'Currently available display devices:'
+    $offset = $Content.LastIndexOf($marker, [StringComparison]::Ordinal)
+    if ($offset -lt 0) {
+        throw 'Sunshine has not logged its display devices yet.'
+    }
+    if ($Since -ne [DateTime]::MinValue) {
+        $lineStart = $Content.LastIndexOf("`n", $offset) + 1
+        $heading = $Content.Substring($lineStart, $offset - $lineStart)
+        $timestamp = [regex]::Match($heading, '^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?)\]')
+        if (-not $timestamp.Success -or [DateTime]::Parse(
+            $timestamp.Groups[1].Value, [Globalization.CultureInfo]::InvariantCulture
+        ) -lt $Since) {
+            throw 'Waiting for a fresh Sunshine display enumeration.'
+        }
+    }
+    $remaining = $Content.Substring($offset + $marker.Length).TrimStart()
+    $json = [regex]::Match($remaining, '(?s)^\[(?:\s*\]|.*?\r?\n\])')
+    if (-not $json.Success) {
+        throw 'The latest Sunshine display enumeration is incomplete or unavailable.'
+    }
+    $displays = ConvertFrom-Json -InputObject $json.Value
+    $virtualDisplays = @($displays | Where-Object {
+        $_.friendly_name -in @('VDD by MTT', 'MTT', 'IDD HDR', 'Virtual Display Driver')
+    })
+    if ($virtualDisplays.Count -ne 1) {
+        throw "Expected one Virtual Display Driver monitor in Sunshine; found $($virtualDisplays.Count). Check the display list in Sunshine Troubleshooting."
+    }
+    $identifier = [string]$virtualDisplays[0].device_id
+    if ($identifier -notmatch '^\{[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}\}$') {
+        throw 'Sunshine did not report a valid Windows device_id for the virtual monitor.'
+    }
+    return $identifier
+}
+
+function Get-VirtualDisplayConfiguration {
+    $directory = Get-ItemPropertyValue `
+        -LiteralPath 'HKLM:\SOFTWARE\MikeTheTech\VirtualDisplayDriver' `
+        -Name VDDPATH -ErrorAction SilentlyContinue
+    if ([string]::IsNullOrWhiteSpace($directory)) {
+        $directory = Join-Path $env:SystemDrive 'VirtualDisplayDriver'
+    }
+    return Join-Path $directory 'vdd_settings.xml'
+}
+
+function Wait-SunshineVirtualDisplay {
+    param([Parameter(Mandatory)][DateTime]$Since)
+
+    $deadline = [DateTime]::UtcNow.AddSeconds(20)
+    do {
+        try {
+            return Get-VirtualDisplayIdFromLog -Since $Since -Content (
+                Get-Content -LiteralPath $SunshineLog -Raw
+            )
+        }
+        catch {
+            $displayError = $_.Exception.Message
+            Start-Sleep -Milliseconds 500
+        }
+    } while ([DateTime]::UtcNow -lt $deadline)
+    throw "Could not select the virtual display: $displayError"
+}
+
+function Add-VirtualDisplayModes {
+    param([Parameter(Mandatory)][xml]$Configuration)
+
+    $resolutions = $Configuration.SelectSingleNode('/vdd_settings/resolutions')
+    if ($null -eq $resolutions) {
+        throw 'The virtual display configuration has no resolutions section.'
+    }
+    $changed = $false
+    # Include both laptop aspect ratios and the low-bandwidth diagnostic mode.
+    foreach ($size in @('1280x720', '1280x800', '1920x1080', '1920x1200', '2560x1440', '2560x1600')) {
+        $width, $height = $size -split 'x'
+        $resolution = $Configuration.SelectSingleNode(
+            "/vdd_settings/resolutions/resolution[width='$width' and height='$height']"
+        )
+        if ($null -eq $resolution) {
+            $resolution = $Configuration.CreateElement('resolution')
+            # VDD 25.7.23 consumes XML sequentially and records a resolution
+            # when reading height, so width must always precede height.
+            foreach ($field in ([ordered]@{ width = $width; height = $height }).GetEnumerator()) {
+                $element = $Configuration.CreateElement($field.Key)
+                $element.InnerText = $field.Value
+                $null = $resolution.AppendChild($element)
+            }
+            $null = $resolutions.AppendChild($resolution)
+            $changed = $true
+        }
+        foreach ($rate in @('30', '60')) {
+            $globalRate = $Configuration.SelectSingleNode("/vdd_settings/global/g_refresh_rate[text()='$rate']")
+            if ($null -eq $globalRate -and $null -eq $resolution.SelectSingleNode("refresh_rate[text()='$rate']")) {
+                $element = $Configuration.CreateElement('refresh_rate')
+                $element.InnerText = $rate
+                $null = $resolution.AppendChild($element)
+                $changed = $true
+            }
+        }
+    }
+    return $changed
+}
+
+function Set-VirtualDisplayModes {
+    $path = Get-VirtualDisplayConfiguration
+    $configuration = [xml]::new()
+    $configuration.XmlResolver = $null
+    $configuration.Load($path)
+    if (Add-VirtualDisplayModes -Configuration $configuration) {
+        if (-not (Test-Path -LiteralPath "$path.before-headless")) {
+            Copy-Item -LiteralPath $path -Destination "$path.before-headless"
+        }
+        $configuration.Save($path)
+        $device = @(Get-VirtualDisplayDevice)[0]
+        & "$env:SystemRoot\System32\pnputil.exe" /restart-device $device.InstanceId
+        if ($LASTEXITCODE -ne 0) {
+            throw 'Virtual display modes were saved, but the driver needs a Windows restart before continuing.'
+        }
+    }
+}
+
+function Assert-VirtualDisplayReady {
+    $devices = @(Get-VirtualDisplayDevice)
+    if ($devices.Count -ne 1 -or $devices[0].Status -ne 'OK') {
+        throw @'
+Install and enable one VirtualDrivers display adapter before applying the host baseline.
+Run: winget install --id VirtualDrivers.Virtual-Display-Driver --exact --source winget
+Open VDD Control and install the display driver, then rerun this command.
+WinGet installs the control app; a successful package install alone is not a working driver.
+'@
+    }
 }
 
 function Get-SunshineSetting {
@@ -250,11 +411,23 @@ function Test-SunshineFirewall {
 }
 
 function Set-HostBaseline {
+    Assert-VirtualDisplayReady
     $sunshineService = Get-SunshineService
     if ($null -eq $sunshineService) {
         throw 'Sunshine is installed, but its Windows service is unavailable.'
     }
 
+    # Keep a local backup before changing either network or display settings.
+    if (Test-Path -LiteralPath $SunshineConfiguration -PathType Leaf) {
+        $backup = "$SunshineConfiguration.before-headless"
+        if (-not (Test-Path -LiteralPath $backup)) {
+            Copy-Item -LiteralPath $SunshineConfiguration -Destination $backup
+        }
+    }
+
+    # Complete driver work first so an installation/restart failure leaves the
+    # existing Sunshine service and network policy available for recovery.
+    Set-VirtualDisplayModes
     Set-Service -Name $sunshineService.Name -StartupType Disabled
     if ((Get-Service -Name $sunshineService.Name).Status -ne 'Stopped') {
         Stop-Service -Name $sunshineService.Name -Force
@@ -282,7 +455,26 @@ function Set-HostBaseline {
         -Force
 
     Set-Service -Name $sunshineService.Name -StartupType Automatic
+    $enumerationSince = Get-Date
     Start-Service -Name $sunshineService.Name
+
+    # Restarting refreshes Sunshine's own enumeration, including inactive
+    # virtual monitors. Keep the service usable if discovery fails.
+    $displayId = Wait-SunshineVirtualDisplay -Since $enumerationSince
+
+    Stop-Service -Name $sunshineService.Name -Force
+    try {
+        Set-SunshineSetting -Name output_name -Value $displayId
+        foreach ($setting in $HostDisplaySettings.GetEnumerator()) {
+            Set-SunshineSetting -Name $setting.Key -Value $setting.Value
+        }
+    }
+    finally {
+        $enumerationSince = Get-Date
+        Start-Service -Name $sunshineService.Name
+    }
+    $null = Wait-SunshineVirtualDisplay -Since $enumerationSince
+    Write-Host "Sunshine will stream virtual display $displayId and restore the display layout on disconnect."
 }
 
 function Set-ClientBaseline {
@@ -310,6 +502,29 @@ function Get-ConfigurationFindings {
             if ((Get-SunshineSetting -Name $setting.Key) -ne $setting.Value) {
                 $findings.Add("Sunshine setting '$($setting.Key)' differs")
             }
+        }
+        foreach ($setting in $HostDisplaySettings.GetEnumerator()) {
+            if ((Get-SunshineSetting -Name $setting.Key) -ne $setting.Value) {
+                $findings.Add("Sunshine display setting '$($setting.Key)' differs")
+            }
+        }
+        try {
+            Assert-VirtualDisplayReady
+            $displayConfiguration = [xml]::new()
+            $displayConfiguration.XmlResolver = $null
+            $displayConfiguration.Load((Get-VirtualDisplayConfiguration))
+            if (Add-VirtualDisplayModes -Configuration $displayConfiguration) {
+                $findings.Add('virtual display is missing laptop resolutions or 30/60 Hz modes')
+            }
+            $displayId = Get-VirtualDisplayIdFromLog -Content (
+                Get-Content -LiteralPath $SunshineLog -Raw
+            )
+            if ((Get-SunshineSetting -Name output_name) -ne $displayId) {
+                $findings.Add('Sunshine is not configured to capture the virtual display')
+            }
+        }
+        catch {
+            $findings.Add($_.Exception.Message)
         }
         if (-not (Test-SunshineFirewall)) {
             $findings.Add('Sunshine private-LAN firewall policy differs')
@@ -348,13 +563,13 @@ function Write-Observations {
         if ($null -ne (Get-Service -Name $LegacyTunnelService -ErrorAction SilentlyContinue)) {
             Write-Warning 'A legacy host WireGuard tunnel remains installed. Remove it after migrating the gateway and client.'
         }
-        $privateNetwork = @(
-            Get-NetConnectionProfile -ErrorAction SilentlyContinue |
-                Where-Object { $_.NetworkCategory -eq 'Private' -and $_.IPv4Connectivity -ne 'Disconnected' }
-        ).Count -gt 0
-        if (-not $privateNetwork) {
-            Write-Warning 'No active Private Windows network was observed; the Sunshine firewall remains closed.'
+        foreach ($network in @(Get-NetConnectionProfile -ErrorAction SilentlyContinue)) {
+            if ($network.IPv4Connectivity -ne 'Disconnected' -and $network.NetworkCategory -ne 'Private') {
+                Write-Warning "Network '$($network.InterfaceAlias)' is $($network.NetworkCategory); Sunshine is blocked on this adapter."
+            }
         }
+        Write-Host 'In Moonlight, enable Optimize game settings for automatic virtual-display resolution.'
+        Write-Host 'Prove a fresh stream with the TV off, then repeat after idle and reboot before relying on unattended access.'
     }
     else {
         $tunnel = Get-Service -Name $LegacyTunnelService -ErrorAction SilentlyContinue
