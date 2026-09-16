@@ -345,6 +345,8 @@ if [[ "${check_only}" == false ]]; then
   notification_phase=preflight
   echo "==> Verifying live activation access"
   verify_activation_access
+  echo "==> Checking storage before building the release"
+  caz-check-deployment-storage
 fi
 
 echo "==> Downloading the signed deployment metadata"
@@ -630,6 +632,11 @@ exec 8>"$container_maintenance_lock"
 echo "==> Waiting for exclusive container maintenance access"
 flock --exclusive 8
 
+# Builds can consume substantial space. Recheck after waiting for maintenance
+# access, before a backup stops services or adoption refreshes boot entries.
+echo "==> Rechecking storage before backups or activation"
+caz-check-deployment-storage
+
 current_store_path="$(readlink --canonicalize /run/current-system)"
 if [[ "$current_store_path" == "$built_store_path" ]]; then
   echo "==> ${release_tag} is already the running system; adopting it as verified"
@@ -658,6 +665,12 @@ server_health --wait 60
 echo "==> Protecting mutable application state before activation"
 notification_phase=backup
 CAZ_CONTAINER_MAINTENANCE_LOCK_HELD=true caz-pre-deployment-backup
+
+# Backups consume the same root NVMe as the live services. A low-space result
+# here is a preflight failure, not a bad release to quarantine or roll back.
+notification_phase=preflight
+echo "==> Rechecking storage after the local backups"
+caz-check-deployment-storage
 
 previous_store_path="$current_store_path"
 # Keep the rollback closure alive even after the system profile moves forward.

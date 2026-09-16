@@ -33,9 +33,9 @@ while IFS= read -r check_name; do
   [[ -n "${check_name}" ]] || continue
 
   case "${check_name}" in
-    homeserver | release-notifications) check_group=homeserver ;;
+    homeserver | release-notifications | deployment-storage) check_group=homeserver ;;
     wsl-*) check_group=wsl ;;
-    game-stream-* | home-access-gateway | network-policy) check_group=integration ;;
+    game-stream-* | home-access-gateway | network-policy | deployment-storage-integration) check_group=integration ;;
     *)
       echo "Flake check '${check_name}' has no CI group." >&2
       unclassified=true
