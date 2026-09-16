@@ -95,6 +95,7 @@ let
       pkgs.curl
       pkgs.python3
       pkgs.socat
+      pkgs.tcpdump
       pkgs.wireguard-tools
     ];
     system.stateVersion = "26.05";
@@ -276,18 +277,32 @@ pkgs.testers.runNixOSTest {
     # The UDP echo proves delivery; a VM cannot prove physical wake support.
     wake_probe = (
       "python -c \"import socket; "
-      "s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM); s.settimeout(2); "
+      "s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM); s.settimeout(5); "
       "p=b'\\xff'*6+bytes.fromhex('020000000002')*16; "
       "s.sendto(p,('${hostLanAddress}',47998)); assert s.recv(102)==p\""
     )
-    host.succeed("sysctl -w net.ipv4.conf.eth1.arp_ignore=8")
-    gateway.succeed("systemctl stop game-stream-host-neighbor.service")
-    client.fail(wake_probe)
-    gateway.succeed("systemctl start game-stream-host-neighbor.service")
-    gateway.succeed("ip neigh show ${hostLanAddress} dev eth2 | grep -q PERMANENT")
-    client.succeed(wake_probe)
-    client2.succeed(wake_probe)
-    host.succeed("sysctl -w net.ipv4.conf.eth1.arp_ignore=0")
+    for machine, interface in [(gateway, "eth2"), (host, "eth1")]:
+        machine.succeed(
+            f"systemd-run --unit=wake-packet-trace tcpdump -l -n -e -vv -i {interface} "
+            "'arp or udp port 47998'"
+        )
+        machine.wait_for_unit("wake-packet-trace.service")
+    try:
+        client.succeed(wake_probe)
+        client2.succeed(wake_probe)
+        host.succeed("test $(cat /sys/class/net/eth1/address) = ${hostMacAddress}")
+        host.succeed("sysctl -w net.ipv4.conf.eth1.arp_ignore=8")
+        gateway.succeed("systemctl stop game-stream-host-neighbor.service")
+        client.fail(wake_probe)
+        gateway.succeed("systemctl start game-stream-host-neighbor.service")
+        gateway.succeed("ip neigh show ${hostLanAddress} dev eth2 | grep -q PERMANENT")
+        client.succeed(wake_probe)
+        client2.succeed(wake_probe)
+    finally:
+        for machine in [gateway, host]:
+            print(machine.succeed("ip -4 route; ip neigh; journalctl -u wake-packet-trace --no-pager"))
+            machine.succeed("systemctl stop wake-packet-trace.service")
+        host.succeed("sysctl -w net.ipv4.conf.eth1.arp_ignore=0")
 
     client.fail("curl --fail --silent --connect-timeout 2 http://${hostLanAddress}:9999/")
     client.succeed(
