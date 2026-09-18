@@ -52,6 +52,9 @@ pauses the other mutable applications, and archives their state. Home Assistant
 is stopped during this short window so its SQLite database is clean in the
 archive. Three archives are retained under `/var/backup/caz-release-updater`;
 Minecraft retains its separate daily archives under `/var/backup/minecraft`.
+When enabled, Factorio is briefly stopped for a consistent separate archive
+under `/var/backup/factorio`, then restarted. Its seven most recent archives
+are retained. Membership edits and daily backups share the deployment lock.
 Backup and deployment hold the same maintenance lock as aggressive Docker
 image pruning, so a stopped container's pinned image cannot disappear before
 the service restarts.
@@ -64,6 +67,7 @@ them to remain healthy for another minute:
   HTTP responses;
 - an actual DNS lookup through the local AdGuard Home resolver;
 - the Minecraft container, its RCON console, and public-listener socket.
+- the Factorio service, its own UDP listener, and the persisted whitelist guard.
 
 If activation or a health check fails, the updater restores the previous NixOS
 profile, activates it, and runs the same health gate. The failed release is

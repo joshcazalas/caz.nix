@@ -25,6 +25,11 @@ fi
 echo "==> Creating an application-consistent Minecraft backup"
 systemctl start minecraft-backup.service
 
+if [[ "${CAZ_BACKUP_FACTORIO:-false}" == true ]]; then
+  echo "==> Creating an application-consistent Factorio backup"
+  CAZ_CONTAINER_MAINTENANCE_LOCK_HELD=true "${CAZ_BACKUP_FACTORIO_COMMAND:-factorio-access}" backup
+fi
+
 declare -a stopped_units=()
 services_restarted=false
 

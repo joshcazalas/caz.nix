@@ -33,6 +33,7 @@ in
     ../../modules/nixos/bluemap.nix
     ../../modules/nixos/jellyfin.nix
     ../../modules/nixos/minecraft.nix
+    ../../modules/nixos/factorio.nix
     ../../modules/nixos/monitoring.nix
     ../../modules/nixos/monitoring-rules.nix
     ../../modules/nixos/home-assistant.nix
@@ -59,6 +60,9 @@ in
     enable = true;
     domains = [
       "mc.${settings.public.domain}"
+    ]
+    ++ lib.optionals (config.services.factorio.enable && config.services.factorio.openFirewall) [
+      "factorio.${settings.public.domain}"
     ]
     ++ lib.optionals config.homelab.gameStreamGateway.enable [
       "game-vpn.${settings.public.domain}"
@@ -173,6 +177,11 @@ in
     gameMode = "survival";
     difficulty = "hard";
     seed = "1691256543523180978";
+  };
+
+  services.factorio = {
+    enable = true;
+    openFirewall = true;
   };
 
   assertions = [

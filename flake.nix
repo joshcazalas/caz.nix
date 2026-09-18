@@ -133,6 +133,27 @@
 
       checks.${system} = {
         homeserver = self.nixosConfigurations.${settings.server.hostName}.config.system.build.toplevel;
+        factorio =
+          pkgs.runCommand "check-factorio"
+            {
+              nativeBuildInputs = [
+                pkgs.python3
+                pkgs.gnutar
+                pkgs.zstd
+              ];
+              FACTORIO_PACKAGE = homeserver.config.services.factorio.package;
+              FACTORIO_EXEC_START = homeserver.config.systemd.services.factorio.serviceConfig.ExecStart;
+              FACTORIO_STATE_DIR = "/var/lib/${homeserver.config.services.factorio.stateDirName}";
+            }
+            ''
+              mkdir scripts tests
+              cp ${./scripts/factorio-admin.py} scripts/factorio-admin.py
+              cp ${./tests/test_factorio_admin.py} tests/test_factorio_admin.py
+              cp ${./tests/factorio-runtime.py} tests/factorio-runtime.py
+              python -m unittest discover -s tests -p 'test_factorio_admin.py' -v
+              python tests/factorio-runtime.py
+              touch "$out"
+            '';
         deployment-storage =
           pkgs.runCommand "check-deployment-storage"
             {

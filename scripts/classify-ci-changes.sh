@@ -92,7 +92,7 @@ else
         homeserver=true
         ;;
 
-      tests/test_server_health.py)
+      tests/test_server_health.py | scripts/factorio-admin.py | tests/test_factorio_admin.py | tests/factorio-runtime.py)
         homeserver=true
         ;;
 

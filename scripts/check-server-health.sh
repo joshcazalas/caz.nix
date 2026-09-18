@@ -124,6 +124,12 @@ check_once() {
     fi
   fi
 
+  if [[ "${CAZ_HEALTH_CHECK_FACTORIO:-false}" == true ]]; then
+    if ! "${CAZ_HEALTH_FACTORIO_COMMAND:-factorio-access}" health >/dev/null 2>&1; then
+      failures+=("factorio:listener-or-whitelist")
+    fi
+  fi
+
   if (( ${#failures[@]} > 0 )); then
     printf 'Unhealthy checks: %s\n' "$(IFS=,; echo "${failures[*]}")" >&2
     return 1

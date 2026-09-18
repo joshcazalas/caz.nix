@@ -55,7 +55,8 @@ class ServerHealthTests(unittest.TestCase):
         self.url = f"http://127.0.0.1:{self.server.server_port}/probe"
 
     def run_health(
-        self, statuses="200", url=None, args=(), contract=None, short_sleep=False
+        self, statuses="200", url=None, args=(), contract=None, short_sleep=False,
+        factorio_status=None
     ):
         env = {
             key: value
@@ -70,6 +71,14 @@ class ServerHealthTests(unittest.TestCase):
             NO_PROXY="127.0.0.1",
             no_proxy="127.0.0.1",
         )
+        if factorio_status is not None:
+            probe = self.root / "factorio-access"
+            probe.write_text(
+                f'#!{shutil.which("bash")}\n[[ "$1" == health ]] || exit 99\nexit {factorio_status}\n'
+            )
+            probe.chmod(0o755)
+            env["CAZ_HEALTH_CHECK_FACTORIO"] = "true"
+            env["CAZ_HEALTH_FACTORIO_COMMAND"] = str(probe)
         if short_sleep:
             # Keep the production wait/stabilization control flow. Only its
             # sleeps are shortened so recheck tests take seconds, not minutes.
@@ -101,6 +110,14 @@ class ServerHealthTests(unittest.TestCase):
                     self.assertIn(
                         f"http:test:status={status}(expected=200)", result.stderr
                     )
+
+    def test_factorio_probe_failure_rejects_release(self):
+        for status in (0, 1):
+            with self.subTest(status=status):
+                result = self.run_health(factorio_status=status)
+                self.assertEqual(result.returncode, status, result.stderr)
+                if status:
+                    self.assertIn("factorio:listener-or-whitelist", result.stderr)
 
     def test_frontend_redirect_is_explicit_and_not_followed(self):
         type(self).responses = deque([302, 404])
