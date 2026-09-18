@@ -61,6 +61,7 @@ their standard Bash integrations.
 | Home Assistant Container | on | LAN or SSH forwarding | Local automation, dashboards, and device integration |
 | Immich | off | LAN or SSH forwarding initially | Photo library, not a backup by itself |
 | Minecraft | on | LAN TCP 25565; Internet after manual DNS/router setup | Pinned Paper server with a locally managed whitelist and daily backups |
+| Portfolio website | on | LAN HTTP 8088; public hosting disabled | Verified static releases, atomic activation, and rollback ([operations](docs/website.md)) |
 | Factorio Space Age | on | UDP 34197; Internet after router forwarding | Native NixOS server, locally managed whitelist, and daily backups |
 | BlueMap | on | Public HTTPS after manual router setup | Static 3D world map served by Caddy; no player markers, bounded render |
 | Release updater | on | outbound HTTPS only | Verified maintenance-window deployment, health checks, and rollback |
@@ -148,6 +149,7 @@ docs/dns-recovery.md              temporary DNS fallback and return to AdGuard
 docs/home-assistant.md            container, onboarding, backups, and operations
 docs/minecraft.md                 pinned server, backups, and exposure checklist
 docs/factorio.md                  native Space Age server, access, backups, and learning guide
+docs/website.md                   portfolio preview, signed releases, and rollback
 docs/ci-and-releases.md           update, validation, SBOM, and release design
 docs/publication-checklist.md     safe path from private to public
 scripts/                          local CI, secret scan, and release tooling

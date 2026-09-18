@@ -30,6 +30,7 @@ in
     ../../modules/nixos/filesharing.nix
     ../../modules/nixos/adguard-home.nix
     ../../modules/nixos/auxide.nix
+    ../../modules/nixos/website.nix
     ../../modules/nixos/bluemap.nix
     ../../modules/nixos/jellyfin.nix
     ../../modules/nixos/minecraft.nix
@@ -169,6 +170,10 @@ in
       z = 1441;
     };
   };
+
+  # A manually imported candidate is visible only on the private HTTP listener.
+  # Signed automatic updates and public HTTPS are separate opt-ins.
+  homelab.website.enable = true;
 
   homelab.minecraft = {
     enable = true;

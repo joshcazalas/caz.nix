@@ -56,10 +56,15 @@ else
       hosts/homeserver/* | modules/nixos/* | secrets/*)
         homeserver=true
         case "${path}" in
-          modules/nixos/game-stream-* | modules/nixos/home-access-gateway.nix | modules/nixos/network-policy.nix)
+          modules/nixos/game-stream-* | modules/nixos/home-access-gateway.nix | modules/nixos/network-policy.nix | modules/nixos/website.nix)
             integration=true
             ;;
         esac
+        ;;
+
+      packages/website-updater/*)
+        homeserver=true
+        integration=true
         ;;
 
       home-assistant/*)

@@ -31,7 +31,8 @@ let
     8096 # Jellyfin HTTP
   ]
   ++ optionals config.homelab.homeAssistant.enable [ 8123 ]
-  ++ optionals config.homelab.immich.enable [ 2283 ];
+  ++ optionals config.homelab.immich.enable [ 2283 ]
+  ++ optionals config.homelab.website.enable [ config.homelab.website.previewPort ];
 
   privateUDPPorts = [
     53 # AdGuard Home DNS
@@ -81,10 +82,17 @@ let
     ++ optionals (config.homelab.minecraft.enable && config.homelab.minecraft.openFirewall) [
       config.homelab.minecraft.port
     ]
-    ++ optionals (settings.public.jellyfin || settings.public.bluemap) [
-      80
-      443
-    ];
+    ++
+      optionals
+        (
+          settings.public.jellyfin
+          || settings.public.bluemap
+          || (config.homelab.website.enable && config.homelab.website.public.enable)
+        )
+        [
+          80
+          443
+        ];
   expectedPublicUDPPorts =
     optionals (config.services.factorio.enable && config.services.factorio.openFirewall) [
       config.services.factorio.port
