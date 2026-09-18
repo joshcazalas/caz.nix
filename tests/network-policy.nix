@@ -17,7 +17,8 @@ let
     JS
   '';
   holdLock = pkgs.writeShellScript "hold-website-test-lock" ''
-    touch /var/lib/caz-website-preview/test-lock-ready
+    set -eu
+    ${pkgs.coreutils}/bin/touch /var/lib/caz-website-preview/test-lock-ready
     exec ${pkgs.coreutils}/bin/sleep infinity
   '';
 
@@ -169,7 +170,7 @@ pkgs.testers.runNixOSTest {
     assert '"held": false' in server.succeed(f"{updater} status")
     server.fail(f"{updater} update")
     server.succeed("systemd-run --unit=website-lock-test --property=User=caz-website ${pkgs.util-linux}/bin/flock /var/lib/caz-website-preview/update.lock ${holdLock}")
-    server.wait_until_succeeds("test -e /var/lib/caz-website-preview/test-lock-ready")
+    server.wait_until_succeeds("test -e /var/lib/caz-website-preview/test-lock-ready", timeout=30)
     status, output = server.execute(f"{updater} status")
     assert status == 75, output
     server.succeed("systemctl stop website-lock-test.service")
