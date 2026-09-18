@@ -87,6 +87,12 @@ pkgs.testers.runNixOSTest {
       ];
       virtualisation.vlans = [ 1 ];
       networking.interfaces.eth1 = staticAddress serverAddress;
+      # This test LAN is not the VM's default route. Include its static address
+      # in network-online readiness, as DHCP does for the real server.
+      systemd.services.network-addresses-eth1 = {
+        before = [ "network-online.target" ];
+        wantedBy = [ "network-online.target" ];
+      };
       networking.firewall.allowedTCPPorts = [ 22 ];
       services.openssh.enable = true;
       homelab.website.enable = true;

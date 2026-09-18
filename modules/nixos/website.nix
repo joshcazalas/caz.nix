@@ -134,6 +134,13 @@ in
       443
     ];
 
+    # The preview binds a specific LAN address, which must exist before Caddy
+    # starts. network.target alone does not wait for DHCP to finish.
+    systemd.services.caddy = {
+      wants = [ "network-online.target" ];
+      after = [ "network-online.target" ];
+    };
+
     systemd.services.caz-website-updater = {
       description = "Verify and atomically deploy the portfolio website";
       after = [
