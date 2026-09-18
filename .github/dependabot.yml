@@ -42,3 +42,18 @@ updates:
     open-pull-requests-limit: 1
     commit-message:
       prefix: "deps(actions)"
+
+  - package-ecosystem: npm
+    directory: /packages/website-updater
+    schedule:
+      interval: weekly
+      day: monday
+      time: "10:17"
+      timezone: America/Chicago
+    groups:
+      website-updater:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 1
+    commit-message:
+      prefix: "deps(website)"

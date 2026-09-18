@@ -99,7 +99,10 @@
     {
       formatter.${system} = pkgs.nixfmt-tree;
 
-      packages.${system}.home-manager = home-manager.packages.${system}.home-manager;
+      packages.${system} = {
+        website-updater = pkgs.callPackage ./packages/website-updater { };
+        home-manager = home-manager.packages.${system}.home-manager;
+      };
       apps.${system}.home-manager = {
         type = "app";
         program = "${home-manager.packages.${system}.home-manager}/bin/home-manager";
@@ -132,6 +135,7 @@
       nixosConfigurations.${settings.server.hostName} = homeserver;
 
       checks.${system} = {
+        website-updater = self.packages.${system}.website-updater;
         homeserver = self.nixosConfigurations.${settings.server.hostName}.config.system.build.toplevel;
         factorio =
           pkgs.runCommand "check-factorio"
