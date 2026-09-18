@@ -16,6 +16,10 @@ let
     for (const digit of ['a', 'b']) bundle(process.argv[2], digit);
     JS
   '';
+  holdLock = pkgs.writeShellScript "hold-website-test-lock" ''
+    touch /var/lib/caz-website-preview/test-lock-ready
+    exec ${pkgs.coreutils}/bin/sleep infinity
+  '';
 
   settings.server.lanAddress = serverAddress;
   settings.public = {
@@ -164,9 +168,12 @@ pkgs.testers.runNixOSTest {
     server.succeed(f"{updater} resume")
     assert '"held": false' in server.succeed(f"{updater} status")
     server.fail(f"{updater} update")
-    server.succeed("runuser -u caz-website -- flock /var/lib/caz-website-preview/update.lock sleep 10 &")
-    server.wait_until_succeeds("pgrep -f 'flock /var/lib/caz-website-preview/update.lock'")
-    server.fail(f"{updater} status")
+    server.succeed("systemd-run --unit=website-lock-test --property=User=caz-website ${pkgs.util-linux}/bin/flock /var/lib/caz-website-preview/update.lock ${holdLock}")
+    server.wait_until_succeeds("test -e /var/lib/caz-website-preview/test-lock-ready")
+    status, output = server.execute(f"{updater} status")
+    assert status == 75, output
+    server.succeed("systemctl stop website-lock-test.service")
+    server.succeed(f"{updater} status")
 
     server.succeed(
       "iptables -w -C nixos-fw -s ${restrictedAddress}/32 -p tcp "

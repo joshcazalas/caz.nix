@@ -13,8 +13,8 @@ WireGuard and container interfaces. No new globally open port is added.
 ## Import a private preview
 
 After deploying the NixOS configuration through the normal server release
-process, download a website release candidate from a successful Actions run on
-your workstation. Use a run built with release manifest schema 2. Confirm the
+process, download a website release candidate from a successful main-branch
+Release run on your workstation. Use a run built with release manifest schema 2. Confirm the
 full source SHA against the run's commit, then copy the seven candidate files to
 a temporary directory on the server readable by `caz-website`.
 
