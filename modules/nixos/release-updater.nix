@@ -33,6 +33,7 @@ let
   '';
 
   minecraftEnabled = config.homelab.minecraft.enable;
+  factorioEnabled = config.services.factorio.enable;
   homeAssistantEnabled = config.homelab.homeAssistant.enable;
   homeAssistantUnit = "docker-homeassistant.service";
   homeAssistantStatePath = lib.removePrefix "/" config.homelab.homeAssistant.dataDir;
@@ -70,6 +71,7 @@ let
     ++ optionals homeAssistantEnabled [ homeAssistantUnit ]
     ++ optionals config.homelab.immich.enable [ "immich-server.service" ]
     ++ optionals minecraftEnabled [ "docker-minecraft.service" ]
+    ++ optionals factorioEnabled [ "factorio.service" ]
     ++ optionals config.services.caddy.enable [ "caddy.service" ];
   requiredSockets = optionals (minecraftEnabled && config.homelab.minecraft.openFirewall) [
     "minecraft-proxy.socket"
@@ -114,6 +116,8 @@ let
       export CAZ_HEALTH_HTTP_ENDPOINTS=${lib.escapeShellArg (concatStringsSep " " httpEndpoints)}
       export CAZ_HEALTH_CHECK_DNS=${lib.boolToString config.services.adguardhome.enable}
       export CAZ_HEALTH_CHECK_MINECRAFT=${lib.boolToString minecraftEnabled}
+      export CAZ_HEALTH_CHECK_FACTORIO=${lib.boolToString factorioEnabled}
+      export CAZ_HEALTH_FACTORIO_COMMAND=/run/current-system/sw/bin/factorio-access
 
       ${builtins.readFile ../../scripts/check-server-health.sh}
     '';
@@ -157,6 +161,10 @@ let
     ++ optionals minecraftEnabled [
       config.homelab.minecraft.dataDir
       config.homelab.minecraft.backupDir
+    ]
+    ++ optionals factorioEnabled [
+      "/var/lib/${config.services.factorio.stateDirName}"
+      "/var/backup/factorio"
     ]
   );
   # Longest containing mount wins. A missing mount must not silently fall back
@@ -206,6 +214,8 @@ let
     text = ''
       export CAZ_BACKUP_DIRECTORY=/var/backup/caz-release-updater
       export CAZ_BACKUP_RETENTION_COUNT=${toString cfg.stateBackupRetention}
+      export CAZ_BACKUP_FACTORIO=${lib.boolToString factorioEnabled}
+      export CAZ_BACKUP_FACTORIO_COMMAND=/run/current-system/sw/bin/factorio-access
       export CAZ_BACKUP_PAUSE_UNITS=${lib.escapeShellArg (concatStringsSep " " pauseUnits)}
       export CAZ_BACKUP_STATE_PATHS=${lib.escapeShellArg (concatStringsSep " " backupStatePaths)}
       export CAZ_CONTAINER_MAINTENANCE_LOCK=${lib.escapeShellArg containerMaintenanceLock}

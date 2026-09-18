@@ -86,7 +86,10 @@ let
       443
     ];
   expectedPublicUDPPorts =
-    optionals config.homelab.gameStreamGateway.enable [
+    optionals (config.services.factorio.enable && config.services.factorio.openFirewall) [
+      config.services.factorio.port
+    ]
+    ++ optionals config.homelab.gameStreamGateway.enable [
       config.homelab.gameStreamGateway.listenPort
     ]
     ++ optionals config.homelab.homeAccessGateway.enable [

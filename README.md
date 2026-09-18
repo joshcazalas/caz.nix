@@ -61,6 +61,7 @@ their standard Bash integrations.
 | Home Assistant Container | on | LAN or SSH forwarding | Local automation, dashboards, and device integration |
 | Immich | off | LAN or SSH forwarding initially | Photo library, not a backup by itself |
 | Minecraft | on | LAN TCP 25565; Internet after manual DNS/router setup | Pinned Paper server with a locally managed whitelist and daily backups |
+| Factorio Space Age | on | UDP 34197; Internet after router forwarding | Native NixOS server, locally managed whitelist, and daily backups |
 | BlueMap | on | Public HTTPS after manual router setup | Static 3D world map served by Caddy; no player markers, bounded render |
 | Release updater | on | outbound HTTPS only | Verified maintenance-window deployment, health checks, and rollback |
 
@@ -73,6 +74,7 @@ public-key authentication through the trusted LAN or administrator WireGuard
 peer. The router's TCP 22 forward has been removed. Fail2ban runs only when
 public SSH or public Jellyfin is enabled; both are currently disabled.
 Minecraft TCP 25565 and Caddy TCP 80/443 remain deliberately public services.
+Factorio UDP 34197 is also deliberately public; player access is whitelist-controlled.
 IPv6 is temporarily disabled until its firewall and external reachability are
 reviewed and tested deliberately.
 
@@ -107,6 +109,8 @@ Jellyfin provides separate, non-admin usernames and passwords.
   `/var/lib/homelab/home-assistant` and join every pre-deployment state archive.
 - Minecraft state and its local backup set live separately at
   `/var/lib/minecraft` and `/var/backup/minecraft`.
+- Factorio state lives at `/var/lib/factorio` (systemd's private state directory);
+  its seven most recent local archives live at `/var/backup/factorio`.
 - Three pre-deployment archives of mutable application state are retained under
   `/var/backup/caz-release-updater`.
 - The unreliable HDD is not mounted, scrubbed, or referenced by this flake.
@@ -143,6 +147,7 @@ docs/install-server.md            safe installation-day checklist
 docs/dns-recovery.md              temporary DNS fallback and return to AdGuard
 docs/home-assistant.md            container, onboarding, backups, and operations
 docs/minecraft.md                 pinned server, backups, and exposure checklist
+docs/factorio.md                  native Space Age server, access, backups, and learning guide
 docs/ci-and-releases.md           update, validation, SBOM, and release design
 docs/publication-checklist.md     safe path from private to public
 scripts/                          local CI, secret scan, and release tooling
