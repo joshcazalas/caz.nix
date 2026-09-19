@@ -59,8 +59,14 @@ in
   # only at activation time and never enters the Nix store.
   homelab.cloudflareDdns = {
     enable = true;
+    allowedZones = [
+      settings.public.domain
+      config.homelab.website.public.domain
+    ];
     domains = [
       "mc.${settings.public.domain}"
+      # Prepare website DNS independently of enabling public serving.
+      config.homelab.website.public.domain
     ]
     ++ lib.optionals (config.services.factorio.enable && config.services.factorio.openFirewall) [
       "factorio.${settings.public.domain}"
@@ -171,9 +177,13 @@ in
     };
   };
 
-  # A manually imported candidate is visible only on the private HTTP listener.
-  # Signed automatic updates and public HTTPS are separate opt-ins.
-  homelab.website.enable = true;
+  homelab.website = {
+    enable = true;
+    mode = "release";
+    automaticUpdates = true;
+    # Temporarily enabled for end-to-end verification of the public site.
+    public.enable = true;
+  };
 
   homelab.minecraft = {
     enable = true;

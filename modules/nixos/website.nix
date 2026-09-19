@@ -58,7 +58,7 @@ in
     public.domain = lib.mkOption {
       type = lib.types.strMatching "[a-zA-Z0-9][a-zA-Z0-9.-]+";
       default = "joshcazalas.com";
-      description = "Public hostname, used only after public serving is explicitly enabled.";
+      description = "Public hostname for HTTPS and the homeserver's managed DNS record. Public serving is enabled separately.";
     };
     automaticUpdates = lib.mkEnableOption "scheduled verified website updates";
     pinnedTag = lib.mkOption {

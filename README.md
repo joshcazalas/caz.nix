@@ -61,7 +61,7 @@ their standard Bash integrations.
 | Home Assistant Container | on | LAN or SSH forwarding | Local automation, dashboards, and device integration |
 | Immich | off | LAN or SSH forwarding initially | Photo library, not a backup by itself |
 | Minecraft | on | LAN TCP 25565; Internet after manual DNS/router setup | Pinned Paper server with a locally managed whitelist and daily backups |
-| Portfolio website | on | LAN HTTP 8088; public hosting disabled | Verified static releases, atomic activation, and rollback ([operations](docs/website.md)) |
+| Portfolio website | on | LAN HTTP 8088; public HTTPS at joshcazalas.com | Verified static releases, atomic activation, and rollback ([operations](docs/website.md)) |
 | Factorio Space Age | on | UDP 34197; Internet after router forwarding | Native NixOS server, locally managed whitelist, and daily backups |
 | BlueMap | on | Public HTTPS after manual router setup | Static 3D world map served by Caddy; no player markers, bounded render |
 | Release updater | on | outbound HTTPS only | Verified maintenance-window deployment, health checks, and rollback |
