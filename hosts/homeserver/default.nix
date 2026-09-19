@@ -177,9 +177,13 @@ in
     };
   };
 
-  # A manually imported candidate is visible only on the private HTTP listener.
-  # Signed automatic updates and public HTTPS are separate opt-ins.
-  homelab.website.enable = true;
+  homelab.website = {
+    enable = true;
+    mode = "release";
+    automaticUpdates = true;
+    # Temporarily enabled for end-to-end verification of the public site.
+    public.enable = true;
+  };
 
   homelab.minecraft = {
     enable = true;

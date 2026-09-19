@@ -4,11 +4,12 @@ The website module serves the static build from `joshcazalas/website` through
 Caddy. It does not clone or build the website on the server. The updater runs
 TypeScript directly on Node 24; Node is not involved in serving requests.
 
-The homeserver configuration enables a **LAN-only preview** on port 8088. Public
-HTTPS and automatic updates are disabled. Caddy binds this listener to loopback
-and `settings.server.lanAddress`. The existing network policy permits ordinary
-LAN clients, denies restricted clients unless explicitly allowed, and excludes
-WireGuard and container interfaces. No new globally open port is added.
+The homeserver configuration uses **signed release mode** with automatic updates
+and public HTTPS at `joshcazalas.com`, enabled for end-to-end verification. A
+separate HTTP listener on port 8088 binds to loopback and
+`settings.server.lanAddress`. The existing network policy permits ordinary LAN
+clients, denies restricted clients unless explicitly allowed, and excludes
+WireGuard and container interfaces from that listener.
 
 ## Prepare DNS
 
@@ -20,12 +21,47 @@ public IPv4 address. The updater preserves that record's existing proxy setting
 and keeps its origin address current.
 
 After deploying the configuration, check `cloudflare-ddns.service` and its
-journal to confirm the apex is managed. DNS preparation does not enable public
-serving or open ports. Keep `homelab.website.public.enable = false` until the
-signed release is running and you are ready to expose the site. At launch,
-forward TCP ports 80 and 443 to Caddy and enable public serving separately.
+journal to confirm the apex is managed. DNS updates continue if public website
+serving is later disabled.
+
+For public serving, forward TCP ports 80 and 443 to the homeserver. Caddy handles
+certificates and HTTP-to-HTTPS redirects; see its
+[HTTPS requirements](https://caddyserver.com/docs/automatic-https#overview).
+If the record is proxied, use Cloudflare's
+[Full (strict) SSL/TLS mode](https://developers.cloudflare.com/ssl/origin-configuration/ssl-modes/full-strict/)
+once Caddy has obtained the origin certificate.
+
+## Verify the public deployment
+
+After merging and deploying the server release, fetch the first signed website
+release immediately instead of waiting for the hourly timer:
+
+```bash
+sudo systemctl start caz-website-updater.service
+journalctl -u caz-website-updater.service -n 100 --no-pager
+sudo -u caz-website caz-website-updater --config /etc/website-updater.json status
+curl -fsS http://127.0.0.1:8088/release.json
+```
+
+The updater verifies the release signatures and inventories before activation.
+It also checks the page, release identity, and every deployed file over the
+local HTTP listener. Compare the reported commit with the website release.
+
+From a device outside the home network, open `https://joshcazalas.com`, press
+Play, and visit each project outpost. Check the same release identity at
+`https://joshcazalas.com/release.json`. If HTTPS is unavailable, inspect
+`journalctl -u caddy.service` and confirm the router forwards both ports to the
+homeserver.
+
+To return to LAN-only serving after verification, set
+`homelab.website.public.enable = false` in a follow-up PR and deploy it. Keep
+release mode and automatic updates enabled; the LAN listener will continue to
+serve verified releases, and DDNS will keep the apex current.
 
 ## Import a private preview
+
+For an unsigned local preview, first configure `mode = "preview"`,
+`automaticUpdates = false`, and `public.enable = false`.
 
 After deploying the NixOS configuration through the normal server release
 process, download a website release candidate from a successful main-branch
@@ -53,28 +89,32 @@ acceptance; the updater has its own copy. Before the first import the listener
 returns 404. Preview imports check identities, inventories, checksums, archive
 paths, and HTTP responses, but **do not establish GitHub signing provenance**.
 They are explicit operator-approved local imports and cannot be used in release
-mode. Keep the repository private until its owner explicitly approves publication.
+mode.
 
 ## Signed releases
 
-After public-repository and release-publication approval, the website workflow
-publishes immutable GitHub releases with seven payload files and two Sigstore
-verification bundles. Enable the following in a reviewed configuration change:
+The website workflow publishes immutable GitHub releases with seven payload
+files and two Sigstore verification bundles. The homeserver currently uses:
 
 ```nix
 homelab.website = {
   enable = true;
   mode = "release";
   automaticUpdates = true;
-  # Enable separately when DNS and public serving are ready:
-  # public.enable = true;
-  # public.domain = "joshcazalas.com";
+  public.enable = true;
 };
 ```
 
 Release and preview modes use different state directories. Switching modes does
-not carry an unsigned preview into the public site. Import a signed release and
-check it through the LAN listener before enabling public HTTPS.
+not carry an unsigned preview into the public site. Until the first signed
+release is installed, both release-mode listeners return 404.
+
+Website releases deploy independently of NixOS releases. After merging a
+website PR, wait for its Release workflow to publish successfully, then let the
+hourly timer fetch it or start `caz-website-updater.service` manually. With no
+`pinnedTag`, the updater selects the latest published stable release. Updating
+the site's build dependencies does not require changing `caz.nix` as long as
+the release format remains compatible with the updater.
 
 The hourly timer downloads from the public repository without a GitHub token.
 It requires a published, stable, immutable release and resolves its tag to the
