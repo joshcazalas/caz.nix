@@ -10,6 +10,21 @@ and `settings.server.lanAddress`. The existing network policy permits ordinary
 LAN clients, denies restricted clients unless explicitly allowed, and excludes
 WireGuard and container interfaces. No new globally open port is added.
 
+## Prepare DNS
+
+The homeserver's Cloudflare DDNS configuration manages the `joshcazalas.com`
+apex alongside the existing `joshcaz.com` hostnames. The token needs
+`Zone` / `DNS` / `Edit` for both zones; see [Dynamic DNS](remote-access.md#dynamic-dns).
+Create an A record named `@` in the `joshcazalas.com` zone pointing to the home's
+public IPv4 address. The updater preserves that record's existing proxy setting
+and keeps its origin address current.
+
+After deploying the configuration, check `cloudflare-ddns.service` and its
+journal to confirm the apex is managed. DNS preparation does not enable public
+serving or open ports. Keep `homelab.website.public.enable = false` until the
+signed release is running and you are ready to expose the site. At launch,
+forward TCP ports 80 and 443 to Caddy and enable public serving separately.
+
 ## Import a private preview
 
 After deploying the NixOS configuration through the normal server release

@@ -59,8 +59,14 @@ in
   # only at activation time and never enters the Nix store.
   homelab.cloudflareDdns = {
     enable = true;
+    allowedZones = [
+      settings.public.domain
+      config.homelab.website.public.domain
+    ];
     domains = [
       "mc.${settings.public.domain}"
+      # Prepare website DNS independently of enabling public serving.
+      config.homelab.website.public.domain
     ]
     ++ lib.optionals (config.services.factorio.enable && config.services.factorio.openFirewall) [
       "factorio.${settings.public.domain}"

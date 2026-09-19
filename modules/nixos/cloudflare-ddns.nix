@@ -12,10 +12,16 @@ in
   options.homelab.cloudflareDdns = {
     enable = lib.mkEnableOption "Cloudflare dynamic DNS updates";
 
+    allowedZones = lib.mkOption {
+      type = lib.types.nonEmptyListOf lib.types.str;
+      default = [ settings.public.domain ];
+      description = "Cloudflare zones whose apex and subdomains may be managed. The API token must cover these zones.";
+    };
+
     domains = lib.mkOption {
       type = lib.types.nonEmptyListOf lib.types.str;
       default = [ "mc.${settings.public.domain}" ];
-      description = "DNS-only IPv4 records that should follow the home's public address.";
+      description = "IPv4 records that should follow the home's public address.";
     };
   };
 
@@ -26,8 +32,10 @@ in
         message = "Set settings.public.domain before enabling Cloudflare DDNS.";
       }
       {
-        assertion = lib.all (domain: lib.hasSuffix ".${settings.public.domain}" domain) cfg.domains;
-        message = "Cloudflare DDNS records must remain inside settings.public.domain.";
+        assertion = lib.all (
+          domain: lib.any (zone: domain == zone || lib.hasSuffix ".${zone}" domain) cfg.allowedZones
+        ) cfg.domains;
+        message = "Cloudflare DDNS records must be an apex or subdomain of homelab.cloudflareDdns.allowedZones.";
       }
       {
         assertion = !config.networking.enableIPv6;
