@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { Deployment, type State } from '../src/deployment.ts';
 import { ARTIFACTS, BUNDLES, fileDigest } from '../src/format.ts';
-import { provenancePolicy, verifyAttestations, type Release } from '../src/github.ts';
+import { verifyAttestations, type Release } from '../src/github.ts';
 import { bundle, workspace } from './fixture.ts';
 
 const healthy = async () => {};
@@ -139,10 +139,17 @@ test('verification pins certificate identity, commit, main, issuer, hosted runne
   });
   assert.equal(calls.length, ARTIFACTS.length + 1);
   for (const args of calls) {
-    const policy = provenancePolicy(a.commit); for (const item of policy) assert(args.includes(item));
+    // GitHub CLI rejects multiple signer selectors before verifying any bundle.
+    const selectors = ['--cert-identity', '--cert-identity-regex', '--signer-repo', '--signer-workflow'];
+    assert.deepEqual(args.filter(arg => selectors.includes(arg)), ['--cert-identity']);
+    const value = (flag: string) => { const index = args.indexOf(flag); assert(index >= 0, `Missing ${flag}`); return args[index + 1]; };
+    assert.equal(value('--repo'), 'joshcazalas/website');
+    assert.equal(value('--cert-identity'), 'https://github.com/joshcazalas/website/.github/workflows/release.yml@refs/heads/main');
+    assert.equal(value('--cert-oidc-issuer'), 'https://token.actions.githubusercontent.com');
+    assert.equal(value('--source-ref'), 'refs/heads/main');
+    assert.equal(value('--source-digest'), a.commit);
+    assert.equal(value('--signer-digest'), a.commit);
     assert(args.includes('--deny-self-hosted-runners'));
-    assert(args.includes('https://github.com/joshcazalas/website/.github/workflows/release.yml@refs/heads/main'));
-    assert(args.includes(a.commit)); assert(args.includes('refs/heads/main'));
   }
   assert(calls.at(-1)?.includes('https://cyclonedx.org/bom'));
   assert(calls.at(-1)?.includes(join(a.directory, BUNDLES[1])));

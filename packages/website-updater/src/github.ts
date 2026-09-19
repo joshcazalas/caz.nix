@@ -77,7 +77,9 @@ export async function download(release: Release, directory: string): Promise<voi
 }
 export function provenancePolicy(commit: string): string[] {
   requireValue(isCommit(commit), 'Invalid provenance commit');
-  return ['--hostname', 'github.com', '--repo', REPOSITORY, '--signer-workflow', WORKFLOW,
+  // gh accepts only one signer selector; the exact certificate identity pins
+  // both the workflow path and ref without a second --signer-workflow flag.
+  return ['--hostname', 'github.com', '--repo', REPOSITORY,
     '--cert-identity', `https://github.com/${WORKFLOW}@refs/heads/main`,
     '--cert-oidc-issuer', 'https://token.actions.githubusercontent.com',
     '--source-ref', 'refs/heads/main', '--source-digest', commit, '--signer-digest', commit,
