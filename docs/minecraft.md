@@ -50,9 +50,29 @@ homelab.minecraft = {
 ```
 
 The selected seed is applied only when `/var/lib/minecraft` has no existing
-world. Changing it later does not regenerate the world. Paper is running with
-no plugins, so normal unmodified Minecraft Java clients can connect even though
-the server implementation is Paper rather than Mojang's server JAR.
+world. Changing it later does not regenerate the world. The server runs Paper
+with server-side plugins; normal unmodified Minecraft Java clients can connect.
+
+## Whole-tree chopping
+
+The homeserver enables `homelab.minecraft.treecapitator.enable`, installing
+[hTreecapitator 1.2.1](https://modrinth.com/plugin/htreecapitator/version/5SBPDeDE).
+The release lists Paper 26.2 support. Its JAR is fetched with a fixed SHA-256
+hash during the Nix build and mounted read-only, alongside its configuration.
+
+Sneak (hold Shift) and break a log with an axe to chop the connected tree.
+No client mod or special enchantment is required. The configuration retains
+the plugin's 128-block limit, progressive breaking, tool durability costs,
+and items dropped into the world. Ordinary chopping without sneaking stays
+available. Avoid activating it on connected logs you want to keep in builds.
+
+After deploying, check `sudo docker logs --tail 100 minecraft` for plugin
+startup, then test a small tree as a non-operator: normal axe chopping should
+break one log, while sneaking should fell the tree and consume durability.
+Also check chopping with an empty hand. Live gameplay must be verified after
+deployment; Nix checks cannot establish runtime compatibility.
+
+## Startup and client access
 
 The container is enabled by default and starts with `multi-user.target`.
 `whitelist.json` and `ops.json` live inside the persistent Minecraft data
