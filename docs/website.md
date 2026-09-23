@@ -44,6 +44,13 @@ curl -fsS http://127.0.0.1:8088/release.json
 ```
 
 The updater verifies the release signatures and inventories before activation.
+GitHub downloads retry transient DNS, connection, interrupted-body, and temporary
+HTTP failures within a three-minute budget per download. Attempts last at most
+60 seconds and retry after 15 seconds, honoring a longer `Retry-After` only when
+it fits within that budget. Each retry starts at the original GitHub URL and
+discards partial bytes. Permanent HTTP, certificate, size, redirect-policy,
+checksum, and signature errors still stop the update. The service's overall
+ten-minute timeout remains in effect.
 It also checks the page, release identity, and every deployed file over the
 local HTTP listener. Compare the reported commit with the website release.
 

@@ -171,6 +171,24 @@
               touch "$out"
             '';
         deployment-storage-integration = import ./tests/deployment-storage.nix { inherit pkgs; };
+        release-downloads =
+          pkgs.runCommand "check-release-downloads"
+            {
+              nativeBuildInputs = [
+                pkgs.python3
+                pkgs.bash
+                pkgs.coreutils
+                pkgs.gawk
+                pkgs.jq
+              ];
+            }
+            ''
+              mkdir scripts tests
+              cp ${./scripts/stage-server-release.sh} scripts/stage-server-release.sh
+              cp ${./tests/test_release_downloads.py} tests/test_release_downloads.py
+              python -m unittest discover -s tests -p 'test_release_downloads.py' -v
+              touch "$out"
+            '';
         release-notifications =
           pkgs.runCommand "check-release-notifications"
             {

@@ -122,6 +122,32 @@ class StorageTests(unittest.TestCase):
         self.mount.update(target="/nix/store", fsroot="/somewhere-else")
         self.assertIn("expected mount /, found /nix/store", self.check())
 
+    def test_systemd_state_directory_self_bind_passes(self):
+        self.requirement["path"] = "/var/lib/caz-release-updater"
+        self.mount.update(target=self.requirement["path"], fsroot=self.requirement["path"])
+        self.assertEqual(self.check(), [])
+
+    def test_state_bind_keeps_source_device_access_and_capacity_checks(self):
+        self.requirement["path"] = "/var/lib/caz-release-updater"
+        self.mount.update(target=self.requirement["path"], fsroot=self.requirement["path"])
+        for field, value, error in [
+            ("fsroot", "/somewhere-else", "expected mount /"),
+            ("maj:min", "8:2", "mounted device does not match"),
+            ("fstype", "tmpfs", "expected filesystem type ext4"),
+            ("vfs-options", "ro", "filesystem is read-only"),
+            ("fs-options", "ro", "filesystem is read-only"),
+        ]:
+            with self.subTest(field=field), patch.dict(self.mount, {field: value}):
+                self.assertTrue(any(error in failure for failure in self.check()))
+        with patch.object(storage.os, "access", return_value=False):
+            self.assertIn("directory is not writable/searchable by the updater", self.check())
+        self.space.f_bavail = 0
+        self.assertIn("0 MiB available; need at least 2048 MiB", self.check())
+
+    def test_other_self_binds_remain_rejected(self):
+        self.mount.update(target=self.requirement["path"], fsroot=self.requirement["path"])
+        self.assertIn("expected mount /, found /var/lib/example", self.check())
+
 
 if __name__ == "__main__":
     unittest.main()

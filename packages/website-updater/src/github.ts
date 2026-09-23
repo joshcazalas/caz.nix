@@ -1,3 +1,4 @@
+import { request } from './http.ts';
 import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -11,29 +12,6 @@ export const runCommand: Command = (program, args, env) => new Promise((resolve,
   child.on('error', reject);
   child.on('exit', (code, signal) => code === 0 ? resolve() : reject(new Error(`${program} failed (${signal ?? code})`)));
 });
-async function request(url: string, max: number): Promise<Buffer> {
-  let target = new URL(url);
-  for (let redirects = 0; redirects <= 5; redirects++) {
-    requireValue(target.protocol === 'https:' && ['api.github.com', 'github.com', 'objects.githubusercontent.com', 'release-assets.githubusercontent.com'].includes(target.hostname), 'Unexpected GitHub download host');
-    const response = await fetch(target, { redirect: 'manual', signal: AbortSignal.timeout(60_000), headers: { 'User-Agent': 'caz-website-updater', Accept: 'application/vnd.github+json' } });
-    if ([301, 302, 303, 307, 308].includes(response.status)) {
-      const location = response.headers.get('location');
-      await response.body?.cancel();
-      requireValue(location, 'Missing download redirect'); target = new URL(location, target); continue;
-    }
-    if (!response.ok) throw new Error(`GitHub download failed: HTTP ${response.status}`);
-    const size = response.headers.get('content-length');
-    requireValue(!size || Number(size) <= max, 'Download exceeds size limit');
-    requireValue(response.body, 'Empty download response');
-    const chunks: Uint8Array[] = []; let count = 0;
-    for await (const chunk of response.body) {
-      count += chunk.length;
-      requireValue(count <= max, 'Download exceeds size limit'); chunks.push(chunk);
-    }
-    return Buffer.concat(chunks);
-  }
-  throw new Error('Too many download redirects');
-}
 async function api(path: string): Promise<unknown> {
   return JSON.parse((await request(`https://api.github.com/repos/${REPOSITORY}/${path}`, 2 * 1024 * 1024)).toString('utf8')) as unknown;
 }

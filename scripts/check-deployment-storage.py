@@ -46,8 +46,17 @@ def check_path(requirement):
         and mount["fsroot"] == path
         and expected["mountPoint"] == "/"
     )
+    # StateDirectory= creates a self-bind inside the updater's systemd mount
+    # namespace. Accept only this known directory on our declared root disk;
+    # a different source, device, or read-only bind must still fail below.
+    state_bind = (
+        path == "/var/lib/caz-release-updater"
+        and mount["target"] == path
+        and mount["fsroot"] == path
+        and expected["mountPoint"] == "/"
+    )
     failures = []
-    if mount["target"] != expected["mountPoint"] and not store_bind:
+    if mount["target"] != expected["mountPoint"] and not (store_bind or state_bind):
         failures.append(
             f"expected mount {expected['mountPoint']}, found {mount['target']}"
         )

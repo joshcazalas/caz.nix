@@ -192,24 +192,69 @@ trap cleanup_before_activation EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-api_get() {
+download_file() {
   local url="$1"
   local output="$2"
+  shift 2
+  local deadline=$((SECONDS + 180))
+  local remaining attempt_timeout status code delay retry_after retry_at
 
-  curl \
-    --fail \
-    --silent \
-    --show-error \
-    --location \
-    --proto '=https' \
-    --tlsv1.2 \
-    --retry 3 \
-    --retry-delay 2 \
-    --retry-all-errors \
+  while true; do
+    remaining=$((deadline - SECONDS))
+    ((remaining > 0)) || return "${code:-28}"
+    attempt_timeout=$remaining
+    ((attempt_timeout <= 60)) || attempt_timeout=60
+    # Each attempt replaces partial output. Only GET downloads retry;
+    # provenance/checksum validation and activation are outside this loop.
+    if status="$(curl --disable \
+      --fail --silent --show-error --location \
+      --proto '=https' --proto-redir '=https' --tlsv1.2 \
+      --connect-timeout 10 --max-time "$attempt_timeout" \
+      --dump-header "${output}.headers" --write-out '%{http_code}' \
+      --output "$output" "$@" "$url")"; then
+      return 0
+    else
+      code=$?
+    fi
+
+    case "$code" in
+      5|6|7|16|18|28|35|52|55|56|92|95) ;; # DNS, connection, or interrupted transfer
+      22)
+        case "$status" in
+          408|429|500|502|503|504|522|524) ;;
+          *) return "$code" ;;
+        esac
+        ;;
+      *) return "$code" ;; # Certificate, protocol, local IO, or other permanent error
+    esac
+
+    delay=15
+    if [[ -f "${output}.headers" ]]; then
+      retry_after="$(awk 'tolower($1) == "retry-after:" {
+        sub(/^[^:]*:[[:space:]]*/, ""); sub(/\r$/, ""); value=$0
+      } END { print value }' "${output}.headers")"
+      if [[ "$retry_after" =~ ^[0-9]{1,9}$ ]]; then
+        retry_at=$((10#$retry_after))
+      elif [[ -n "$retry_after" ]] && retry_at="$(date --date="$retry_after" +%s 2>/dev/null)"; then
+        retry_at=$((retry_at - $(date +%s)))
+      else
+        retry_at=0
+      fi
+      ((retry_at <= delay)) || delay=$retry_at
+    fi
+    if ((SECONDS + delay >= deadline)); then
+      echo "Release download exhausted its 180-second retry budget (curl=${code}, HTTP=${status})." >&2
+      return "$code"
+    fi
+    echo "Retrying release download in ${delay}s (curl=${code}, HTTP=${status})." >&2
+    sleep "$delay"
+  done
+}
+
+api_get() {
+  download_file "$1" "$2" \
     --header 'Accept: application/vnd.github+json' \
-    --header "X-GitHub-Api-Version: ${api_version}" \
-    --output "${output}" \
-    "${url}"
+    --header "X-GitHub-Api-Version: ${api_version}"
 }
 
 download_asset() {
@@ -239,18 +284,7 @@ download_asset() {
     exit 1
   fi
 
-  curl \
-    --fail \
-    --silent \
-    --show-error \
-    --location \
-    --proto '=https' \
-    --tlsv1.2 \
-    --retry 3 \
-    --retry-delay 2 \
-    --retry-all-errors \
-    --output "${work_directory}/${name}" \
-    "${url}"
+  download_file "$url" "${work_directory}/${name}"
 
   actual_digest="sha256:$(sha256sum "${work_directory}/${name}" | cut -d ' ' -f 1)"
   if [[ "${actual_digest}" != "${declared_digest}" ]]; then
@@ -385,18 +419,7 @@ for index in "${!bundle_urls[@]}"; do
     exit 1
   fi
 
-  curl \
-    --fail \
-    --silent \
-    --show-error \
-    --location \
-    --proto '=https' \
-    --tlsv1.2 \
-    --retry 3 \
-    --retry-delay 2 \
-    --retry-all-errors \
-    --output "${bundle_compressed}" \
-    "${bundle_url}"
+  download_file "$bundle_url" "$bundle_compressed"
 
   snzip -d -c -t raw "${bundle_compressed}" \
     | jq --compact-output --exit-status '.' \
