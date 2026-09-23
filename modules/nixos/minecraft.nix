@@ -11,17 +11,20 @@ let
   # 30001-30032 build-user range.
   minecraftUid = 20000;
   minecraftGid = 20000;
-  treecapitatorJar = pkgs.fetchurl {
-    url = "https://cdn.modrinth.com/data/HovrYDVO/versions/5SBPDeDE/hTreecapitator-1.2.1.jar";
-    hash = "sha256-jBlZ7SO+lMcraoseLgimWdwpGfDG5j2fhsW6SbbJtDc=";
+  # Bukkit supplies omitted settings (including messages) from the installed
+  # plugin's bundled defaults. Only gameplay policy is managed here.
+  treecapitatorConfig = (pkgs.formats.yaml { }).generate "htreecapitator-config.yml" {
+    max-blocks = 128;
+    blocked-worlds = [ ];
+    auto-pickup-drops = false;
+    instant-break-logs = false;
+    instant-break-leaves = false;
+    use-permissions = false;
+    axe-only = true;
+    shift-mining = true;
+    mangrove-roots = false;
+    require-enchantment = false;
   };
-  # Preserve the pinned plugin's complete defaults, including its messages.
-  treecapitatorConfig =
-    pkgs.runCommand "htreecapitator-config.yml" { nativeBuildInputs = [ pkgs.unzip ]; }
-      ''
-        unzip -p ${treecapitatorJar} config.yml > "$out"
-        substituteInPlace "$out" --replace-fail 'shift-mining: false' 'shift-mining: true'
-      '';
   minecraftAccess = pkgs.writeShellApplication {
     name = "minecraft-access";
     runtimeInputs = [
@@ -247,10 +250,13 @@ in
             "${cfg.dataDir}/plugins"
             "${cfg.dataDir}/plugins/hTreecapitator"
           ];
-      virtualisation.oci-containers.containers.minecraft.volumes = [
-        "${treecapitatorJar}:/data/plugins/htreecapitator.jar:ro"
-        "${treecapitatorConfig}:/data/plugins/hTreecapitator/config.yml:ro"
-      ];
+      virtualisation.oci-containers.containers.minecraft = {
+        # Resolve the latest compatible stable release on each container start.
+        environment.MODRINTH_PROJECTS = "htreecapitator";
+        volumes = [
+          "${treecapitatorConfig}:/data/plugins/hTreecapitator/config.yml:ro"
+        ];
+      };
     })
     {
       assertions = [
