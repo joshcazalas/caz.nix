@@ -11,6 +11,20 @@ let
   # 30001-30032 build-user range.
   minecraftUid = 20000;
   minecraftGid = 20000;
+  # Bukkit supplies omitted settings (including messages) from the installed
+  # plugin's bundled defaults. Only gameplay policy is managed here.
+  treecapitatorConfig = (pkgs.formats.yaml { }).generate "htreecapitator-config.yml" {
+    max-blocks = 128;
+    blocked-worlds = [ ];
+    auto-pickup-drops = false;
+    instant-break-logs = false;
+    instant-break-leaves = false;
+    use-permissions = false;
+    axe-only = true;
+    shift-mining = true;
+    mangrove-roots = false;
+    require-enchantment = false;
+  };
   minecraftAccess = pkgs.writeShellApplication {
     name = "minecraft-access";
     runtimeInputs = [
@@ -122,6 +136,8 @@ in
   options.homelab.minecraft = {
     enable = lib.mkEnableOption "the Paper Minecraft server";
 
+    treecapitator.enable = lib.mkEnableOption "whole-tree chopping while sneaking with an axe";
+
     acceptEula = lib.mkOption {
       type = lib.types.bool;
       default = false;
@@ -227,6 +243,21 @@ in
   };
 
   config = lib.mkMerge [
+    (lib.mkIf (cfg.enable && cfg.treecapitator.enable) {
+      systemd.tmpfiles.rules =
+        map (path: "d ${path} 0750 ${toString minecraftUid} ${toString minecraftGid} -")
+          [
+            "${cfg.dataDir}/plugins"
+            "${cfg.dataDir}/plugins/hTreecapitator"
+          ];
+      virtualisation.oci-containers.containers.minecraft = {
+        # Resolve the latest compatible stable release on each container start.
+        environment.MODRINTH_PROJECTS = "htreecapitator";
+        volumes = [
+          "${treecapitatorConfig}:/data/plugins/hTreecapitator/config.yml:ro"
+        ];
+      };
+    })
     {
       assertions = [
         {

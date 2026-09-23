@@ -187,6 +187,7 @@ in
 
   homelab.minecraft = {
     enable = true;
+    treecapitator.enable = true;
     acceptEula = true;
     openFirewall = true;
     gameMode = "survival";
