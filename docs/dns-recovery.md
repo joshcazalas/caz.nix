@@ -5,6 +5,17 @@ advertises AdGuard Home at `192.168.1.124` as the only DNS server through router
 DHCP. If AdGuard or the homeserver is unavailable, new lookups can fail even
 while the internet connection works. Cached names may continue working briefly.
 
+AdGuard normally forwards to Quad9 over HTTPS. If that upstream exchange fails,
+it can use Cloudflare's malware-filtering HTTPS resolver at
+`https://security.cloudflare-dns.com/dns-query`. Both paths remain inside
+AdGuard, preserving its local filtering and LAN rewrites. The providers' malware
+lists differ. Bootstrap DNS includes addresses from both providers, but only
+resolves the encrypted resolvers' hostnames; it is not the query fallback.
+This redundancy cannot help if AdGuard itself, the server, or the WAN is down.
+Nix-supplied DNS settings take precedence over web UI settings at service start.
+See [AdGuard fallback configuration](https://github.com/AdguardTeam/AdGuardHome/wiki/Configuration#configuration-file)
+and [Cloudflare's resolver endpoints](https://developers.cloudflare.com/1.1.1.1/setup/).
+
 Keep this guide available locally. You will need the router's LAN management
 address and login for a household-wide fallback. Use the administrator's LAN
 computer: the restricted gaming host can query DNS but cannot administer the

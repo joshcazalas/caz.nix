@@ -18,9 +18,14 @@ in
     settings = {
       dns = {
         upstream_dns = [ "https://dns.quad9.net/dns-query" ];
+        # Keep encrypted resolution available when Quad9's DoH connection
+        # fails. This alternate provider also filters malware domains.
+        fallback_dns = [ "https://security.cloudflare-dns.com/dns-query" ];
         bootstrap_dns = [
           "9.9.9.9"
           "149.112.112.112"
+          "1.1.1.2"
+          "1.0.0.2"
         ];
       };
       filtering = {

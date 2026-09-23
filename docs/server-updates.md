@@ -120,7 +120,11 @@ Each required directory must exist on its declared mount, filesystem type, and
 block device. An unmounted EFI partition cannot silently fall back to `/`.
 Read-only filesystems and directories the updater cannot write/search are
 rejected. NixOS's normal read-only `/nix/store` bind mount is allowed when its
-underlying root filesystem remains writable. These checks follow the existing
+underlying root filesystem remains writable. The systemd updater's
+`StateDirectory=` self-bind at `/var/lib/caz-release-updater` is also accepted
+on the declared root filesystem, provided its source directory, device, type,
+writeability, and capacity checks pass. Other unexpected mounts remain errors.
+These checks follow the existing
 local block-device layout; a different storage design needs a corresponding
 preflight update.
 
@@ -152,6 +156,32 @@ backup command. The first release introducing it is supervised by the previous
 updater; subsequent invocations perform these checks. `--check-only` remains a
 provenance/build check and skips the deployment storage gate. This does not prove
 application-data integrity or replace the deferred restore and hardware drills.
+
+### Transient download failures
+
+Release metadata, assets, and attestation-bundle downloads each have a
+three-minute retry budget. DNS, connection, interrupted-transfer, and temporary
+HTTP failures retry after 15 seconds (or a longer server `Retry-After` delay if
+it fits within the budget). Connections have a ten-second timeout; each attempt
+has at most 60 seconds, shortened to the remaining budget. Retries overwrite
+partial files. Certificate failures, permanent HTTP errors, and local file
+errors stop immediately. Checksum, provenance, and activation failures are not
+retried by this mechanism, and exhausted downloads still report failure.
+
+AdGuard uses Quad9 DNS over HTTPS with an encrypted Cloudflare fallback; see
+[DNS recovery](dns-recovery.md) for diagnosis if both are unavailable.
+
+The release correcting the storage self-bind check and network retries needs
+one manual `sudo caz-deploy-server-release` invocation after publication. The
+old timer's checker can reject storage before it builds its own replacement.
+Once the correction is running, check the service namespace explicitly without
+deploying another release:
+
+```bash
+sudo systemd-run --wait --pipe --collect \
+  -p StateDirectory=caz-release-updater -p StateDirectoryMode=0700 \
+  -p PrivateTmp=yes /run/current-system/sw/bin/caz-check-deployment-storage
+```
 
 ### Which generation defines "healthy"
 

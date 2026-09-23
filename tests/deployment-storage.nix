@@ -2,6 +2,16 @@
 let
   requirements = [
     {
+      path = "/var/lib/caz-release-updater";
+      filesystem = {
+        mountPoint = "/";
+        device = "/dev/disk/by-label/nixos";
+        fsType = "ext4";
+      };
+      minimumFreeMiB = 8;
+      minimumFreeInodes = 32;
+    }
+    {
       path = "/mnt/state/app";
       filesystem = {
         mountPoint = "/mnt/state";
@@ -79,6 +89,21 @@ pkgs.testers.runNixOSTest {
       pkgs.jq
       pkgs.parted
     ];
+    systemd.services.storage-check = {
+      # Reproduce the actual updater namespace, including StateDirectory's
+      # implicit bind, instead of checking only from the test driver's shell.
+      path = [ pkgs.util-linux ];
+      preStart = ''
+        test "$(findmnt -n -o TARGET --target /var/lib/caz-release-updater)" = /var/lib/caz-release-updater
+      '';
+      serviceConfig = {
+        Type = "oneshot";
+        StateDirectory = "caz-release-updater";
+        StateDirectoryMode = "0700";
+        PrivateTmp = true;
+        ExecStart = "${checker}/bin/caz-check-deployment-storage";
+      };
+    };
     system.stateVersion = "26.05";
   };
   testScript = ''
@@ -92,8 +117,13 @@ pkgs.testers.runNixOSTest {
     server.succeed("udevadm settle; mkfs.vfat -F 32 -n TEST_EFI /dev/vdc1")
     server.succeed("udevadm settle; mkdir -p /mnt/state /mnt/efi")
     server.succeed("mount /dev/vdb /mnt/state; mount /dev/vdc1 /mnt/efi; mkdir /mnt/state/app")
+    server.succeed("mkdir -p /var/lib/caz-release-updater")
     listing = server.succeed("find /mnt/state /mnt/efi -printf '%p\\n' | sort")
     server.succeed("caz-check-deployment-storage")
+    server.succeed("systemctl start storage-check.service")
+    # A read-only state bind must not receive the store's read-only exemption.
+    output = server.fail("systemd-run --wait --pipe --collect -p StateDirectory=caz-release-updater -p PrivateTmp=yes -p ReadOnlyPaths=/var/lib/caz-release-updater ${checker}/bin/caz-check-deployment-storage 2>&1")
+    assert "filesystem is read-only" in output, output
     assert listing == server.succeed("find /mnt/state /mnt/efi -printf '%p\\n' | sort")
 
     server.succeed("rmdir /mnt/state/app")
