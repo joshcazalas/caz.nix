@@ -69,6 +69,9 @@ pkgs.testers.runNixOSTest {
         serviceConfig.LoadCredentialEncrypted = lib.mkForce [ ];
       };
       networking.resolvconf.useLocalResolver = false;
+      # Start DHCP explicitly after both VMs boot, so runner load cannot consume
+      # the readiness window before the test begins withholding the lease.
+      systemd.services.dhcpcd.wantedBy = lib.mkForce [ ];
       systemd.services.test-virtual-interfaces = {
         wantedBy = [ "multi-user.target" ];
         before = [ "dhcpcd.service" ];
@@ -90,11 +93,16 @@ pkgs.testers.runNixOSTest {
   testScript = ''
     start_all()
     router.wait_for_unit("multi-user.target")
+    server.wait_for_unit("multi-user.target")
 
     with subtest("VPN addresses cannot satisfy uplink readiness"):
         server.wait_for_unit("test-virtual-interfaces.service")
+        server.succeed("systemctl start --no-block dhcpcd.service")
         server.wait_until_succeeds("journalctl -u dhcpcd.service --no-pager | grep -F 'eth1: soliciting a DHCP lease'")
+        # The default 30-second timeout must not report success without a lease.
+        server.succeed("sleep 35; test $(systemctl show dhcpcd.service -p ActiveState --value) = activating")
         server.fail("systemctl is-active --quiet dhcpcd.service")
+        server.fail("ip -4 address show dev eth1 | grep -F '169.254.'")
         server.succeed("ip -4 address show dev wg-game | grep -F '10.203.113.1/32'")
         router.succeed("systemctl start dnsmasq.service")
         server.wait_for_unit("dhcpcd.service")

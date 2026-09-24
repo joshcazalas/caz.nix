@@ -425,6 +425,10 @@ gap, and Auxide failed to resolve `discord.com` before its reconnect loop began.
 DHCP is now enabled only on `settings.server.lanInterface` (`eno2`), waits for
 IPv4, and retains its lease, routes, and resolver configuration when the daemon
 stops for a live switch. WireGuard and container interfaces are excluded.
+The DHCP client's internal timeout is disabled: its default 30-second timeout
+can report startup success without an address. IPv4 link-local fallback is also
+disabled, so a `169.254.*` address cannot satisfy readiness. Systemd limits each
+DHCP startup attempt to 90 seconds and retries if it cannot obtain a lease.
 Auxide also waits up to 60 seconds for Discord DNS resolution before launching,
 after dhcpcd and the enabled local AdGuard service. This check runs on every
 start, including the first transition from a configuration that did not retain
