@@ -56,7 +56,7 @@ else
       hosts/homeserver/* | modules/nixos/* | secrets/*)
         homeserver=true
         case "${path}" in
-          modules/nixos/game-stream-* | modules/nixos/home-access-gateway.nix | modules/nixos/network-policy.nix | modules/nixos/website.nix)
+          modules/nixos/game-stream-* | modules/nixos/home-access-gateway.nix | modules/nixos/network-policy.nix | modules/nixos/networking.nix | modules/nixos/auxide.nix | modules/nixos/website.nix)
             integration=true
             ;;
         esac

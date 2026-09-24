@@ -481,13 +481,6 @@ expected_derivation="$(jq --raw-output '.outputs.homeserver.derivation' \
   "${work_directory}/manifest.json")"
 flake_reference="github:${repository}/${commit_sha}"
 
-# A release applied manually with nixos-rebuild may not have an acceptance
-# record yet. Quietly verify/adopt it instead of announcing it as a new update.
-if [[ "$check_only" == false \
-  && "$(readlink --canonicalize /run/current-system)" != "$expected_store_path" ]]; then
-  notify_release available
-fi
-
 echo "==> Reproducing the exact homeserver build from ${commit_sha}"
 notification_phase=build
 # `mapfile < <(nix build ...)` reports mapfile's own exit status, so `set -e`

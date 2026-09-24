@@ -323,8 +323,30 @@ pkgs.testers.runNixOSTest {
     client.fail("curl --fail --silent --connect-timeout 2 http://${gatewayTunnelAddress}:9999/")
     client.fail("curl --fail --silent --connect-timeout 2 http://${client2TunnelAddress}:7777/")
 
+    with subtest("Temporary-file cleanup cannot break tunnel restart"):
+        # Apply the real tmpfiles exclusions for PrivateTmp, with its normal
+        # ten-day /tmp age shortened to zero. A control file proves the clean
+        # actually removes files inside private temporary directories.
+        gateway.succeed(
+          "private=/tmp/systemd-private-$(systemd-id128 boot-id)-caz-cleanup-test; "
+          "mkdir -p $private/tmp /run/tmpfiles.d && "
+          "touch $private/tmp/aged.conf && "
+          "echo 'q /tmp 1777 root root 0' > /run/tmpfiles.d/00-caz-cleanup.conf && "
+          "systemd-tmpfiles --clean --prefix=/tmp && "
+          "test -d $private/tmp && test ! -e $private/tmp/aged.conf"
+        )
+        gateway.succeed("rm /run/tmpfiles.d/00-caz-cleanup.conf")
+        gateway.succeed("systemctl restart wg-quick-wg-game.service")
+        gateway.wait_for_unit("wg-quick-wg-game.service")
+        gateway.succeed("test $(stat -c %a /run/wireguard-wg-game) = 700")
+        gateway.succeed("test $(stat -c %a /run/wireguard-wg-game/wg-game.conf) = 600")
+        client.wait_until_succeeds(
+          "curl --fail --silent --max-time 5 http://${hostLanAddress}:47989/ >/dev/null"
+        )
+
     gateway.succeed("systemctl stop firewall.service")
     gateway.fail("wg show wg-game")
+    gateway.succeed("test ! -e /run/wireguard-wg-game")
     gateway.succeed("systemctl start firewall.service")
     gateway.succeed("systemctl start wg-quick-wg-game.service")
     client.wait_until_succeeds(

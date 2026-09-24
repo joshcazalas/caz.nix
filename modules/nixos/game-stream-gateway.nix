@@ -11,6 +11,8 @@ let
   productionConfiguration = cfg._testConfigFile == null;
   configurationFile =
     if productionConfiguration then config.sops.secrets.${secretName}.path else cfg._testConfigFile;
+  runtimeDirectory = "wireguard-${interfaceName}";
+  runtimeConfiguration = "/run/${runtimeDirectory}/${interfaceName}.conf";
 in
 {
   options.homelab.gameStreamGateway = {
@@ -142,6 +144,25 @@ in
       requires = [ "firewall.service" ];
       after = [ "firewall.service" ];
       partOf = [ "firewall.service" ];
+
+      # Upstream copies configFile into private /tmp and reuses it on stop.
+      # tmpfiles can age that copy out while this oneshot remains active,
+      # leaving wg-quick unable to remove the interface on the next switch.
+      # Keep the start-time snapshot until stop completes, including when
+      # sops has already replaced the source configuration for a new release.
+      serviceConfig = {
+        RuntimeDirectory = runtimeDirectory;
+        RuntimeDirectoryMode = "0700";
+        UMask = "0077";
+      };
+      script = lib.mkForce ''
+        ${lib.optionalString (!config.boot.isContainer) "${pkgs.kmod}/bin/modprobe wireguard"}
+        ${pkgs.coreutils}/bin/install -m 0600 ${configurationFile} ${runtimeConfiguration}
+        ${pkgs.wireguard-tools}/bin/wg-quick up ${runtimeConfiguration}
+      '';
+      preStop = lib.mkForce ''
+        ${pkgs.wireguard-tools}/bin/wg-quick down ${runtimeConfiguration}
+      '';
     };
   };
 }

@@ -12,6 +12,7 @@
     # The router keeps this address reserved for the homeserver. Services that
     # publish or route back into the LAN share it from this single setting.
     lanAddress = "192.168.1.124";
+    lanInterface = "eno2";
     timeZone = "America/Chicago";
     # Until reliable secondary storage is installed, shared service data lives
     # explicitly on the root NVMe instead of implying that /srv is available.

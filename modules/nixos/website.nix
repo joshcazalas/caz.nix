@@ -134,11 +134,26 @@ in
       443
     ];
 
-    # The preview binds a specific LAN address, which must exist before Caddy
-    # starts. network.target alone does not wait for DHCP to finish.
+    # network-online.target covers boot, but remains active while DHCP restarts
+    # during a live switch. Wait for the actual preview address on every start
+    # so a temporary address loss does not fail the deployment's start job.
     systemd.services.caddy = {
       wants = [ "network-online.target" ];
       after = [ "network-online.target" ];
+      preStart = ''
+        for attempt in {1..60}; do
+          if ${pkgs.iproute2}/bin/ip -4 -o address show to ${lib.escapeShellArg "${settings.server.lanAddress}/32"} |
+            ${pkgs.gnugrep}/bin/grep --quiet .; then
+            exit 0
+          fi
+          if (( attempt == 1 )); then
+            echo "Waiting for Caddy's LAN address ${settings.server.lanAddress}"
+          fi
+          ${pkgs.coreutils}/bin/sleep 1
+        done
+        echo "Caddy's LAN address ${settings.server.lanAddress} is still missing after 60 seconds." >&2
+        exit 1
+      '';
     };
 
     systemd.services.caz-website-updater = {

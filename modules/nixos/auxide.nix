@@ -98,8 +98,29 @@ in
       memoryMax = "1G";
     };
 
-    systemd.services = lib.mkIf providerEnabled {
-      ${providerService}.serviceConfig.ExecStartPre = lib.mkForce [ (lib.getExe providerPreStart) ];
+    systemd.services = {
+      auxide = {
+        after = [
+          "dhcpcd.service"
+        ]
+        ++ lib.optional config.services.adguardhome.enable "adguardhome.service";
+        # network-online.target stays active during live network restarts.
+        # Auxide resolves Discord before it starts its normal reconnect loop.
+        preStart = ''
+          echo "Waiting for Discord DNS before starting Auxide"
+          if ! ${pkgs.coreutils}/bin/timeout 60 ${pkgs.bash}/bin/bash -c ${lib.escapeShellArg ''
+            until ${pkgs.getent}/bin/getent ahostsv4 discord.com >/dev/null; do
+              ${pkgs.coreutils}/bin/sleep 1
+            done
+          ''}; then
+            echo "Discord DNS is still unavailable after 60 seconds." >&2
+            exit 1
+          fi
+        '';
+      };
+      ${providerService} = lib.mkIf providerEnabled {
+        serviceConfig.ExecStartPre = lib.mkForce [ (lib.getExe providerPreStart) ];
+      };
     };
   };
 }

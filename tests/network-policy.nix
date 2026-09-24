@@ -148,6 +148,32 @@ pkgs.testers.runNixOSTest {
     server.succeed(f"{updater} preview ${fixtures}/a --commit {a}")
     trusted.wait_until_succeeds("curl -fsS http://${serverAddress}:8088/release.json")
     assert a in trusted.succeed("curl -fsS http://${serverAddress}:8088/release.json")
+
+    with subtest("Caddy waits for its LAN address during a live restart"):
+        server.succeed("systemctl stop caddy.service")
+        server.succeed("ip address del ${serverAddress}/24 dev eth1")
+        server.succeed("systemctl is-active network-online.target")
+        server.succeed("systemd-run --no-block --unit=caddy-start-test --property=Type=oneshot --remain-after-exit /run/current-system/sw/bin/systemctl start caddy.service")
+        server.wait_until_succeeds("journalctl -u caddy.service --no-pager | grep -F \"Waiting for Caddy's LAN address\"")
+        server.succeed("test $(systemctl show caddy.service -p SubState --value) = start-pre")
+        server.succeed("ip address add ${serverAddress}/24 dev eth1")
+        server.wait_for_unit("caddy-start-test.service")
+        server.wait_for_unit("caddy.service")
+        trusted.wait_until_succeeds("curl -fsS http://${serverAddress}:8088/release.json")
+        server.succeed("systemctl stop caddy-start-test.service")
+
+    with subtest("A permanently missing LAN address still fails Caddy startup"):
+        server.succeed("systemctl stop caddy.service")
+        server.succeed("ip address del ${serverAddress}/24 dev eth1")
+        server.fail("systemctl start caddy.service")
+        server.succeed("journalctl -u caddy.service --no-pager | grep -F 'is still missing after 60 seconds.'")
+        # Restart=on-failure can already have queued another attempt, but the
+        # original start job must fail so activation can roll back.
+        server.fail("systemctl is-active --quiet caddy.service")
+        server.succeed("systemctl stop caddy.service")
+        server.succeed("ip address add ${serverAddress}/24 dev eth1")
+        server.succeed("systemctl reset-failed caddy.service && systemctl start caddy.service")
+
     restricted.fail("nc -z -w 2 ${serverAddress} 8088")
     server.fail("iptables -w -C nixos-fw -p tcp --dport 8088 -j nixos-fw-accept")
     server.fail("ss -ltn | grep -E '0.0.0.0:8088|\[::\]:8088'")

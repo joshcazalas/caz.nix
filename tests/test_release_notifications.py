@@ -95,7 +95,7 @@ class NotificationTests(unittest.TestCase):
         self.assertEqual(list(self.queue.glob("*.json")), [])
 
     def test_failed_handoff_retries_same_event_before_following_events(self):
-        self.enqueue("available")
+        self.enqueue("failed")
         self.enqueue("rolled-back", rollback="succeeded")
         self.response_status = 503
         with self.assertRaises(HTTPError):
@@ -114,7 +114,7 @@ class NotificationTests(unittest.TestCase):
         self.assertEqual(len(self.requests), 3)
 
     def test_delivery_lock_does_not_block_producers(self):
-        self.enqueue("available")
+        self.enqueue("failed")
         with (self.queue / ".delivery.lock").open("w") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             self.enqueue("deployed")
@@ -123,6 +123,16 @@ class NotificationTests(unittest.TestCase):
         self.assertEqual(len(list(self.queue.glob("*.json"))), 2)
         notifications.drain(self.queue, self.endpoint)
         self.assertEqual(len(self.requests), 2)
+
+    def test_legacy_release_announcement_is_discarded(self):
+        self.enqueue()
+        path = next(self.queue.glob("*.json"))
+        record = json.loads(path.read_text())
+        record["alert"]["labels"]["event"] = "available"
+        path.write_text(json.dumps(record))
+        notifications.drain(self.queue, self.endpoint)
+        self.assertEqual(self.requests, [])
+        self.assertEqual(list(self.queue.glob("*.json")), [])
 
     def test_delayed_delivery_window_and_retention(self):
         self.enqueue()

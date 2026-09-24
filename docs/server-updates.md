@@ -285,14 +285,14 @@ coalesce. Existing persistent service-health alerts still apply to manual work.
 
 | Event | Message |
 | --- | --- |
-| New release | Metadata identifies a release different from the running generation. Reproduction and activation checks are still pending. |
 | Accepted release | Deployment is healthy. The message states whether a kernel/initrd reboot is required. |
 | Failure before live switching | The failed stage: discovery, verification, build, preflight, backup, or recording. Logs retain the detailed error. |
 | Failed activation or health check | Whether rollback restored a healthy previous generation, or which rollback step failed. |
 
-Routine checks of an already accepted or quarantined release are quiet.
+Discovering a new release sends no announcement. Routine checks of an already
+accepted or quarantined release are also quiet.
 When a timer run verifies and adopts a release already applied manually with
-`nixos-rebuild`, it also skips the new-release and success notices.
+`nixos-rebuild`, it also skips the success notice.
 `--check-only`, `--status`, and an invocation that finds another updater running
 also send no events.
 Failure of the already-running adoption/boot-entry refresh path is reported with
@@ -365,6 +365,76 @@ understanding the failure:
 ```bash
 sudo caz-deploy-server-release --force
 ```
+
+### WireGuard prevents activation and rollback
+
+If `wg-quick-wg-game.service` fails with `wg-game already exists`, inspect its
+earlier stop attempt as well as the updater journal. Older configurations kept
+the tunnel's startup snapshot at `/tmp/wg-game.conf` inside systemd's private
+temporary directory. The normal
+[ten-day cleanup](https://github.com/systemd/systemd/blob/main/docs/TEMPORARY_DIRECTORIES.md#automatic-clean-up)
+could delete it while the
+tunnel remained active. A later stop then failed with `does not exist`, leaving
+the interface behind; both activation and rollback failed to start it again.
+
+The gateway now keeps that snapshot at `/run/wireguard-wg-game/wg-game.conf`,
+mode `0600` inside a root-only service runtime directory. It survives temporary
+file cleanup and remains available until shutdown completes. The stop operation
+uses the configuration that started the tunnel even if SOPS has since changed
+the source file.
+
+To recover an already failed service with this orphaned interface, first save
+the journal. With no deployment running, remove only the leftover game-stream
+interface and let its service recreate it. This interrupts game streaming:
+
+```bash
+sudo systemctl is-failed --quiet wg-quick-wg-game.service &&
+  sudo ip link delete dev wg-game &&
+  sudo systemctl start wg-quick-wg-game.service
+
+sudo caz-server-health --wait 60 &&
+  sudo systemctl reset-failed caz-release-updater.service
+```
+
+Then deploy the corrected release. `--force` permits a quarantined release to
+be retried; it does not bypass the current-system health gate or repair an
+orphaned interface. A matching running/previous system path proves that the
+generation was restored, but does not by itself prove that its services recovered.
+
+### Caddy loses its LAN address during activation
+
+Caddy's preview listener binds the configured LAN address as well as loopback.
+A DHCP restart during activation can temporarily remove that address, causing
+`bind: cannot assign requested address`. `network-online.target` only establishes
+[startup ordering](https://github.com/systemd/systemd/blob/main/docs/NETWORK_ONLINE.md);
+it does not track subsequent address loss.
+
+Caddy now checks for its exact LAN address before every start, waiting up to
+60 seconds for it to return. A permanently missing address still fails startup
+and causes deployment rollback. The preview's listener addresses and firewall
+restrictions are unchanged.
+
+### DHCP reports ready before LAN and DNS recover
+
+An existing WireGuard address can satisfy dhcpcd's readiness check when DHCP
+is enabled globally. During the September 24 activation, dhcpcd reported ready
+at 05:58:51 CDT using `wg-game`, but the physical uplink did not regain its lease
+and default route until 05:58:58. Caddy failed to bind its LAN address in that
+gap, and Auxide failed to resolve `discord.com` before its reconnect loop began.
+
+DHCP is now enabled only on `settings.server.lanInterface` (`eno2`), waits for
+IPv4, and retains its lease, routes, and resolver configuration when the daemon
+stops for a live switch. WireGuard and container interfaces are excluded.
+Auxide also waits up to 60 seconds for Discord DNS resolution before launching,
+after dhcpcd and the enabled local AdGuard service. This check runs on every
+start, including the first transition from a configuration that did not retain
+the lease. An ongoing DNS failure still fails the start job and allows rollback.
+
+The earlier Auxide message `failed to identify the Discord application behind
+this token` was followed by a DNS lookup error; it was not evidence of an invalid
+token. The same process configuration connected successfully after rollback
+restored networking. A runtime `test-build.conf` drop-in was present in that
+incident, but these changes do not remove or alter local service overrides.
 
 ## Reboots and remaining boundary
 
