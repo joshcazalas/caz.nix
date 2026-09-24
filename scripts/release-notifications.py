@@ -16,7 +16,6 @@ import uuid
 
 
 EVENTS = {
-    "available": ("info", "New release available for verification"),
     "deployed": ("info", "Release deployed and healthy"),
     "failed": ("warning", "Release verification or deployment failed"),
     "rolled-back": (
@@ -111,6 +110,11 @@ def drain(queue, endpoint):
                 path.unlink()
                 continue
             alert = record["alert"]
+            # Older updater generations may have queued release announcements.
+            # Only deployment outcomes should reach the operator.
+            if alert["labels"].get("event") == "available":
+                path.unlink()
+                continue
             # Start the delivery window now, including after a long outage.
             # Retried requests keep the same event_id for Alertmanager deduplication.
             alert["startsAt"] = record["recordedAt"]

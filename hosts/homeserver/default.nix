@@ -92,7 +92,7 @@ in
     hostAddress = "192.168.1.127";
     wakeOnLan = {
       enable = true;
-      interface = "eno2";
+      interface = settings.server.lanInterface;
       macAddress = "fc:9d:05:05:7b:f0";
     };
   };
