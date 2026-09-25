@@ -5,7 +5,7 @@ keys:
   - &homeserver "age1gw8fdcxlndt7heqg57sp7gq3wm0v7yuhmeu2xg0nsr4qr2n8qc5spz8rfz"
 
 creation_rules:
-  - path_regex: secrets/homeserver\.yaml$
+  - path_regex: secrets/(homeserver|factorio)\.yaml$
     key_groups:
       - age:
           - *admin

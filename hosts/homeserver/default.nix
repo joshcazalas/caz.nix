@@ -200,6 +200,16 @@ in
     openFirewall = true;
   };
 
+  homelab.factorio = {
+    world = "modded-space-age-v1";
+    # The local Space Age saves use default enemies. Start the new server
+    # world with fewer bases; evolution, expansion, and base size stay normal.
+    mapGenSettings.autoplace_controls.enemy-base = {
+      frequency = 0.75;
+      size = 1;
+    };
+  };
+
   assertions = [
     {
       assertion = config.homelab.releaseUpdater.enable;

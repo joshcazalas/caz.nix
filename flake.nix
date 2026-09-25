@@ -148,13 +148,17 @@
               FACTORIO_PACKAGE = homeserver.config.services.factorio.package;
               FACTORIO_EXEC_START = homeserver.config.systemd.services.factorio.serviceConfig.ExecStart;
               FACTORIO_STATE_DIR = "/var/lib/${homeserver.config.services.factorio.stateDirName}";
+              FACTORIO_MOD_MANIFEST = homeserver.config.homelab.factorio.modManifest;
+              FACTORIO_MAP_GEN_SETTINGS = builtins.toJSON homeserver.config.homelab.factorio.mapGenSettings;
             }
             ''
               mkdir scripts tests
               cp ${./scripts/factorio-admin.py} scripts/factorio-admin.py
+              cp ${./scripts/factorio-prepare.py} scripts/factorio-prepare.py
               cp ${./tests/test_factorio_admin.py} tests/test_factorio_admin.py
+              cp ${./tests/test_factorio_prepare.py} tests/test_factorio_prepare.py
               cp ${./tests/factorio-runtime.py} tests/factorio-runtime.py
-              python -m unittest discover -s tests -p 'test_factorio_admin.py' -v
+              python -m unittest discover -s tests -p 'test_factorio_*.py' -v
               python tests/factorio-runtime.py
               touch "$out"
             '';

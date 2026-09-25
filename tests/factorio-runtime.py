@@ -21,14 +21,21 @@ with tempfile.TemporaryDirectory() as temporary:
         "use-system-read-write-data-directories=true\n[path]\n"
         f"read-data={package}/share/factorio/data\nwrite-data={state}\n"
     )
-    (state / "mods").mkdir()
-    (state / "mods/mod-list.json").write_text(json.dumps({"mods": [
-        {"name": name, "enabled": True}
-        for name in ["base", "quality", "elevated-rails", "space-age"]
-    ]}))
     subprocess.run([sys.executable, str(script), "--state-dir", str(state), "initialize"], check=True)
-    save = state / "saves/default.zip"
-    subprocess.run([binary, "--config", str(config), "--create", str(save)], check=True, timeout=120)
+    manifest = state / "manifest.json"
+    # Public CI needs no portal credentials. A local run with verified cached
+    # archives exercises the complete production mod set using the same code.
+    cache = os.environ.get("FACTORIO_MOD_CACHE")
+    manifest.write_text(Path(os.environ["FACTORIO_MOD_MANIFEST"]).read_text() if cache else "[]")
+    map_settings = state / "map-gen-settings.json"
+    map_settings.write_text(os.environ["FACTORIO_MAP_GEN_SETTINGS"])
+    prepare = [sys.executable, str(script.with_name("factorio-prepare.py")),
+               "--manifest", str(manifest), "--mod-directory", str(state / "mods"),
+               "--state-dir", str(state), "--world", "test-world", "--binary", binary,
+               "--config", str(config), "--map-gen-settings", str(map_settings)]
+    if cache:
+        prepare += ["--cache", cache]
+    subprocess.run(prepare, check=True, timeout=180)
     # Exercise the generated service arguments and settings, with isolated
     # storage/binding and the explicit offline-auth exception below.
     command = []
@@ -37,6 +44,8 @@ with tempfile.TemporaryDirectory() as temporary:
             arg = f"--config={config}"
         elif arg.startswith("--bind="):
             arg = "--bind=127.0.0.1"
+        elif arg.startswith("--mod-directory="):
+            arg = f"--mod-directory={state / 'mods'}"
         elif arg.startswith("--server-settings="):
             settings = json.loads(Path(arg.split("=", 1)[1]).read_text())
             assert settings["require_user_verification"] is True
@@ -67,12 +76,28 @@ with tempfile.TemporaryDirectory() as temporary:
                     process.stdin.write("/whitelist add RuntimeFriend\n")
                 else:
                     process.stdin.write("/whitelist get\n")
+                # The first use requires confirmation; this affects only the
+                # disposable test world, never production saves.
+                probe_path = state / "script-output/caz-map.json"
+                probe_path.unlink(missing_ok=True)
+                probe = '/c helpers.write_file("caz-map.json", helpers.table_to_json({enemies=game.surfaces.nauvis.map_gen_settings.autoplace_controls["enemy-base"], mods=script.active_mods}), false)\n'
+                process.stdin.write(probe * 2)
                 process.stdin.flush()
                 deadline = time.monotonic() + 10
                 while "runtimefriend" not in log.read_text().lower():
                     if time.monotonic() > deadline:
                         raise RuntimeError("Runtime whitelist was not applied\n" + log.read_text())
                     time.sleep(0.2)
+                deadline = time.monotonic() + 10
+                while not probe_path.exists():
+                    if time.monotonic() > deadline:
+                        raise RuntimeError("Map settings probe failed\n" + log.read_text())
+                    time.sleep(0.2)
+                actual = json.loads(probe_path.read_text())
+                assert actual["enemies"]["frequency"] == 0.75, actual
+                assert actual["enemies"]["size"] == 1, actual
+                for mod in json.loads(manifest.read_text()):
+                    assert actual["mods"][mod["name"]] == mod["version"], actual
             finally:
                 process.send_signal(signal.SIGINT)
                 try:
@@ -87,4 +112,5 @@ with tempfile.TemporaryDirectory() as temporary:
         persisted = json.loads((state / "server-whitelist.json").read_text())
         assert "runtimefriend" in [player.lower() for player in persisted], (persisted, log.read_text())
         subprocess.run([sys.executable, str(script), "--state-dir", str(state), "initialize"], check=True)
-    print("Space Age startup, live whitelist persistence, graceful save, and restart passed.")
+        subprocess.run(prepare, check=True, timeout=180)
+    print("Space Age world preparation, 75% enemy frequency, mod versions, whitelist persistence, save, and restart passed.")
