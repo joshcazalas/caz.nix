@@ -70,3 +70,13 @@ private keys in SOPS, and never reuse a `wg-game` peer or private key in
 `wg-home`.
 
 Reference: <https://github.com/Mic92/sops-nix>
+
+Factorio's mod portal login lives separately in `secrets/factorio.yaml`,
+encrypted to the same recipients. Its `modPortal` value is a JSON string
+containing `username` and `token`. It was initialized from the local
+Factorio client's existing login; no password is stored. The service reads
+it through a systemd credential and uses it only to fetch pinned archives
+from the official mod portal. It is not needed for ordinary cached starts.
+To rotate it, edit that file with SOPS using the same command/key as above.
+Never place an authenticated download URL in the mod manifest or a Nix
+expression.

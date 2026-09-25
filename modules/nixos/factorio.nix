@@ -6,8 +6,14 @@
 }:
 let
   cfg = config.services.factorio;
+  content = config.homelab.factorio;
   stateDir = "/var/lib/${cfg.stateDirName}";
   backupDir = "/var/backup/factorio";
+  manifest = builtins.fromJSON (builtins.readFile content.modManifest);
+  modDir = "${stateDir}/mod-sets/${builtins.hashString "sha256" (builtins.toJSON manifest)}";
+  mapGenSettings = pkgs.writeText "factorio-map-gen-settings.json" (
+    builtins.toJSON content.mapGenSettings
+  );
   administration = pkgs.writeShellApplication {
     name = "factorio-access";
     runtimeInputs = [
@@ -22,26 +28,26 @@ let
         --backup-dir ${backupDir} --port ${toString cfg.port} "$@"
     '';
   };
-  # The headless distribution includes the official expansion. State this
-  # explicitly so package updates cannot silently change the world's content.
-  modList = pkgs.writeText "factorio-mod-list.json" (
-    builtins.toJSON {
-      mods =
-        map
-          (name: {
-            inherit name;
-            enabled = true;
-          })
-          [
-            "base"
-            "quality"
-            "elevated-rails"
-            "space-age"
-          ];
-    }
-  );
 in
 {
+  options.homelab.factorio = {
+    modManifest = lib.mkOption {
+      type = lib.types.path;
+      default = ./factorio-mods.json;
+      description = "Pinned mod archives, portal download paths, and SHA-256 checksums.";
+    };
+    world = lib.mkOption {
+      type = lib.types.strMatching "[A-Za-z0-9_-]+";
+      default = "modded-space-age-v1";
+      description = "Persistent world identity. Changing this selects or creates a different world.";
+    };
+    mapGenSettings = lib.mkOption {
+      type = lib.types.attrs;
+      default = { };
+      description = "Map generation settings applied only when creating a new world.";
+    };
+  };
+
   config = lib.mkIf cfg.enable {
     nixpkgs.config.allowUnfreePredicate = pkg: lib.getName pkg == "factorio-headless";
 
@@ -61,6 +67,7 @@ in
       };
       # Keep these lists writable and outside the release/Nix store.
       extraArgs = [
+        "--mod-directory=${modDir}"
         "--use-server-whitelist=true"
         "--server-whitelist=${stateDir}/server-whitelist.json"
         "--server-adminlist=${stateDir}/server-adminlist.json"
@@ -79,26 +86,40 @@ in
       }
       {
         assertion = cfg.mods == [ ] && cfg.mods-dat == null;
-        message = "This initial Factorio setup manages the Space Age mod list; integrate custom mods explicitly before setting services.factorio.mods.";
+        message = "Use homelab.factorio.modManifest for authenticated, pinned mods; do not mix it with services.factorio.mods or mods-dat.";
       }
     ];
 
     environment.systemPackages = [ administration ];
+    sops.secrets."factorio/mod-portal" = {
+      sopsFile = ../../secrets/factorio.yaml;
+      key = "modPortal";
+      restartUnits = [ "factorio.service" ];
+    };
     systemd.tmpfiles.rules = [
       "d ${backupDir} 0700 root root -"
       "d /run/caz-container-maintenance 0700 root root -"
     ];
 
     systemd.services.factorio = {
+      environment.SSL_CERT_FILE = "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
       # Runs as upstream's DynamicUser, before upstream map creation.
       preStart = lib.mkBefore ''
         ${lib.getExe pkgs.python3} ${../../scripts/factorio-admin.py} \
           --state-dir ${lib.escapeShellArg stateDir} initialize
-        mkdir -p ${lib.escapeShellArg "${stateDir}/mods"}
-        cp ${modList} ${lib.escapeShellArg "${stateDir}/mods/mod-list.json"}
-        chmod 0600 ${lib.escapeShellArg "${stateDir}/mods/mod-list.json"}
+        ${lib.getExe pkgs.python3} ${../../scripts/factorio-prepare.py} \
+          --manifest ${content.modManifest} \
+          --mod-directory ${lib.escapeShellArg modDir} \
+          --credentials "$CREDENTIALS_DIRECTORY/mod-portal" \
+          --state-dir ${lib.escapeShellArg stateDir} \
+          --world ${lib.escapeShellArg content.world} \
+          --binary ${lib.getExe cfg.package} --config ${cfg.configFile} \
+          --map-gen-settings ${mapGenSettings} --save-name ${lib.escapeShellArg cfg.saveName}
       '';
       serviceConfig = {
+        LoadCredential = [ "mod-portal:${config.sops.secrets."factorio/mod-portal".path}" ];
+        # First activation downloads about 200 MB and generates a modded map.
+        TimeoutStartSec = "15min";
         StateDirectoryMode = "0700";
         UMask = lib.mkForce "0077";
         TimeoutStopSec = "180s";

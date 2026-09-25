@@ -114,6 +114,10 @@ class FactorioAdministrationTests(unittest.TestCase):
 
     def test_backup_follows_state_directory_link_and_can_be_restored(self):
         self.make_save()
+        world = self.state / "worlds/modded-v1"
+        world.mkdir(parents=True)
+        (self.state / "saves").rename(world / "saves")
+        (self.state / "saves").symlink_to("worlds/modded-v1/saves", target_is_directory=True)
         alias = self.root / "factorio"
         alias.symlink_to(self.state, target_is_directory=True)
         backups = self.root / "backups"
@@ -124,6 +128,7 @@ class FactorioAdministrationTests(unittest.TestCase):
         self.real_run(["tar", "--extract", "--zstd", "--file", str(archive),
                        "--directory", str(restored)], check=True)
         self.assertEqual((restored / "saves/default.zip").read_bytes(), b"a saved factory")
+        self.assertTrue((restored / "saves").is_symlink())
         self.assertIn(admin.GUARD, admin.read_players(restored / "server-whitelist.json"))
         self.assertEqual(archive.stat().st_mode & 0o777, 0o600)
         self.assertEqual(self.commands[-1], ["systemctl", "start", admin.UNIT])

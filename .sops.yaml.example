@@ -3,7 +3,7 @@ keys:
   - &homeserver "ssh-ed25519 REPLACE_WITH_SERVER_HOST_PUBLIC_KEY"
 
 creation_rules:
-  - path_regex: secrets/homeserver\.yaml$
+  - path_regex: secrets/(homeserver|factorio)\.yaml$
     key_groups:
       - age:
           - *admin

@@ -1,0 +1,72 @@
+[
+  {
+    "name": "alien-biomes",
+    "version": "0.7.4",
+    "file_name": "alien-biomes_0.7.4.zip",
+    "download_path": "/download/alien-biomes/6859bbba7173e6ebc73b434f",
+    "sha256": "d7d28a9fb748556d4181098ce4a9ad7bfa54ddfd6542f1ad127cf01044fcecdc"
+  },
+  {
+    "name": "jetpack",
+    "version": "0.4.17",
+    "file_name": "jetpack_0.4.17.zip",
+    "download_path": "/download/jetpack/69d695b6aa2bf4e50813630c",
+    "sha256": "3386fb7a3f43014b763d1afc1f9bed201a321551a4696a168a4650887c6152c9"
+  },
+  {
+    "name": "aai-containers",
+    "version": "0.3.2",
+    "file_name": "aai-containers_0.3.2.zip",
+    "download_path": "/download/aai-containers/68d2ad73257dad1106e089a4",
+    "sha256": "e6af069c46a438b7cf6da091e024769ab4bb18fd232ec92c649181517141d969"
+  },
+  {
+    "name": "RateCalculator",
+    "version": "3.3.8",
+    "file_name": "RateCalculator_3.3.8.zip",
+    "download_path": "/download/RateCalculator/696d65295c86e177a42ba14c",
+    "sha256": "fe6776d809e70f1b6d979d1eb7e47b11cace0aebc15bb6625631366cdd857635"
+  },
+  {
+    "name": "AutoDeconstruct",
+    "version": "1.0.14",
+    "file_name": "AutoDeconstruct_1.0.14.zip",
+    "download_path": "/download/AutoDeconstruct/6a6aac6e8a3527f5faf5006d",
+    "sha256": "0a4912b0860b67fb4a7718f658a4c5f788e523f717981fc92c64994c8830badb"
+  },
+  {
+    "name": "textplates",
+    "version": "0.7.2",
+    "file_name": "textplates_0.7.2.zip",
+    "download_path": "/download/textplates/6796fc904636ff3e9ca2f3ae",
+    "sha256": "e2210e3bb97ab67724c42a0728a6ec5c9d281b3aa80991d5c1bdd9592d777d37"
+  },
+  {
+    "name": "grappling-gun",
+    "version": "0.4.1",
+    "file_name": "grappling-gun_0.4.1.zip",
+    "download_path": "/download/grappling-gun/67159c895e6d404bb21eeff1",
+    "sha256": "a15c19e71c19ac6592d06e30b2209347473ff5e9e17e9d4045128e1acde5aeb8"
+  },
+  {
+    "name": "squeak-through-2",
+    "version": "0.1.5",
+    "file_name": "squeak-through-2_0.1.5.zip",
+    "download_path": "/download/squeak-through-2/69e99fed55a9cf0e831988d2",
+    "sha256": "7ad0fc4d6f329c79f70029d5a493448ffd71323abb45c6ab87af2449543bbd63"
+  },
+  {
+    "name": "flib",
+    "version": "0.16.5",
+    "file_name": "flib_0.16.5.zip",
+    "download_path": "/download/flib/690aa58f2da58c0b75aadd06",
+    "sha256": "8fc5073d374a149620333777d959d2c204ab0af0c59669be94c5cab7de978627"
+  },
+  {
+    "name": "alien-biomes-graphics",
+    "version": "0.7.1",
+    "file_name": "alien-biomes-graphics_0.7.1.zip",
+    "download_path": "/download/alien-biomes-graphics/6859bb487173e6ebc73b434e",
+    "sha256": "2ed150db02c77ba8aa4891b2ff80b74e30d2d631636efdf7c7dcd5268c16c685"
+  }
+]
