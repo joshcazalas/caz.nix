@@ -183,6 +183,7 @@
                 pkgs.bash
                 pkgs.coreutils
                 pkgs.gawk
+                pkgs.gnugrep
                 pkgs.jq
               ];
             }
