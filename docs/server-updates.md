@@ -366,6 +366,36 @@ understanding the failure:
 sudo caz-deploy-server-release --force
 ```
 
+### Dependency DNS failures stop an overnight build
+
+On October 6, the updater failed at 05:55:40 CDT while fetching
+`stable-vec-0.4.3` for Auxide. The builder reported four
+`curl: (6) Could not resolve host: static.crates.io` errors and exhausted its
+short internal retry window. This happened before backups or activation; the
+previous generation stayed running, and only `caz-release-updater.service`
+was failed. Retrying that exact derivation later on the server succeeded.
+
+The updater already retried its own release metadata downloads, but that policy
+did not cover downloads performed inside Nix dependency builders. The build
+stage now permits three attempts, with 60 seconds between attempts, when Nix's
+error output contains a recognized transient curl failure. Every attempt uses
+the same pinned commit. Each successful build still must match the signed
+manifest's store path and derivation before deployment can proceed. Permanent
+errors without a transient curl diagnostic fail immediately. Activation and
+rollback are not retried by this policy.
+
+The resolver journal showed intermittent Quad9 connection errors around the
+incident, but no entry identifying the failed crate lookup. The evidence
+establishes a transient DNS/download failure, not whether DNS rate limiting,
+an upstream failure, or another network interruption caused that lookup to fail.
+The deployed configuration already included an encrypted fallback resolver.
+
+For this pre-activation failure, retry with `sudo caz-deploy-server-release`;
+`--force` is unnecessary because the release was not quarantined. After a
+successful deployment and health check, clear the old service failure with
+`sudo systemctl reset-failed caz-release-updater.service`. A direct CLI success
+does not itself clear systemd's failed state from the earlier timer run.
+
 ### WireGuard prevents activation and rollback
 
 If `wg-quick-wg-game.service` fails with `wg-game already exists`, inspect its

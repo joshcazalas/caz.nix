@@ -483,15 +483,44 @@ flake_reference="github:${repository}/${commit_sha}"
 
 echo "==> Reproducing the exact homeserver build from ${commit_sha}"
 notification_phase=build
+reproduce_release_build() {
+  local attempt
+  for attempt in 1 2 3; do
+    # A fixed-output dependency fetch runs inside its builder, outside
+    # download_file's retry policy. A brief DNS outage used to abort the whole
+    # night after that builder's short curl retry window (Oct 6, stable-vec).
+    # Retry only this pre-activation stage, always against the same commit.
+    # Keep stderr live and retain it for classification. pipefail preserves
+    # build failures; stdout is replaced on every attempt, never appended.
+    if nix build \
+      --no-link \
+      --print-out-paths \
+      "${flake_reference}#nixosConfigurations.homeserver.config.system.build.toplevel" \
+      2>&1 >"${work_directory}/build-outputs" \
+      | tee "${work_directory}/build-errors" >&2; then
+      return 0
+    fi
+
+    # Match explicit transient curl errors, including the builder log tail
+    # printed by Nix. Unknown/compiler/hash/certificate failures fail closed.
+    if ! grep -Eq 'curl: [(](5|6|7|18|28|35|52|55|56|92|95)[)]' \
+      "${work_directory}/build-errors"; then
+      return 1
+    fi
+    if ((attempt == 3)); then
+      echo "Release build exhausted its 3-attempt transient-download retry budget." >&2
+      return 1
+    fi
+    echo "Transient dependency download failure; retrying the pinned release build in 60s (attempt $((attempt + 1))/3)." >&2
+    sleep 60
+  done
+}
+
 # `mapfile < <(nix build ...)` reports mapfile's own exit status, so `set -e`
 # never sees a failed build and the count check below reports a missing output
 # instead of the error Nix actually printed. Redirect and test the build itself
 # so the failure that stopped the deployment is the one the operator reads.
-if ! nix build \
-  --no-link \
-  --print-out-paths \
-  "${flake_reference}#nixosConfigurations.homeserver.config.system.build.toplevel" \
-  >"${work_directory}/build-outputs"; then
+if ! reproduce_release_build; then
   echo "Building ${release_tag} from ${commit_sha} failed; see the Nix error above." >&2
   exit 1
 fi
