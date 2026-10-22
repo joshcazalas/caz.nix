@@ -2,7 +2,7 @@
 
 The website module serves the static build from `joshcazalas/website` through
 Caddy. It does not clone or build the website on the server. The updater runs
-TypeScript directly on Node 24; Node is not involved in serving requests.
+TypeScript directly on Node 26; Node is not involved in serving requests.
 
 The homeserver configuration uses **signed release mode** with automatic updates
 and public HTTPS at `joshcazalas.com`, enabled for end-to-end verification. A
