@@ -1,7 +1,7 @@
 {
   lib,
   buildNpmPackage,
-  nodejs_24,
+  nodejs_26,
   makeWrapper,
   github-cli,
   util-linux,
@@ -13,8 +13,8 @@ buildNpmPackage {
     src = ./.;
     filter = path: type: lib.cleanSourceFilter path type && baseNameOf path != "node_modules";
   };
-  nodejs = nodejs_24;
-  npmDepsHash = "sha256-FEaxYvedlF4pLPjY6VvAEyCc1NA4Y0fZZZv++7DREnY=";
+  nodejs = nodejs_26;
+  npmDepsHash = "sha256-CQWwYD5Y72zC6nw2oMntY//z97umsSoRxqylxWcq9AY=";
   nativeBuildInputs = [ makeWrapper ];
   dontNpmBuild = true;
   doCheck = true;
@@ -31,7 +31,7 @@ buildNpmPackage {
     npm prune --omit=dev --ignore-scripts
     mkdir -p "$out/lib/caz-website-updater" "$out/bin"
     cp -r src node_modules package.json "$out/lib/caz-website-updater/"
-    makeWrapper ${nodejs_24}/bin/node "$out/bin/caz-website-updater" \
+    makeWrapper ${nodejs_26}/bin/node "$out/bin/caz-website-updater" \
       --add-flags "$out/lib/caz-website-updater/src/cli.ts" \
       --prefix PATH : ${
         lib.makeBinPath [
