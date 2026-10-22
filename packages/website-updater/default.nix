@@ -14,7 +14,7 @@ buildNpmPackage {
     filter = path: type: lib.cleanSourceFilter path type && baseNameOf path != "node_modules";
   };
   nodejs = nodejs_26;
-  npmDepsHash = "sha256-CQWwYD5Y72zC6nw2oMntY//z97umsSoRxqylxWcq9AY=";
+  npmDepsHash = "sha256-ra8pBA5XTLYnd7wckYJhVLDmBYRgcd4ZtVP+38JSJ80=";
   nativeBuildInputs = [ makeWrapper ];
   dontNpmBuild = true;
   doCheck = true;
