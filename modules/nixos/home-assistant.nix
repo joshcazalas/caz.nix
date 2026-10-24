@@ -27,6 +27,15 @@ in
       default = "${settings.server.dataRoot}/home-assistant";
       description = "Persistent Home Assistant configuration and database directory.";
     };
+
+    zigbeeDevice = lib.mkOption {
+      type = lib.types.nullOr (lib.types.strMatching "/dev/serial/by-id/[^/:]+");
+      default = null;
+      description = ''
+        Stable host device path of the Zigbee coordinator. When set, only this
+        device is passed into Home Assistant, at /dev/ttyZigbee for ZHA setup.
+      '';
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -78,6 +87,7 @@ in
     virtualisation.oci-containers.containers.${containerName} = {
       inherit (cfg) image;
       autoStart = true;
+      devices = lib.optional (cfg.zigbeeDevice != null) "${cfg.zigbeeDevice}:/dev/ttyZigbee:rw";
       volumes = [
         "${cfg.dataDir}:/config:rw"
         configurationMount
