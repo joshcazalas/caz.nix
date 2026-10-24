@@ -161,7 +161,10 @@ in
   # UI and discovery traffic are reachable only from the LAN. Release-managed
   # YAML provides reviewed automations while pairing credentials and other
   # mutable application state remain outside the Nix store.
-  homelab.homeAssistant.enable = true;
+  homelab.homeAssistant = {
+    enable = true;
+    zigbeeDevice = "/dev/serial/by-id/usb-Itead_Sonoff_Zigbee_3.0_USB_Dongle_Plus_V2_98c723948778f0119074a1e70ba521c7-if00-port0";
+  };
 
   # Renders the overworld around spawn into static tiles served by Caddy over
   # HTTPS. Player markers stay off: the map is public, and live markers would
