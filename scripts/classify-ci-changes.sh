@@ -56,13 +56,18 @@ else
       hosts/homeserver/* | modules/nixos/* | secrets/*)
         homeserver=true
         case "${path}" in
-          modules/nixos/game-stream-* | modules/nixos/home-access-gateway.nix | modules/nixos/network-policy.nix | modules/nixos/networking.nix | modules/nixos/auxide.nix | modules/nixos/website.nix)
+          modules/nixos/game-stream-* | modules/nixos/home-access-gateway.nix | modules/nixos/network-policy.nix | modules/nixos/networking.nix | modules/nixos/device-network.nix | modules/nixos/local-integrations.nix | modules/nixos/container-runtime.nix | modules/nixos/auxide.nix | modules/nixos/website.nix)
             integration=true
             ;;
         esac
         ;;
 
       packages/website-updater/*)
+        homeserver=true
+        integration=true
+        ;;
+
+      packages/device-network/*)
         homeserver=true
         integration=true
         ;;

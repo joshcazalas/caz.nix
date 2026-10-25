@@ -130,6 +130,18 @@ check_once() {
     fi
   fi
 
+  if [[ -n "${CAZ_HEALTH_DEVICE_NETWORK_COMMAND:-}" ]]; then
+    if ! "$CAZ_HEALTH_DEVICE_NETWORK_COMMAND" health >/dev/null 2>&1; then
+      failures+=("device-network:isolation-or-services")
+    fi
+  fi
+
+  if [[ -n "${CAZ_HEALTH_LOCAL_INTEGRATIONS_COMMAND:-}" ]]; then
+    if ! "$CAZ_HEALTH_LOCAL_INTEGRATIONS_COMMAND" health >/dev/null 2>&1; then
+      failures+=("local-integrations:containers")
+    fi
+  fi
+
   if (( ${#failures[@]} > 0 )); then
     printf 'Unhealthy checks: %s\n' "$(IFS=,; echo "${failures[*]}")" >&2
     return 1

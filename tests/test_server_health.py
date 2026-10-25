@@ -56,7 +56,7 @@ class ServerHealthTests(unittest.TestCase):
 
     def run_health(
         self, statuses="200", url=None, args=(), contract=None, short_sleep=False,
-        factorio_status=None
+        factorio_status=None, device_network_status=None, local_integrations_status=None
     ):
         env = {
             key: value
@@ -90,6 +90,20 @@ class ServerHealthTests(unittest.TestCase):
             )
             sleep.chmod(0o755)
             env["PATH"] = f"{commands}:{env['PATH']}"
+        if device_network_status is not None:
+            probe = self.root / "device-network"
+            probe.write_text(
+                f'#!{shutil.which("bash")}\n[[ "$1" == health ]] || exit 99\nexit {device_network_status}\n'
+            )
+            probe.chmod(0o755)
+            env["CAZ_HEALTH_DEVICE_NETWORK_COMMAND"] = str(probe)
+        if local_integrations_status is not None:
+            probe = self.root / "local-integrations"
+            probe.write_text(
+                f'#!{shutil.which("bash")}\n[[ "$1" == health ]] || exit 99\nexit {local_integrations_status}\n'
+            )
+            probe.chmod(0o755)
+            env["CAZ_HEALTH_LOCAL_INTEGRATIONS_COMMAND"] = str(probe)
         return subprocess.run(
             ["bash", str(SCRIPT), *args],
             env=env,
@@ -118,6 +132,22 @@ class ServerHealthTests(unittest.TestCase):
                 self.assertEqual(result.returncode, status, result.stderr)
                 if status:
                     self.assertIn("factorio:listener-or-whitelist", result.stderr)
+
+    def test_device_network_isolation_failure_rejects_release(self):
+        for status in (0, 1):
+            with self.subTest(status=status):
+                result = self.run_health(device_network_status=status)
+                self.assertEqual(result.returncode, status, result.stderr)
+                if status:
+                    self.assertIn("device-network:isolation-or-services", result.stderr)
+
+    def test_local_integrations_failure_rejects_release(self):
+        for status in (0, 1):
+            with self.subTest(status=status):
+                result = self.run_health(local_integrations_status=status)
+                self.assertEqual(result.returncode, status, result.stderr)
+                if status:
+                    self.assertIn("local-integrations:containers", result.stderr)
 
     def test_frontend_redirect_is_explicit_and_not_followed(self):
         type(self).responses = deque([302, 404])

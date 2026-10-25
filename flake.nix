@@ -243,6 +243,22 @@
           inherit (inputs) sops-nix;
         };
         network-policy = import ./tests/network-policy.nix { inherit pkgs; };
+        device-network = import ./tests/device-network.nix { inherit pkgs; };
+        device-network-config =
+          pkgs.runCommand "check-device-network-config"
+            {
+              nativeBuildInputs = [ pkgs.python3 ];
+            }
+            ''
+              mkdir -p packages/device-network tests
+              cp ${./packages/device-network/device-network.py} packages/device-network/device-network.py
+              cp ${./tests/test_device_network.py} tests/test_device_network.py
+              cp ${./packages/device-network/local-integrations.py} packages/device-network/local-integrations.py
+              cp ${./tests/test_local_integrations.py} tests/test_local_integrations.py
+              python -m unittest discover -s tests -p test_device_network.py -v
+              python -m unittest discover -s tests -p test_local_integrations.py -v
+              touch "$out"
+            '';
         network-readiness = import ./tests/network-readiness.nix { inherit pkgs auxide; };
         wsl-home = self.homeConfigurations."${settings.user.name}@wsl".activationPackage;
         wsl-aws-profiles = pkgs.runCommand "check-wsl-aws-profiles" { } ''

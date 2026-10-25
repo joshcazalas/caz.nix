@@ -59,6 +59,7 @@ their standard Bash integrations.
 | Cloudflare DDNS | on | Outbound HTTPS only | Keep reviewed public IPv4 records synchronized |
 | Household WireGuard | on | Public UDP 51821; exact private services by role | Per-device administrator/resident access without a full-mesh LAN VPN |
 | Home Assistant Container | on | LAN or SSH forwarding | Local automation, dashboards, and device integration |
+| Isolated device network | on | Explicit local TCP grants | Dedicated interface without internet access; private runtime configuration ([operations](docs/device-network.md)) |
 | Immich | off | LAN or SSH forwarding initially | Photo library, not a backup by itself |
 | Minecraft | on | LAN TCP 25565; Internet after manual DNS/router setup | Pinned Paper server with a locally managed whitelist and daily backups |
 | Portfolio website | on | LAN HTTP 8088; public HTTPS at joshcazalas.com | Verified static releases, atomic activation, and rollback ([operations](docs/website.md)) |
@@ -147,6 +148,7 @@ docs/bootstrap-wsl.md             short WSL command reference
 docs/install-server.md            safe installation-day checklist
 docs/dns-recovery.md              temporary DNS fallback and return to AdGuard
 docs/home-assistant.md            container, onboarding, backups, and operations
+docs/device-network.md            isolated devices, private configuration, and local service grants
 docs/minecraft.md                 pinned server, backups, and exposure checklist
 docs/factorio.md                  native Space Age server, access, backups, and learning guide
 docs/website.md                   portfolio preview, signed releases, and rollback

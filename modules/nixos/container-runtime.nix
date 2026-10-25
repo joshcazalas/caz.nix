@@ -10,6 +10,7 @@ let
   containerRuntimeRequired =
     config.homelab.minecraft.enable
     || config.homelab.homeAssistant.enable
+    || (config.homelab.localIntegrations.enable or false)
     || (config.services.auxide.enable && config.services.auxide.poTokenProvider.enable);
   dockerPrune = pkgs.writeShellApplication {
     name = "caz-docker-prune";

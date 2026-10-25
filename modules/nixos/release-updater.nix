@@ -69,6 +69,11 @@ let
     ++ optionals config.services.auxide.enable [ "auxide.service" ]
     ++ optionals providerEnabled [ providerUnit ]
     ++ optionals homeAssistantEnabled [ homeAssistantUnit ]
+    ++ optionals (config.homelab.deviceNetwork.enable or false) [
+      "device-network.service"
+      "device-network-dns.service"
+    ]
+    ++ optionals (config.homelab.localIntegrations.enable or false) [ "local-integrations.service" ]
     ++ optionals config.homelab.immich.enable [ "immich-server.service" ]
     ++ optionals minecraftEnabled [ "docker-minecraft.service" ]
     ++ optionals factorioEnabled [ "factorio.service" ]
@@ -118,6 +123,12 @@ let
       export CAZ_HEALTH_CHECK_MINECRAFT=${lib.boolToString minecraftEnabled}
       export CAZ_HEALTH_CHECK_FACTORIO=${lib.boolToString factorioEnabled}
       export CAZ_HEALTH_FACTORIO_COMMAND=/run/current-system/sw/bin/factorio-access
+      ${lib.optionalString (config.homelab.deviceNetwork.enable or false) ''
+        export CAZ_HEALTH_DEVICE_NETWORK_COMMAND=${lib.getExe config.homelab.deviceNetwork.package}
+      ''}
+      ${lib.optionalString (config.homelab.localIntegrations.enable or false) ''
+        export CAZ_HEALTH_LOCAL_INTEGRATIONS_COMMAND=${lib.getExe config.homelab.localIntegrations.package}
+      ''}
 
       ${builtins.readFile ../../scripts/check-server-health.sh}
     '';
