@@ -191,8 +191,11 @@ pkgs.testers.runNixOSTest {
 
     def check_boundary():
         server.succeed("caz-device-network health")
-        device.succeed("curl -fsS --max-time 5 http://192.168.70.1:8883/ >/dev/null")
-        server.succeed("curl -fsS --max-time 5 http://127.0.0.1:19080/ >/dev/null")
+        # Active systemd units do not guarantee that the proxy listeners and
+        # HTTP backends are ready yet, especially immediately after reboot.
+        # Wait for both allowed paths before asserting the isolation boundary.
+        device.wait_until_succeeds("curl -fsS --max-time 5 http://192.168.70.1:8883/ >/dev/null", timeout=60)
+        server.wait_until_succeeds("curl -fsS --max-time 5 http://127.0.0.1:19080/ >/dev/null", timeout=60)
         assert "192.168.70.1" in device.succeed("dig +short @192.168.70.1 service.test")
         assert "NXDOMAIN" in device.succeed("dig +time=2 +tries=1 @192.168.70.1 example.com")
         assert "NXDOMAIN" in device.succeed("dig +tcp +time=2 +tries=1 @192.168.70.1 example.com")
@@ -256,7 +259,7 @@ pkgs.testers.runNixOSTest {
         server.succeed("systemctl daemon-reload && systemctl start device-network.target")
         server.wait_until_succeeds("caz-device-network health")
         server.fail("nc -z -w 1 127.0.0.1 19080")
-        device.succeed("curl -fsS --max-time 5 http://192.168.70.1:8883/ >/dev/null")
+        device.wait_until_succeeds("curl -fsS --max-time 5 http://192.168.70.1:8883/ >/dev/null", timeout=60)
         server.succeed("systemctl stop device-network.target device-network.service")
         server.succeed(f"cp /run/device-network-original.json {config_file}")
         server.succeed("systemctl daemon-reload && systemctl start device-network.target")
@@ -274,5 +277,6 @@ pkgs.testers.runNixOSTest {
         server.start()
         server.wait_until_succeeds("caz-device-network health")
         check_boundary()
+        server.wait_until_succeeds("caz-local-integrations health")
   '';
 }
