@@ -3,8 +3,12 @@
 import copy
 import importlib.util
 from pathlib import Path
+import socket
+import subprocess
 import tempfile
+import threading
 import unittest
+from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location(
     "device_network", Path(__file__).parents[1] / "packages/device-network/device-network.py"
@@ -31,6 +35,47 @@ def fixture():
 
 
 class ValidationTests(unittest.TestCase):
+    def test_wifi_health_reply_socket_is_visible_with_private_tmp(self):
+        config = fixture()
+        with tempfile.TemporaryDirectory() as temporary:
+            runtime = Path(temporary)
+            control = runtime / "hostapd"
+            control.mkdir()
+            with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as daemon:
+                daemon.bind(str(control / config["interface"]))
+                daemon.settimeout(5)
+                replies = []
+
+                def respond():
+                    try:
+                        request, peer = daemon.recvfrom(4096)
+                        # Model PrivateTmp: hostapd can only reply through the
+                        # shared runtime directory, not another service's /tmp.
+                        if request == b"STATUS" and Path(peer).parent == runtime:
+                            daemon.sendto(b"state=ENABLED\n", peer)
+                            replies.append(peer)
+                    except TimeoutError:
+                        pass
+
+                worker = threading.Thread(target=respond)
+                worker.start()
+
+                def client(*args, capture=False):
+                    return subprocess.run(args, check=True, capture_output=capture,
+                                          text=True, timeout=5)
+
+                try:
+                    with patch.object(network, "RUNTIME", runtime), \
+                            patch.object(network, "load", return_value=config), \
+                            patch.object(network, "check_isolation"), \
+                            patch.object(network, "run"), \
+                            patch.object(network, "ns", side_effect=client):
+                        network.health(config)
+                finally:
+                    worker.join(timeout=6)
+                self.assertEqual(len(replies), 1)
+            self.assertEqual(list(runtime.glob("wpa_ctrl_*")), [])
+
     def test_valid_wireless_and_wired_configuration(self):
         config = fixture()
         self.assertIs(network.validate(config), config)
