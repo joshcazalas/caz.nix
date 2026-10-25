@@ -22,6 +22,8 @@ in
     ../../modules/nixos/storage.nix
     ../../modules/nixos/networking.nix
     ../../modules/nixos/network-policy.nix
+    ../../modules/nixos/device-network.nix
+    ../../modules/nixos/local-integrations.nix
     ../../modules/nixos/container-runtime.nix
     ../../modules/nixos/game-stream-gateway.nix
     ../../modules/nixos/home-access-gateway.nix
@@ -165,6 +167,11 @@ in
     enable = true;
     zigbeeDevice = "/dev/serial/by-id/usb-Itead_Sonoff_Zigbee_3.0_USB_Dongle_Plus_V2_98c723948778f0119074a1e70ba521c7-if00-port0";
   };
+
+  # A reusable local-only network. Its Wi-Fi identity, device inventory and
+  # individual service grants remain in root-owned runtime state, not Git.
+  homelab.deviceNetwork.enable = true;
+  homelab.localIntegrations.enable = true;
 
   # Renders the overworld around spawn into static tiles served by Caddy over
   # HTTPS. Player markers stay off: the map is public, and live markers would

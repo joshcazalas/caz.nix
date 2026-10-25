@@ -68,6 +68,7 @@ them to remain healthy for another minute:
 - an actual DNS lookup through the local AdGuard Home resolver;
 - the Minecraft container, its RCON console, and public-listener socket.
 - the Factorio service, its own UDP listener, and the persisted whitelist guard.
+- the isolated device network's routing boundary and declared local services.
 
 If activation or a health check fails, the updater restores the previous NixOS
 profile, activates it, and runs the same health gate. The failed release is
