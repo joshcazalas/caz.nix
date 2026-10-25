@@ -288,7 +288,10 @@ def health(config):
     units = ["device-network.service", "device-network-dns.service"]
     if config.get("wifi"):
         units.append("device-network-wifi.service")
-        status = ns("hostapd_cli", "-p", str(RUNTIME / "hostapd"), "-i", config["interface"], "status", capture=True).stdout
+        # hostapd and the deployment supervisor each have PrivateTmp enabled.
+        # Put the client's reply socket in their shared, root-only runtime dir.
+        status = ns("hostapd_cli", "-p", str(RUNTIME / "hostapd"), "-s", str(RUNTIME),
+                    "-i", config["interface"], "status", capture=True).stdout
         require("state=ENABLED" in status.splitlines(), "Access point is not ready")
     units += [f"device-network-{side}@{name}.service"
               for name in config.get("tcp", {}) for side in ("host", "network")]

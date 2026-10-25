@@ -247,7 +247,10 @@
         device-network-config =
           pkgs.runCommand "check-device-network-config"
             {
-              nativeBuildInputs = [ pkgs.python3 ];
+              nativeBuildInputs = [
+                pkgs.python3
+                pkgs.hostapd
+              ];
             }
             ''
               mkdir -p packages/device-network tests
