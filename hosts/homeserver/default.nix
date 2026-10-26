@@ -165,7 +165,7 @@ in
   # mutable application state remain outside the Nix store.
   homelab.homeAssistant = {
     enable = true;
-    zigbeeDevice = "/dev/serial/by-id/usb-Itead_Sonoff_Zigbee_3.0_USB_Dongle_Plus_V2_98c723948778f0119074a1e70ba521c7-if00-port0";
+    serialDevice.enable = true;
   };
 
   # A reusable local-only network. Its Wi-Fi identity, device inventory and

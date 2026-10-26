@@ -1,0 +1,6 @@
+# These contain device identities or credentials; build outside Git.
+secrets.yaml
+plan.json
+.esphome/
+*.bin
+*.elf

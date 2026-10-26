@@ -4,6 +4,10 @@
 default_config:
 
 homeassistant:
+  # Declare the available MFA method. Each user must enroll from their profile;
+  # enrollment and authenticator secrets remain private runtime state.
+  auth_mfa_modules:
+    - type: totp
   packages: !include_dir_named packages
 
 # Preserve the Home Assistant UI editors for unrelated automations, scripts,

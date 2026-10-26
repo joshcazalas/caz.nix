@@ -154,7 +154,10 @@ let
     ++ optionals config.services.grafana.enable [ "var/lib/grafana" ]
     # Stop the container before archiving its SQLite database. This protects
     # UI-managed integrations, automations, credentials, and history together.
-    ++ optionals homeAssistantEnabled [ homeAssistantStatePath ];
+    ++ optionals homeAssistantEnabled [
+      homeAssistantStatePath
+      (lib.removePrefix "/" config.homelab.homeAssistant.privateConfigDir)
+    ];
 
   storagePaths = lib.unique (
     [
