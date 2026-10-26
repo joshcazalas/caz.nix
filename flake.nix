@@ -135,6 +135,22 @@
       nixosConfigurations.${settings.server.hostName} = homeserver;
 
       checks.${system} = {
+        schlage-local =
+          pkgs.runCommand "check-schlage-local"
+            {
+              nativeBuildInputs = [
+                pkgs.python3
+                pkgs.nodejs
+              ];
+            }
+            ''
+              mkdir -p home-assistant/custom_components tests
+              cp -r ${./home-assistant/custom_components/schlage_local} home-assistant/custom_components/schlage_local
+              cp ${./tests/test_schlage_local.py} tests/test_schlage_local.py
+              python -m unittest discover -s tests -p test_schlage_local.py -v
+              node --check home-assistant/custom_components/schlage_local/frontend/panel.js
+              touch "$out"
+            '';
         ha-private = pkgs.runCommand "check-ha-private" { nativeBuildInputs = [ pkgs.python3 ]; } ''
           mkdir scripts tests
           cp ${./scripts/prepare-ha-private.py} scripts/prepare-ha-private.py

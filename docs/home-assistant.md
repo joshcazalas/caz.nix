@@ -247,6 +247,17 @@ Developer Tools before writing an event-based automation.
 Walls and floors affect Zigbee range. If devices cannot join, try an
 intermediate router location or another powered Zigbee router.
 
+## Bundled custom integrations
+
+Each directory in `home-assistant/custom_components` is mounted read-only at
+its corresponding `/config/custom_components` path. Other custom integrations
+and HA-managed state remain writable. Shipping a component does not enable it;
+config entries and device selection stay in HA runtime state. Update bundled
+code through the normal release process, including rollback.
+
+See [local access-code management](home-assistant-local-codes.md) for the
+optional HomeKit component, supported versions, behavior and validation.
+
 ## Primary references
 
 - Home Assistant Container on Linux:

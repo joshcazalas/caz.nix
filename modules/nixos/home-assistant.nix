@@ -12,6 +12,15 @@ let
   declarativeConfig = ../../home-assistant;
   configurationMount = "${declarativeConfig}/configuration.yaml:/config/configuration.yaml:ro";
   packagesMount = "${declarativeConfig}/packages:/config/packages:ro";
+  # Make bundled software available; private HA config entries enable it.
+  componentSources = builtins.readDir (declarativeConfig + /custom_components);
+  componentMounts =
+    map (name: "${declarativeConfig}/custom_components/${name}:/config/custom_components/${name}:ro")
+      (
+        builtins.filter (name: componentSources.${name} == "directory") (
+          builtins.attrNames componentSources
+        )
+      );
   packageInputsMount = "${cfg.privateConfigDir}/package-secrets.yaml:/config/packages/secrets.yaml:ro";
   runtime = "/run/caz-home-assistant";
   prepare = pkgs.writeShellApplication {
@@ -102,6 +111,7 @@ in
     systemd.tmpfiles.rules = [
       "d ${cfg.dataDir} 0700 root root -"
       "d ${cfg.privateConfigDir} 0700 root root -"
+      "d ${settings.server.dataRoot}/esphome-private 0700 root root -"
       "f ${cfg.dataDir}/automations.yaml 0600 root root - []"
       "f ${cfg.dataDir}/scripts.yaml 0600 root root - {}"
       "f ${cfg.dataDir}/scenes.yaml 0600 root root - []"
@@ -117,7 +127,8 @@ in
         packagesMount
         packageInputsMount
         "/etc/localtime:/etc/localtime:ro"
-      ];
+      ]
+      ++ componentMounts;
       environment.TZ = settings.server.timeZone;
       extraOptions = [
         "--memory=2g"
