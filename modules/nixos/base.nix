@@ -39,10 +39,9 @@
         "flakes"
       ];
       auto-optimise-store = true;
-      trusted-users = [
-        "root"
-        "@wheel"
-      ];
+      # Nix daemon trust is root-equivalent. Ordinary builds do not require
+      # this permission; privileged store operations must go through sudo.
+      trusted-users = [ "root" ];
     };
     gc = {
       automatic = true;

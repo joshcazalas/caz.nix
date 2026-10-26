@@ -86,6 +86,14 @@ in
 
   assertions = [
     {
+      assertion = lib.all (user: user == "root") config.nix.settings.trusted-users;
+      message = ''
+        Only root may be trusted by the Nix daemon. Trusting a login user or
+        group bypasses the separate sudo password; ordinary builds remain
+        available through allowed-users.
+      '';
+    }
+    {
       assertion =
         !settings.public.ssh
         || (
