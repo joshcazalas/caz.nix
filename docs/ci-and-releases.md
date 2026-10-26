@@ -126,11 +126,24 @@ names embedded in `flake.nix`.
 
 ## Release identity and contents
 
-Every push to `main` creates one release named:
+Each authorized push to `main` creates one release named:
 
 ```text
 caz.nix-YYYY.MM.DD-g<12-character-commit>
 ```
+
+The release job runs only on `main` when the initiating GitHub account ID is
+`73436834` (`joshcazalas`) and the current triggering account matches the
+original actor. This also gates manual dispatches and reruns; an unauthorized
+run skips the entire job before checkout, builds, attestation, or publication.
+Dependabot PRs remain eligible when the maintainer merges them. Dependabot
+itself is not authorized to publish. Any future automated merge process needs
+an explicit review of its triggering identity.
+
+The gate uses GitHub's authenticated event identity, not commit author or
+committer metadata. It is defense in depth: it does not protect against a
+compromised maintainer account, unsafe changes the maintainer approves, or an
+authorized change that removes the gate from this workflow.
 
 The release job builds every declared output from the resulting `main` commit.
 It does not repeat linting or the full-history secret scan.

@@ -17,7 +17,12 @@ concurrency:
 jobs:
   release:
     name: Build and publish
-    if: github.ref == 'refs/heads/main'
+    # GitHub account ID for joshcazalas; commit author fields are not trusted.
+    # Check reruns too: they retain the original actor's privileges.
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      github.actor_id == '73436834' &&
+      github.triggering_actor == github.actor
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     permissions:
