@@ -11,8 +11,10 @@ configuration and accepts a private JSON file containing the existing proxy's
 `name`, `host` and `entry_id`. It proposes a static address outside the DHCP pool
 and one loopback-only `toNetwork` grant to native API port 6053. It does not
 apply the grant, flash a device or change Home Assistant. Preserve and privately
-back up the generated project before upgrading firmware; it is not currently
-part of the release updater's automatic backup set.
+back up the generated project before upgrading firmware. With Home Assistant
+enabled, release backups include the default `esphome-private` directory under
+the homelab data root. A custom project location requires separate backup
+coverage. Build copies under `/tmp` are temporary and are not backed up.
 
 The proposed address still requires availability verification: an absent ARP
 neighbor is not proof that an address is unused. Verify Wi-Fi coverage and plan

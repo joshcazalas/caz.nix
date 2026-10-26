@@ -1,0 +1,13 @@
+{
+  "domain": "schlage_local",
+  "name": "Schlage Local Codes",
+  "version": "0.2.1",
+  "config_flow": true,
+  "integration_type": "service",
+  "single_config_entry": true,
+  "documentation": "https://github.com/joshcazalas/caz.nix/blob/main/docs/home-assistant.md",
+  "dependencies": ["homekit_controller", "http", "frontend", "websocket_api", "panel_custom"],
+  "codeowners": [],
+  "iot_class": "local_polling",
+  "requirements": []
+}

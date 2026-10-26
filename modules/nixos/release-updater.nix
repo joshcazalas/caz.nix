@@ -157,6 +157,8 @@ let
     ++ optionals homeAssistantEnabled [
       homeAssistantStatePath
       (lib.removePrefix "/" config.homelab.homeAssistant.privateConfigDir)
+      # Rebuild inputs and credentials for optional local ESPHome projects.
+      (lib.removePrefix "/" "${settings.server.dataRoot}/esphome-private")
     ];
 
   storagePaths = lib.unique (

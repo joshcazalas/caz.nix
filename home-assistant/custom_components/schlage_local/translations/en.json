@@ -1,0 +1,11 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Enable local lock code management",
+        "description": "Adds the Lock codes sidebar panel for an Encode Plus already paired through HomeKit Device over Bluetooth. No account or new pairing is needed. Code commands are experimental until verified on your lock; per-code usage history is not yet supported."
+      }
+    },
+    "abort": { "already_configured": "Schlage Local Codes is already configured." }
+  }
+}

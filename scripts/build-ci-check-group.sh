@@ -33,7 +33,7 @@ while IFS= read -r check_name; do
   [[ -n "${check_name}" ]] || continue
 
   case "${check_name}" in
-    homeserver | release-downloads | release-notifications | deployment-storage | server-health | factorio | website-updater | ha-private) check_group=homeserver ;;
+    homeserver | release-downloads | release-notifications | deployment-storage | server-health | factorio | website-updater | ha-private | schlage-local) check_group=homeserver ;;
     wsl-*) check_group=wsl ;;
     game-stream-* | home-access-gateway | network-policy | network-readiness | device-network* | deployment-storage-integration) check_group=integration ;;
     *)
