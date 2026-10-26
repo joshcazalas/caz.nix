@@ -1,0 +1,41 @@
+---
+# Reusable ESP32 Bluetooth proxy. All deployment identity and credentials stay
+# in the adjacent private secrets.yaml, never in Git or a Nix derivation.
+esphome:
+  name: !secret node_name
+  name_add_mac_suffix: false
+
+esp32:
+  variant: esp32
+  framework:
+    type: esp-idf
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  manual_ip:
+    static_ip: !secret static_ip
+    gateway: !secret gateway
+    subnet: !secret subnet
+
+# The network does not reflect discovery. HA connects to a fixed endpoint.
+mdns:
+  disabled: true
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+logger:
+  level: WARN
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+esp32_ble_tracker:
+  scan_parameters:
+    active: true
+
+bluetooth_proxy:
+  active: true

@@ -36,6 +36,22 @@ The directory is root-only because `.storage` contains credentials. Edit files
 there only for recovery or a deliberately reviewed configuration change; use
 the Home Assistant UI for normal setup.
 
+## Multi-factor authentication
+
+The release explicitly loads the TOTP authenticator module through
+`homeassistant.auth_mfa_modules` in `configuration.yaml`. This declares which
+method is available; it does not enroll users or require unenrolled accounts
+to use MFA. TOTP is also Home Assistant's default when this setting is omitted.
+
+Each user must open **Profile > Security > Multi-factor authentication
+modules**, enable **Authenticator app**, scan its QR code with their
+authenticator, and confirm a generated code. Enrollment and its secret stay
+in Home Assistant's private runtime storage, outside Git and the Nix store.
+Existing API tokens do not acquire an extra MFA challenge; review and revoke
+unneeded tokens separately.
+
+See [Home Assistant's MFA documentation](https://www.home-assistant.io/docs/authentication/multi-factor-auth/).
+
 ## Declarative configuration boundary
 
 The release mounts `home-assistant/configuration.yaml` and
@@ -56,6 +72,44 @@ Never add pairing codes, credentials, `.storage`, or a copy of the live state
 directory to this repository. The previous mutable `configuration.yaml` is not
 deleted; the read-only mount hides it while this release is active, so a NixOS
 rollback restores the previous configuration boundary.
+
+## Private household inputs
+
+The reusable HVAC package takes its thermostat selections and daytime/nighttime
+setpoints from `!secret` references. Provision `package-secrets.yaml` under
+`homelab.homeAssistant.privateConfigDir` (by default
+`/var/lib/homelab/home-assistant-private`). It must contain JSON, which is also
+valid YAML, with these keys:
+
+- `hvac_thermostats`: a nonempty list of distinct climate entity IDs.
+- `hvac_day_temperature`: the daytime cooling setpoint in Fahrenheit.
+- `hvac_night_temperature`: the nighttime cooling setpoint in Fahrenheit.
+
+Both setpoints must be between 62 and 85. This directory is root-owned `0700`,
+and its files are root-owned `0600`. The file is mounted read-only at
+`/config/packages/secrets.yaml`; HA excludes that filename from package discovery.
+It never enters the Nix store. Administrators can still see resolved values in
+HA's configuration and traces, so those diagnostics remain private too.
+
+When serial passthrough is enabled, `hardware.json` in that directory contains
+one `serial_device` key selecting a stable serial by-id character device.
+The hardware mapping is not mounted into HA. Startup refuses missing, insecure,
+or malformed inputs and unavailable hardware before creating the container.
+The pre-deployment backup includes both HA state and this private directory.
+
+Before deploying this configuration over the legacy HVAC package, run the
+reviewed `scripts/migrate-ha-private.py` with `scripts/prepare-ha-private.py`
+beside it, as root on the server. It reads the running package and current
+container device mapping, validates consistent setpoints, and creates the
+private files without restarting HA. It refuses conflicting existing files.
+Keep the private files when rolling back; the older release simply ignores them.
+Do not merge/deploy the migration-dependent release before provisioning them.
+
+The migration preserves automation IDs, script names, helper state and selected
+entities. Existing UI-created automations continue to use their normal writable
+files. Later household changes belong in the private input file and an HA
+restart, not a public commit. Do not commit live inputs, old package snapshots,
+serial numbers, or household examples in migration tests or PR descriptions.
 
 ## Operations
 
@@ -94,10 +148,12 @@ backups, but it does not include Home Assistant OS apps. MQTT, Zigbee2MQTT,
 Z-Wave JS, ESPHome, or similar companion services should be added as separately
 pinned NixOS containers when they become necessary.
 
-The container is intentionally not privileged. The SONOFF ZBDongle-E is passed
-through individually using `homelab.homeAssistant.zigbeeDevice`, set to its
-permanent `/dev/serial/by-id/` path in `hosts/homeserver/default.nix`. Inside
-Home Assistant it is available as `/dev/ttyZigbee`, with read/write access.
+The container is intentionally not privileged. A serial device can be passed
+through individually using `homelab.homeAssistant.serialDevice.enable`. Its
+permanent `/dev/serial/by-id/` path is selected in private `hardware.json`,
+not in the host's Nix configuration. Startup validates the mapping and creates
+`/run/caz-home-assistant/serial`; the container sees `/dev/ttyZigbee` with
+read/write access. No device-creation permission or directory-wide grant is used.
 Bluetooth and other hardware need their own explicitly scoped access.
 
 For temporary remote administration, forward the private listener over SSH:
@@ -130,7 +186,7 @@ sudo docker exec homeassistant ls -l /dev/ttyZigbee
 Keep the dongle connected: Docker needs the configured device to exist when
 starting the container. If it is unplugged and reconnected, restart
 `docker-homeassistant.service` to refresh the device mapping. A replacement
-dongle has a different serial number and requires updating `zigbeeDevice`.
+dongle has a different serial number; update the private `hardware.json` mapping.
 
 Use a shielded USB extension cable, preferably from a USB 2.0 port, to keep
 the coordinator away from the server chassis, USB 3 devices, and Wi-Fi gear.
@@ -159,10 +215,9 @@ filtered log command returning no output does not prove that setup succeeded.
 ### Plug, bulbs, and button
 
 Start a fresh **Add device** scan from the ZHA integration for each device.
-Pair the upstairs THIRDREALITY plug first so it can extend the same network
-to the downstairs bulbs. Try the plug in its intended position; if pairing
-fails, pair closer to the coordinator, move it back upstairs, and verify that
-Home Assistant can still switch it before adding the bulbs.
+Pair a mains-powered Zigbee router before end devices that need its range.
+If pairing fails at the intended location, pair closer to the coordinator,
+then move the router and verify connectivity before adding more devices.
 
 - **3RSP02028BZ plug:** hold the side button for more than 10 seconds until
   the LED flashes red to reset it into pairing mode. Keep the plug connected
@@ -189,9 +244,8 @@ after pairing; those IDs are not known before onboarding. If press triggers
 are missing, check the button's pairing mode and inspect `zha_event` in
 Developer Tools before writing an event-based automation.
 
-The upstairs plug is a useful starting point, but walls and floors determine
-whether it reaches both corners. If it works upstairs and bulbs still cannot
-join downstairs, try an intermediate location or another powered Zigbee router.
+Walls and floors affect Zigbee range. If devices cannot join, try an
+intermediate router location or another powered Zigbee router.
 
 ## Primary references
 

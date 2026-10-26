@@ -135,6 +135,15 @@
       nixosConfigurations.${settings.server.hostName} = homeserver;
 
       checks.${system} = {
+        ha-private = pkgs.runCommand "check-ha-private" { nativeBuildInputs = [ pkgs.python3 ]; } ''
+          mkdir scripts tests
+          cp ${./scripts/prepare-ha-private.py} scripts/prepare-ha-private.py
+              cp ${./scripts/migrate-ha-private.py} scripts/migrate-ha-private.py
+              cp ${./scripts/prepare-esphome-proxy.py} scripts/prepare-esphome-proxy.py
+          cp ${./tests/test_ha_private.py} tests/test_ha_private.py
+          python -m unittest discover -s tests -p test_ha_private.py -v
+          touch "$out"
+        '';
         website-updater = self.packages.${system}.website-updater;
         homeserver = self.nixosConfigurations.${settings.server.hostName}.config.system.build.toplevel;
         factorio =

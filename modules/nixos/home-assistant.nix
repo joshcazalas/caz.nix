@@ -1,6 +1,7 @@
 {
   config,
   lib,
+  pkgs,
   settings,
   ...
 }:
@@ -11,6 +12,16 @@ let
   declarativeConfig = ../../home-assistant;
   configurationMount = "${declarativeConfig}/configuration.yaml:/config/configuration.yaml:ro";
   packagesMount = "${declarativeConfig}/packages:/config/packages:ro";
+  packageInputsMount = "${cfg.privateConfigDir}/package-secrets.yaml:/config/packages/secrets.yaml:ro";
+  runtime = "/run/caz-home-assistant";
+  prepare = pkgs.writeShellApplication {
+    name = "caz-prepare-home-assistant";
+    text = ''
+      exec ${lib.getExe pkgs.python3} ${../../scripts/prepare-ha-private.py} \
+        --private-dir ${lib.escapeShellArg cfg.privateConfigDir} \
+        --runtime-dir ${runtime} ${lib.optionalString cfg.serialDevice.enable "--serial"}
+    '';
+  };
 in
 {
   options.homelab.homeAssistant = {
@@ -28,14 +39,16 @@ in
       description = "Persistent Home Assistant configuration and database directory.";
     };
 
-    zigbeeDevice = lib.mkOption {
-      type = lib.types.nullOr (lib.types.strMatching "/dev/serial/by-id/[^/:]+");
-      default = null;
+    privateConfigDir = lib.mkOption {
+      type = lib.types.str;
+      default = "${settings.server.dataRoot}/home-assistant-private";
       description = ''
-        Stable host device path of the Zigbee coordinator. When set, only this
-        device is passed into Home Assistant, at /dev/ttyZigbee for ZHA setup.
+        Root-only runtime inputs, outside the HA writable mount and Nix store.
+        Provision package-secrets.yaml and optional hardware.json before deployment.
       '';
     };
+
+    serialDevice.enable = lib.mkEnableOption "a privately selected serial device";
   };
 
   config = lib.mkIf cfg.enable {
@@ -43,6 +56,13 @@ in
       {
         assertion = lib.hasPrefix "${settings.server.dataRoot}/" cfg.dataDir;
         message = "Home Assistant state must reside beneath the declared homelab data root.";
+      }
+      {
+        assertion =
+          lib.hasPrefix "${settings.server.dataRoot}/" cfg.privateConfigDir
+          && cfg.privateConfigDir != cfg.dataDir
+          && !lib.hasPrefix "${cfg.dataDir}/" cfg.privateConfigDir;
+        message = "Private HA inputs must live under the data root, outside HA's writable directory.";
       }
       {
         assertion = config.virtualisation.docker.enable;
@@ -72,13 +92,16 @@ in
       }
       {
         assertion =
-          lib.elem configurationMount container.volumes && lib.elem packagesMount container.volumes;
+          lib.elem configurationMount container.volumes
+          && lib.elem packagesMount container.volumes
+          && lib.elem packageInputsMount container.volumes;
         message = "Home Assistant's release-managed YAML must be mounted read-only beneath /config.";
       }
     ];
 
     systemd.tmpfiles.rules = [
       "d ${cfg.dataDir} 0700 root root -"
+      "d ${cfg.privateConfigDir} 0700 root root -"
       "f ${cfg.dataDir}/automations.yaml 0600 root root - []"
       "f ${cfg.dataDir}/scripts.yaml 0600 root root - {}"
       "f ${cfg.dataDir}/scenes.yaml 0600 root root - []"
@@ -87,11 +110,12 @@ in
     virtualisation.oci-containers.containers.${containerName} = {
       inherit (cfg) image;
       autoStart = true;
-      devices = lib.optional (cfg.zigbeeDevice != null) "${cfg.zigbeeDevice}:/dev/ttyZigbee:rw";
+      devices = lib.optional cfg.serialDevice.enable "${runtime}/serial:/dev/ttyZigbee:rw";
       volumes = [
         "${cfg.dataDir}:/config:rw"
         configurationMount
         packagesMount
+        packageInputsMount
         "/etc/localtime:/etc/localtime:ro"
       ];
       environment.TZ = settings.server.timeZone;
@@ -107,6 +131,11 @@ in
     # Home Assistant may need more than Docker's default ten seconds to close
     # its SQLite database cleanly. The container stop timeout is the effective
     # grace period; leave additional room for the generated systemd wrapper.
-    systemd.services.docker-homeassistant.serviceConfig.TimeoutStopSec = lib.mkForce 90;
+    systemd.services.docker-homeassistant.serviceConfig = {
+      TimeoutStopSec = lib.mkForce 90;
+      RuntimeDirectory = "caz-home-assistant";
+      RuntimeDirectoryMode = "0700";
+      ExecStartPre = lib.mkBefore [ (lib.getExe prepare) ];
+    };
   };
 }

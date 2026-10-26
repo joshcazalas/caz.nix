@@ -65,7 +65,7 @@ script:
   apply_hvac_sun_schedule:
     alias: Apply current HVAC sun schedule
     description: >-
-      Set both cooling thermostats to 76 F during daylight or 72 F at night.
+      Apply the privately configured daytime or nighttime cooling setpoint.
     icon: mdi:thermostat-auto
     mode: single
     fields:
@@ -85,6 +85,9 @@ script:
       # Step-level variables intentionally overwrite caller-supplied values.
       # Script fields constrain the UI but are not a runtime safety boundary.
       - variables:
+          thermostat_entities: !secret hvac_thermostats
+          day_temperature: !secret hvac_day_temperature
+          night_temperature: !secret hvac_night_temperature
           solar_period_known: >-
             {{ states('sun.sun') in ['above_horizon', 'below_horizon'] }}
           desired_temperature: >-
@@ -92,7 +95,8 @@ script:
                   and scheduled_temperature is not none %}
               {{ scheduled_temperature | float(-999) }}
             {% else %}
-              {{ 76 if is_state('sun.sun', 'above_horizon') else 72 }}
+              {{ day_temperature if is_state('sun.sun', 'above_horizon')
+                 else night_temperature }}
             {% endif %}
       - choose:
           - conditions:
@@ -101,35 +105,28 @@ script:
               - condition: template
                 value_template: >-
                   {{ 62 <= (desired_temperature | float(-999)) <= 85 }}
-              - condition: state
-                entity_id: climate.upstairs_thermostat
-                state: "cool"
-              - condition: state
-                entity_id: climate.downstairs_thermostat
-                state: "cool"
+              - condition: template
+                value_template: >-
+                  {{ thermostat_entities | count > 0
+                    and expand(thermostat_entities) | list | count
+                      == thermostat_entities | count
+                    and expand(thermostat_entities)
+                      | rejectattr('state', 'eq', 'cool') | list | count == 0 }}
             sequence:
-              - if:
-                  - condition: template
-                    value_template: >-
-                      {{ (state_attr('climate.upstairs_thermostat', 'temperature')
-                        | float(-999)) != (desired_temperature | float) }}
-                then:
-                  - action: climate.set_temperature
-                    target:
-                      entity_id: climate.upstairs_thermostat
-                    data:
-                      temperature: "{{ desired_temperature }}"
-              - if:
-                  - condition: template
-                    value_template: >-
-                      {{ (state_attr('climate.downstairs_thermostat', 'temperature')
-                        | float(-999)) != (desired_temperature | float) }}
-                then:
-                  - action: climate.set_temperature
-                    target:
-                      entity_id: climate.downstairs_thermostat
-                    data:
-                      temperature: "{{ desired_temperature }}"
+              - repeat:
+                  for_each: "{{ thermostat_entities }}"
+                  sequence:
+                    - if:
+                        - condition: template
+                          value_template: >-
+                            {{ (state_attr(repeat.item, 'temperature')
+                              | float(-999)) != (desired_temperature | float) }}
+                      then:
+                        - action: climate.set_temperature
+                          target:
+                            entity_id: "{{ repeat.item }}"
+                          data:
+                            temperature: "{{ desired_temperature }}"
               - action: persistent_notification.dismiss
                 data:
                   notification_id: hvac_schedule_blocked
@@ -151,10 +148,12 @@ script:
                   {{ desired_temperature }} F setpoint because automatic HVAC
                   temperatures must remain between 62 F and 85 F.
                 {% else %}
-                  No setpoint was changed because both thermostats must be
-                  available and in cool mode. Upstairs is
-                  {{ states('climate.upstairs_thermostat') }}; downstairs is
-                  {{ states('climate.downstairs_thermostat') }}.
+                  No setpoint was changed because every configured thermostat
+                  must be available and in cool mode.
+                  {% for entity in thermostat_entities %}
+                    {{ state_attr(entity, 'friendly_name') or entity }}:
+                    {{ states(entity) }}.
+                  {% endfor %}
                 {% endif %}
 
   record_hvac_filter_replacement:
@@ -193,7 +192,7 @@ automation:
   - id: hvac_sun_schedule
     alias: HVAC - Apply sunrise and sunset schedule
     description: >-
-      Reconcile both cooling thermostats at sunrise, sunset, and Home Assistant
+      Reconcile the configured cooling thermostats at sunrise, sunset, and Home Assistant
       startup. Manual setpoint changes remain until the next reconciliation.
     mode: restart
     triggers:
@@ -219,14 +218,14 @@ automation:
             sequence:
               - action: script.apply_hvac_sun_schedule
                 data:
-                  scheduled_temperature: 72
+                  scheduled_temperature: !secret hvac_night_temperature
           - conditions:
               - condition: trigger
                 id: sunrise
             sequence:
               - action: script.apply_hvac_sun_schedule
                 data:
-                  scheduled_temperature: 76
+                  scheduled_temperature: !secret hvac_day_temperature
         default:
           - action: script.apply_hvac_sun_schedule
 
@@ -239,18 +238,14 @@ automation:
     max: 4
     triggers:
       - trigger: state
-        entity_id:
-          - climate.upstairs_thermostat
-          - climate.downstairs_thermostat
+        entity_id: !secret hvac_thermostats
         to:
           - "unavailable"
           - "unknown"
         for: "00:10:00"
         id: unavailable
       - trigger: state
-        entity_id:
-          - climate.upstairs_thermostat
-          - climate.downstairs_thermostat
+        entity_id: !secret hvac_thermostats
         from:
           - "unavailable"
           - "unknown"
@@ -273,7 +268,7 @@ automation:
                     {{ state_attr(trigger.entity_id, 'friendly_name')
                       | default(trigger.entity_id, true) }} has been
                     {{ trigger.to_state.state }} for ten minutes. The coordinated
-                    HVAC schedule will not change either thermostat until both
+                    HVAC schedule will not change setpoints until all configured
                     thermostats are available and in cool mode.
         default:
           - action: persistent_notification.dismiss
