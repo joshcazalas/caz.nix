@@ -66,6 +66,12 @@ jobs:
       - name: Check formatting, source, and workflows
         run: nix develop --command ./scripts/check.sh
 
+      - name: Validate ESPHome template with the pinned build tool
+        run: |
+          python3 -m venv "${RUNNER_TEMP}/esphome-venv"
+          "${RUNNER_TEMP}/esphome-venv/bin/python" -m pip install -r esphome/requirements.txt
+          PATH="${RUNNER_TEMP}/esphome-venv/bin:${PATH}" python3 tests/esphome_config.py
+
       - name: Scan the complete Git history for secrets
         run: nix develop --command ./scripts/secret-scan.sh
 

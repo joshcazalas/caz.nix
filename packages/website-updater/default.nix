@@ -1,6 +1,7 @@
 {
   lib,
   buildNpmPackage,
+  importNpmLock,
   nodejs_26,
   makeWrapper,
   github-cli,
@@ -14,7 +15,8 @@ buildNpmPackage {
     filter = path: type: lib.cleanSourceFilter path type && baseNameOf path != "node_modules";
   };
   nodejs = nodejs_26;
-  npmDepsHash = "sha256-ra8pBA5XTLYnd7wckYJhVLDmBYRgcd4ZtVP+38JSJ80=";
+  npmDeps = importNpmLock { npmRoot = ./.; };
+  inherit (importNpmLock) npmConfigHook;
   nativeBuildInputs = [ makeWrapper ];
   dontNpmBuild = true;
   doCheck = true;

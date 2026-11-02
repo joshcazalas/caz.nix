@@ -54,12 +54,18 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--device-file', required=True, type=Path)
     parser.add_argument('--template', required=True, type=Path)
+    parser.add_argument('--requirements', type=Path,
+                        default=Path(__file__).resolve().parents[1] / 'esphome' / 'requirements.txt')
     parser.add_argument('--network-file', type=Path, default=Path('/var/lib/homelab/device-network/network.json'))
     parser.add_argument('--project-dir', type=Path, default=Path('/var/lib/homelab/esphome-private/bluetooth-proxy'))
     args = parser.parse_args()
     if os.geteuid() != 0: parser.error('Run with sudo on the server.')
     os.umask(0o077)
     try:
+        requirements = args.requirements.read_text()
+        tool_pin = re.fullmatch(r'esphome==([0-9]+\.[0-9]+\.[0-9]+)\s*', requirements)
+        if tool_pin is None:
+            raise ValueError('Expected an exact ESPHome release pin.')
         uid, gid = int(os.environ.get('SUDO_UID', '0')), int(os.environ.get('SUDO_GID', '0'))
         device = json.loads(read_private(args.device_file, uid))
         if set(device) != {'name', 'host', 'entry_id'} or not re.fullmatch(r'[a-z0-9][a-z0-9-]{0,62}', device['name']):
@@ -88,7 +94,7 @@ def main():
                   'ota_password': secrets.token_hex(24)}
         plan = {'network_sha256': hashlib.sha256(original.encode()).hexdigest(),
                 'grant_name': 'bluetooth-proxy', 'grant': grant, 'previous_endpoint': device,
-                'esphome_version': '2026.10.0',
+                'esphome_version': tool_pin[1],
                 'status': 'proposal_only; verify address availability and Wi-Fi coverage before applying'}
         parent = args.project_dir.parent
         parent.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -99,10 +105,11 @@ def main():
         private_write(args.project_dir/'secrets.yaml', values)
         private_write(args.project_dir/'plan.json', plan)
         private_write(args.project_dir/'bluetooth-proxy.yaml', args.template.read_text())
+        private_write(args.project_dir/'requirements.txt', requirements)
         # A private working copy allows the invoking administrator to compile
         # without running downloaded build tools as root. It contains secrets.
         export = Path(tempfile.mkdtemp(prefix='caz-proxy-build-', dir='/tmp'))
-        for name in ('secrets.yaml', 'plan.json', 'bluetooth-proxy.yaml'):
+        for name in ('secrets.yaml', 'plan.json', 'bluetooth-proxy.yaml', 'requirements.txt'):
             shutil.copyfile(args.project_dir/name, export/name)
             (export/name).chmod(0o600)
             os.chown(export/name, uid, gid)

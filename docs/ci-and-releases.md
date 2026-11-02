@@ -108,6 +108,8 @@ Auxide gets its own `auxide` group/PR; the two upstream HA integrations share
 allows each group an open update. All groups share the weekday schedule.
 Actions updates remain in their separate weekly Monday PR, including the local
 cache action; website npm dependencies also have a weekly Monday check.
+The website package uses Nixpkgs `importNpmLock`, consuming integrity hashes
+from the Dependabot-managed npm lockfile without a separate `npmDepsHash`.
 
 Auxide updates follow the source commit consumed by `flake.lock`, independently
 of the upstream GitHub release or container publication. With the current
@@ -129,6 +131,19 @@ Nix reads those exact references for `oci-containers`; no additional image is
 built and no Compose runtime is introduced. Changes to the manifests trigger
 the homeserver CI group. See [`../containers/README.md`](../containers/README.md).
 
+Minecraft's Paper build follows the selected game release's package metadata
+in the existing `nixpkgs-unstable` input. Nixpkgs updates therefore advance
+Paper builds without a separate updater; choosing a newer Minecraft release
+remains a reviewed module change. This follows Nixpkgs publication cadence,
+not every upstream Paper release immediately.
+
+ESPHome's build tool is pinned in `esphome/requirements.txt`, checked by the
+pip ecosystem each weekday at 10:32 America/Chicago. The private-project
+preparation script copies that pin for actual builds. CI installs the pinned
+tool and validates the generic template with synthetic inputs. Device
+configuration and compiled firmware stay outside Git and the Nix store;
+merging a tool update does not rebuild or flash deployed devices.
+
 The update PR is deliberately not auto-merged. A green build proves that Nix
 can evaluate and build the declared closures, but it cannot prove that a major
 service migration is operationally safe. Read release notes for stateful
@@ -142,11 +157,9 @@ the ecosystem documentation may still describe the older lockfile-only limit.
 This is version-update coverage, not a vulnerability scan of every installed
 package. It also does not cover every dependency:
 
-- Minecraft/Paper game versions, BlueMap's downloaded JAR, and Factorio mod
-  pins remain manual. Updating the Minecraft container does not update the
-  separately configured game and Paper versions.
-- Website npm PRs may need a corresponding `npmDepsHash` refresh; Dependabot
-  updates the npm lockfile but not the Nix fixed-output hash.
+- Minecraft game-release transitions, BlueMap's downloaded JAR, and Factorio
+  mod pins remain manual. Paper builds within the selected game release are
+  covered through Nixpkgs unless explicitly overridden.
 - The locally maintained HA integration is repository code, not an upstream
   package to bump. ESPHome device firmware still requires a rebuild and flash.
 - Windows applications use their own update mechanisms, outside Dependabot.
