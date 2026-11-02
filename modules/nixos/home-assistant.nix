@@ -21,6 +21,13 @@ let
           builtins.attrNames componentSources
         )
       );
+  upstreamComponents = pkgs.callPackage ../../packages/home-assistant-integrations { };
+  upstreamMounts = lib.mapAttrsToList (
+    name: source: "${source}:/config/custom_components/${name}:ro"
+  ) { inherit (upstreamComponents) ha_lightfx scene_presets; };
+  # Preserve the upstream private-data location, including existing manual installs.
+  scenePresetsUserdata = "${cfg.dataDir}/custom_components/scene_presets/userdata";
+  scenePresetsUserdataMount = "${scenePresetsUserdata}:/config/custom_components/scene_presets/userdata:rw";
   packageInputsMount = "${cfg.privateConfigDir}/package-secrets.yaml:/config/packages/secrets.yaml:ro";
   runtime = "/run/caz-home-assistant";
   prepare = pkgs.writeShellApplication {
@@ -115,6 +122,7 @@ in
       "f ${cfg.dataDir}/automations.yaml 0600 root root - []"
       "f ${cfg.dataDir}/scripts.yaml 0600 root root - {}"
       "f ${cfg.dataDir}/scenes.yaml 0600 root root - []"
+      "d ${scenePresetsUserdata} 0700 root root -"
     ];
 
     virtualisation.oci-containers.containers.${containerName} = {
@@ -128,7 +136,9 @@ in
         packageInputsMount
         "/etc/localtime:/etc/localtime:ro"
       ]
-      ++ componentMounts;
+      ++ componentMounts
+      ++ upstreamMounts
+      ++ [ scenePresetsUserdataMount ];
       environment.TZ = settings.server.timeZone;
       extraOptions = [
         "--memory=2g"

@@ -255,6 +255,41 @@ and HA-managed state remain writable. Shipping a component does not enable it;
 config entries and device selection stay in HA runtime state. Update bundled
 code through the normal release process, including rollback.
 
+HA LightFX **1.1.14** and Scene Presets **2.4.0** are also installed from
+upstream source, pinned by immutable commit and content hash in
+`packages/home-assistant-integrations/default.nix`. Their Python code, bundled
+frontend, and upstream preset assets are mounted read-only. These releases
+were selected for the pinned Home Assistant Container version. Update the
+source pins and expected versions in `tests/ha_integrations.py` together, then
+run `nix build .#checks.x86_64-linux.ha-integrations` and the normal release
+checks. HACS is not needed for these two installations.
+
+The declarative boundary is **software installation only**. Enable integrations
+and configure devices, names, areas, layouts, dashboards, profiles, and
+automations through Home Assistant. Those household details stay in its private
+runtime storage; never copy live configuration, diagnostics, or maps into Git,
+test fixtures, or PR descriptions. Installing these packages does not create
+config entries, select lights, or apply a preset.
+
+LightFX's configuration remains in HA's writable `.storage`. Scene Presets
+expects optional custom presets and assets in its own `userdata` subdirectory,
+so that subdirectory is a separate writable bind mount backed by
+`${dataDir}/custom_components/scene_presets/userdata`. The host directory is
+root-owned `0700`, stays outside the Nix store, and is included in the existing
+HA state backup. The package contains only an empty mount point there.
+
+For an existing manual installation, deployment overlays the pinned code while
+preserving the existing private userdata path and integration config entries.
+It does not delete the underlying manual code; a NixOS rollback reveals it
+again. On a fresh installation, removing these mounts removes the installed
+code but leaves HA's private config entries intact. Review upstream state-format
+changes before upgrades: rolling back code does not roll back mutable state.
+
+Upstream usage and release notes:
+
+- [HA LightFX](https://github.com/rusty4444/ha-lightfx)
+- [Scene Presets](https://github.com/Hypfer/hass-scene_presets)
+
 See [local access-code management](home-assistant-local-codes.md) for the
 optional HomeKit component, supported versions, behavior and validation.
 
