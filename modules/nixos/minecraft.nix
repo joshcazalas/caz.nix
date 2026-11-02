@@ -8,8 +8,8 @@
 }:
 let
   cfg = config.homelab.minecraft;
-  # Follow builds for the selected game release through the existing locked
-  # Nixpkgs input. Reading metadata does not install a second server runtime.
+  # Follow the latest packaged game release by default, or the explicitly
+  # selected release. Metadata comes from the locked input, never a live lookup.
   paperVersion =
     unstablePkgs.papermcServers."papermc-${lib.replaceStrings [ "." ] [ "_" ] cfg.version}".version;
   # Keep the container's files away from the login user and Nix's reserved
@@ -167,8 +167,12 @@ in
 
     version = lib.mkOption {
       type = lib.types.str;
-      default = "26.2";
-      description = "Exact Minecraft Java Edition version.";
+      default = lib.head (lib.splitString "-" unstablePkgs.papermc.version);
+      description = ''
+        Exact Minecraft Java Edition version. Defaults to the latest Paper
+        release recorded in the locked nixpkgs-unstable input. Set explicitly
+        to hold a game release while continuing to follow its Paper builds.
+      '';
     };
 
     paperBuild = lib.mkOption {

@@ -3,16 +3,23 @@
 The homeserver has a declarative Paper server designed for a small trusted
 group. It pins all three moving parts:
 
-- Minecraft Java Edition `26.2`;
+- the Minecraft Java Edition release from the locked `nixpkgs-unstable` Paper package;
 - the Paper build for that game release from the locked `nixpkgs-unstable` input;
 - the `itzg/minecraft-server` image in `containers/minecraft/Dockerfile`, by OCI digest.
 
-Dependabot's Nix updates advance Paper builds as Nixpkgs publishes them;
-Docker updates advance the container image separately. The module reads only
-Paper's package metadata and keeps the existing container runtime. Selecting
-a newer Minecraft release remains an explicit `homelab.minecraft.version`
-change so plugin and world compatibility can be reviewed together. An explicit
-`homelab.minecraft.paperBuild` override opts out of automatic build selection.
+Dependabot's Nix updates advance both Minecraft releases and Paper builds as
+Nixpkgs publishes them; Docker updates advance the container image separately.
+The module reads only Paper's package metadata and keeps the existing
+container runtime. Game-release changes arrive inside the Nixpkgs lockfile PR,
+not a separate Minecraft PR. Review the resolved versions, plugin compatibility,
+release notes, and Java requirements before merging and deploying. CI evaluates
+the configuration but does not prove world migration or plugin compatibility.
+
+An explicit `homelab.minecraft.version` holds a game release while Paper builds
+for that release continue to follow Nixpkgs. To hold both, set `version` and
+`paperBuild` together. Remove the overrides to follow the latest packaged release
+again. A restart alone never selects a newer game version than the deployed
+configuration.
 
 Inspect the exact versions proposed by a checkout before deploying:
 
@@ -21,9 +28,10 @@ nix eval --json .#nixosConfigurations.homeserver.config.virtualisation.oci-conta
   --apply 'env: { inherit (env) VERSION PAPER_BUILD; }'
 ```
 
-Paper 26.2 cannot safely downgrade a world after it upgrades its storage. Treat
-every future version bump as a reviewed migration and verify a fresh backup
-before deployment.
+Game upgrades can migrate world storage. Verify a fresh backup before deploying
+a new release; reverting the Nix configuration alone does not undo a world
+migration. Recovery can require restoring the pre-upgrade world and plugin
+state. Players may also need to update their Minecraft clients.
 
 ## Security model
 

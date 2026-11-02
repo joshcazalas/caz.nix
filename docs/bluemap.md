@@ -184,7 +184,8 @@ The module contributes `bluemap:release` to
 selects releases matching the configured Paper server and Minecraft version.
 Beta and alpha releases are excluded. Each startup checks for updates and
 removes older versions it previously downloaded; it does not poll while the
-server is running. Minecraft release transitions remain a separate change.
+server is running. Minecraft release transitions follow the reviewed Nixpkgs
+update and deployment process; this downloader does not select the game version.
 
 Updates can arrive without a PR or a minimum release-age delay. Compatibility
 labels are not a gameplay or security review. After deployment or a restart,

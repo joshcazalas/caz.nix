@@ -131,11 +131,13 @@ Nix reads those exact references for `oci-containers`; no additional image is
 built and no Compose runtime is introduced. Changes to the manifests trigger
 the homeserver CI group. See [`../containers/README.md`](../containers/README.md).
 
-Minecraft's Paper build follows the selected game release's package metadata
-in the existing `nixpkgs-unstable` input. Nixpkgs updates therefore advance
-Paper builds without a separate updater; choosing a newer Minecraft release
-remains a reviewed module change. This follows Nixpkgs publication cadence,
-not every upstream Paper release immediately.
+Minecraft's game release and Paper build follow the latest Paper package
+metadata in the existing `nixpkgs-unstable` input. Nixpkgs updates therefore
+advance both through the normal reviewed lockfile PR, without a separate
+updater or Minecraft-only PR. This follows Nixpkgs publication cadence, not
+every upstream Paper release immediately. Review the
+[resolved versions and migration guidance](minecraft.md) before deployment;
+an explicit `homelab.minecraft.version` override can hold a game release.
 
 ESPHome's build tool is pinned in `esphome/requirements.txt`, checked by the
 pip ecosystem each weekday at 10:32 America/Chicago. The private-project
@@ -157,9 +159,8 @@ the ecosystem documentation may still describe the older lockfile-only limit.
 This is version-update coverage, not a vulnerability scan of every installed
 package. It also does not cover every dependency:
 
-- Minecraft game-release transitions and Factorio mod pins remain manual.
-  Paper builds within the selected game release are
-  covered through Nixpkgs unless explicitly overridden.
+- Factorio mod pins remain manual. Explicit Minecraft version/build overrides
+  also require manual maintenance until removed.
 - BlueMap and hTreecapitator use the Minecraft container's built-in Modrinth
   updater for stable releases compatible with the configured game version.
   Updates arrive on startup, outside Dependabot and PR review, without a
