@@ -1,0 +1,1 @@
+FROM ghcr.io/home-assistant/home-assistant:2026.8.3@sha256:8e9751cb66d3ba6624f5360a7d31b0c6821f7f5b3fb8ba0d10d58f0f481c540c

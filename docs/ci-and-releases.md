@@ -103,26 +103,57 @@ nix flake check --print-build-logs
 ## Dependency updates
 
 Dependabot checks root flake inputs every weekday at 09:17 America/Chicago.
-Auxide gets its own `auxide` group/PR; every other input stays in the
-`flake-inputs` group. The two-PR limit lets both groups have an update open at
-the same time. Both groups share the weekday schedule because scheduling is
-configured for the updater, not for individual groups. Actions updates remain
-in their separate weekly Monday PR, including the local cache action.
+Auxide gets its own `auxide` group/PR; the two upstream HA integrations share
+`ha-integrations`, and other inputs stay in `flake-inputs`. The three-PR limit
+allows each group an open update. All groups share the weekday schedule.
+Actions updates remain in their separate weekly Monday PR, including the local
+cache action; website npm dependencies also have a weekly Monday check.
 
 Auxide updates follow the source commit consumed by `flake.lock`, independently
 of the upstream GitHub release or container publication. With the current
 branch-based input, its PR should change only the lockfile's Auxide node and any
 necessary transitive nodes; review the diff for unrelated root-input changes.
-The ordinary PR CI and human-review path applies to both Nix groups.
+The ordinary PR CI and human-review path applies to all Nix groups.
+
+HA LightFX and Scene Presets are non-flake source inputs pinned to release
+tags. Dependabot can update the tag in `flake.nix` and regenerate `flake.lock`;
+Nix retains immutable commit and content-hash verification. Keep the original
+input URL on a version tag: a bare commit in that URL is intentionally skipped
+by Dependabot. Package versions and checks derive from the source manifest and
+lockfile instead of maintaining independent version literals.
+
+Home Assistant and Minecraft container image references are single-FROM
+Dockerfiles under `containers/`. Dependabot's Docker ecosystem checks them each
+weekday at 09:32 America/Chicago, with separate image PRs and a two-PR limit.
+Nix reads those exact references for `oci-containers`; no additional image is
+built and no Compose runtime is introduced. Changes to the manifests trigger
+the homeserver CI group. See [`../containers/README.md`](../containers/README.md).
 
 The update PR is deliberately not auto-merged. A green build proves that Nix
 can evaluate and build the declared closures, but it cannot prove that a major
 service migration is operationally safe. Read release notes for stateful
 services before merging.
 
-Release-branch changes such as NixOS `26.05` to `26.11` remain explicit,
-roughly semiannual maintenance. Dependabot updates lock revisions, not branch
-names embedded in `flake.nix`.
+Dependabot also supports updating versioned branch refs such as NixOS `26.05`
+to `26.11`. Review NixOS and Home Manager transitions together. This and tagged
+input updates shipped in [upstream PR #14710](https://github.com/dependabot/dependabot-core/pull/14710);
+the ecosystem documentation may still describe the older lockfile-only limit.
+
+This is version-update coverage, not a vulnerability scan of every installed
+package. It also does not cover every dependency:
+
+- Minecraft/Paper game versions, BlueMap's downloaded JAR, and Factorio mod
+  pins remain manual. Updating the Minecraft container does not update the
+  separately configured game and Paper versions.
+- Website npm PRs may need a corresponding `npmDepsHash` refresh; Dependabot
+  updates the npm lockfile but not the Nix fixed-output hash.
+- The locally maintained HA integration is repository code, not an upstream
+  package to bump. ESPHome device firmware still requires a rebuild and flash.
+- Windows applications use their own update mechanisms, outside Dependabot.
+
+Direct Nix fetch-expression updates are tracked in [#16297](https://github.com/dependabot/dependabot-core/issues/16297),
+and arbitrary inline pins in [#16226](https://github.com/dependabot/dependabot-core/issues/16226).
+Neither has a public delivery date as of November 2026.
 
 ## Release identity and contents
 

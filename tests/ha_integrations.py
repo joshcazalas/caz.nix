@@ -11,10 +11,14 @@ import tempfile
 
 volumes = json.loads(os.environ["HA_VOLUMES"])
 state_dir = os.environ["HA_STATE_DIR"]
-for variable, domain, version in [
-    ("HA_LIGHTFX", "ha_lightfx", "1.1.14"),
-    ("SCENE_PRESETS", "scene_presets", "2.4.0"),
+lock = json.loads(Path(os.environ["HA_LOCKFILE"]).read_text())
+for variable, domain, input_name in [
+    ("HA_LIGHTFX", "ha_lightfx", "ha-lightfx-src"),
+    ("SCENE_PRESETS", "scene_presets", "scene-presets-src"),
 ]:
+    node = lock["nodes"][lock["nodes"][lock["root"]]["inputs"][input_name]]
+    assert node["flake"] is False
+    version = node["original"]["ref"].removeprefix("v")
     source = Path(os.environ[variable])
     manifest = json.loads((source / "manifest.json").read_text())
     assert (manifest["domain"], manifest["version"]) == (domain, version)
