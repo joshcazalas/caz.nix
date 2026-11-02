@@ -12,15 +12,6 @@ let
 
   inherit (lib) mkIf mkOption types;
 
-  # Fetched and hashed at build time rather than pulled by the container at
-  # startup. itzg's PLUGINS/SPIGET variables download a jar on every start,
-  # which is exactly the unpinned supply chain this repository avoids
-  # everywhere else.
-  pluginJar = pkgs.fetchurl {
-    url = "https://github.com/BlueMap-Minecraft/BlueMap/releases/download/v${cfg.version}/bluemap-${cfg.version}-paper.jar";
-    inherit (cfg) hash;
-  };
-
   # Map output deliberately lives outside the Minecraft data directory. Tiles
   # are regenerable cache measured in gigabytes, and the daily backup archives
   # the data directory wholesale, so keeping them apart means backups stay
@@ -159,18 +150,6 @@ in
   options.homelab.bluemap = {
     enable = lib.mkEnableOption "BlueMap 3D web map for the Minecraft world";
 
-    version = mkOption {
-      type = types.str;
-      default = "5.23";
-      description = "Pinned BlueMap release. Supports Paper 26.1.1 through 26.2.";
-    };
-
-    hash = mkOption {
-      type = types.str;
-      default = "sha256-M5VU11ztqzVON2Z3z8cwjEmZUpFYSejimUcY5KFT1k4=";
-      description = "SRI hash of the pinned Paper plugin jar.";
-    };
-
     mapName = mkOption {
       type = types.str;
       default = "Overworld";
@@ -253,6 +232,8 @@ in
   };
 
   config = mkIf cfg.enable {
+    homelab.minecraft.modrinthProjects = [ "bluemap:release" ];
+
     assertions = [
       {
         assertion = minecraftCfg.enable;
@@ -283,6 +264,9 @@ in
     systemd.tmpfiles.rules = [
       "d ${stateDir} 0755 ${owner} ${group} -"
       "d ${webRoot} 0755 ${owner} ${group} -"
+      # Docker may leave an empty target file from the former nested bind
+      # mount. Remove that obsolete path so Paper sees only Modrinth's jar.
+      "r ${minecraftCfg.dataDir}/plugins/bluemap.jar - - - -"
     ]
     # Bind-mounting a file into a directory that does not exist yet makes
     # Docker create the parents as root, which leaves the container's
@@ -300,7 +284,6 @@ in
 
     virtualisation.oci-containers.containers.minecraft.volumes = [
       "${stateDir}:${containerState}:rw"
-      "${pluginJar}:/data/plugins/bluemap.jar:ro"
       "${coreConf}:${pluginDir}/core.conf:ro"
       "${webserverConf}:${pluginDir}/webserver.conf:ro"
       "${webappConf}:${pluginDir}/webapp.conf:ro"

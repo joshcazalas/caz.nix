@@ -14,8 +14,9 @@ Two manual steps, same shape as the Minecraft exposure checklist. Do them
 2. The `map.<domain>` A record is created automatically by Cloudflare DDNS on
    the next deployment. Leave it **DNS-only**, not proxied.
 
-There is no third step for the plugin itself: the jar is pinned in the Nix
-store and mounted into the container, so nothing is downloaded at startup.
+The container downloads the newest compatible stable Paper plugin from
+Modrinth at startup. It needs network access to resolve and download releases;
+there is no separate updater job or manually maintained JAR hash.
 
 ## What it does and does not expose
 
@@ -177,17 +178,43 @@ Everything there should be owned by uid and gid `20000`.
 
 ## Upgrading
 
-Bump the version and hash together:
+The module contributes `bluemap:release` to
+`homelab.minecraft.modrinthProjects`. The container's
+[built-in Modrinth downloader](https://docker-minecraft-server.readthedocs.io/en/latest/mods-and-plugins/modrinth/)
+selects releases matching the configured Paper server and Minecraft version.
+Beta and alpha releases are excluded. Each startup checks for updates and
+removes older versions it previously downloaded; it does not poll while the
+server is running. Minecraft release transitions remain a separate change.
 
-```console
-nix store prefetch-file --hash-type sha256 \
-  https://github.com/BlueMap-Minecraft/BlueMap/releases/download/v5.24/bluemap-5.24-paper.jar
+Updates can arrive without a PR or a minimum release-age delay. Compatibility
+labels are not a gameplay or security review. After deployment or a restart,
+check the Minecraft log for BlueMap's loaded version and startup errors, then
+load the map and confirm that rendering works. Existing Minecraft backups
+include the downloaded plugin and its configuration; rendered tiles remain
+regenerable cache outside those backups.
+
+The first deployment removes the obsolete `plugins/bluemap.jar` bind-mount
+target. Modrinth owns the versioned plugin JARs afterward; the declarative
+configuration mounts and map storage remain in place.
+
+Rolling back Nix alone does not roll back a downloaded plugin. To hold a
+known-good release, override the project list with exact Modrinth **version
+numbers**, retaining any other plugins you want enabled. For example:
+
+```nix
+homelab.minecraft.modrinthProjects = lib.mkForce [
+  "bluemap:5.23-paper"
+  "htreecapitator:release"
+];
 ```
 
+Use version numbers rather than opaque version IDs so the downloader retains
+Minecraft and loader compatibility checks. Remove the override to resume
+automatic stable updates. Restore data/configuration from a backup as needed
+if a release changed their format.
+
 Check the release notes for a required webapp refresh; BlueMap sometimes asks
-you to delete `<webroot>/index.html` so it regenerates the viewer. Confirm the
-new release still lists this server's Minecraft version on
-[Hangar](https://hangar.papermc.io/Blue/BlueMap/versions) first.
+you to delete `<webroot>/index.html` so it regenerates the viewer.
 
 ## Primary references
 
