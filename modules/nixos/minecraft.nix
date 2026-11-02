@@ -3,10 +3,15 @@
   lib,
   pkgs,
   settings,
+  unstablePkgs,
   ...
 }:
 let
   cfg = config.homelab.minecraft;
+  # Follow builds for the selected game release through the existing locked
+  # Nixpkgs input. Reading metadata does not install a second server runtime.
+  paperVersion =
+    unstablePkgs.papermcServers."papermc-${lib.replaceStrings [ "." ] [ "_" ] cfg.version}".version;
   # Keep the container's files away from the login user and Nix's reserved
   # 30001-30032 build-user range.
   minecraftUid = 20000;
@@ -158,8 +163,11 @@ in
 
     paperBuild = lib.mkOption {
       type = lib.types.ints.positive;
-      default = 87;
-      description = "Exact stable Paper build for the selected Minecraft version.";
+      default = lib.toInt (lib.last (lib.splitString "-" paperVersion));
+      description = ''
+        Exact Paper build for the selected Minecraft version. Defaults to the
+        build recorded in the locked nixpkgs-unstable input for that release.
+      '';
     };
 
     gameMode = lib.mkOption {

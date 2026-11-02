@@ -107,6 +107,10 @@ else
         homeserver=true
         ;;
 
+      esphome/* | tests/esphome_config.py)
+        # The unconditional lint job validates the template with its pip pin.
+        ;;
+
       tests/*)
         integration=true
         ;;

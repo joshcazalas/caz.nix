@@ -1,11 +1,25 @@
 # Minecraft server
 
 The homeserver has a declarative Paper server designed for a small trusted
-group. It currently pins all three moving parts:
+group. It pins all three moving parts:
 
 - Minecraft Java Edition `26.2`;
-- stable Paper build `87`;
-- `itzg/minecraft-server` release `2026.8.0` on Java 25, by OCI digest.
+- the Paper build for that game release from the locked `nixpkgs-unstable` input;
+- the `itzg/minecraft-server` image in `containers/minecraft/Dockerfile`, by OCI digest.
+
+Dependabot's Nix updates advance Paper builds as Nixpkgs publishes them;
+Docker updates advance the container image separately. The module reads only
+Paper's package metadata and keeps the existing container runtime. Selecting
+a newer Minecraft release remains an explicit `homelab.minecraft.version`
+change so plugin and world compatibility can be reviewed together. An explicit
+`homelab.minecraft.paperBuild` override opts out of automatic build selection.
+
+Inspect the exact versions proposed by a checkout before deploying:
+
+```bash
+nix eval --json .#nixosConfigurations.homeserver.config.virtualisation.oci-containers.containers.minecraft.environment \
+  --apply 'env: { inherit (env) VERSION PAPER_BUILD; }'
+```
 
 Paper 26.2 cannot safely downgrade a world after it upgrades its storage. Treat
 every future version bump as a reviewed migration and verify a fresh backup
