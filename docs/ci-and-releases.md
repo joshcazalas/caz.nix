@@ -157,9 +157,14 @@ the ecosystem documentation may still describe the older lockfile-only limit.
 This is version-update coverage, not a vulnerability scan of every installed
 package. It also does not cover every dependency:
 
-- Minecraft game-release transitions, BlueMap's downloaded JAR, and Factorio
-  mod pins remain manual. Paper builds within the selected game release are
+- Minecraft game-release transitions and Factorio mod pins remain manual.
+  Paper builds within the selected game release are
   covered through Nixpkgs unless explicitly overridden.
+- BlueMap and hTreecapitator use the Minecraft container's built-in Modrinth
+  updater for stable releases compatible with the configured game version.
+  Updates arrive on startup, outside Dependabot and PR review, without a
+  minimum release-age delay. Nix rollback alone does not restore old plugins;
+  see [BlueMap's update and rollback notes](bluemap.md#upgrading).
 - The locally maintained HA integration is repository code, not an upstream
   package to bump. ESPHome device firmware still requires a rebuild and flash.
 - Windows applications use their own update mechanisms, outside Dependabot.

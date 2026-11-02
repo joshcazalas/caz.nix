@@ -143,6 +143,16 @@ in
 
     treecapitator.enable = lib.mkEnableOption "whole-tree chopping while sneaking with an axe";
 
+    modrinthProjects = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [ ];
+      description = ''
+        Projects managed by the container's built-in Modrinth downloader.
+        Entries may specify a release type or exact version after a colon.
+        Enabled plugin modules contribute to this list.
+      '';
+    };
+
     acceptEula = lib.mkOption {
       type = lib.types.bool;
       default = false;
@@ -252,6 +262,7 @@ in
 
   config = lib.mkMerge [
     (lib.mkIf (cfg.enable && cfg.treecapitator.enable) {
+      homelab.minecraft.modrinthProjects = [ "htreecapitator:release" ];
       systemd.tmpfiles.rules =
         map (path: "d ${path} 0750 ${toString minecraftUid} ${toString minecraftGid} -")
           [
@@ -259,8 +270,6 @@ in
             "${cfg.dataDir}/plugins/hTreecapitator"
           ];
       virtualisation.oci-containers.containers.minecraft = {
-        # Resolve the latest compatible stable release on each container start.
-        environment.MODRINTH_PROJECTS = "htreecapitator";
         volumes = [
           "${treecapitatorConfig}:/data/plugins/hTreecapitator/config.yml:ro"
         ];
@@ -306,6 +315,10 @@ in
           VERSION = cfg.version;
           PAPER_BUILD = toString cfg.paperBuild;
           PAPER_CHANNEL = "default";
+          # Resolve compatible stable plugins on startup and let the container
+          # clean up versions it previously downloaded, including removals.
+          MODRINTH_PROJECTS = lib.concatStringsSep "\n" cfg.modrinthProjects;
+          MODRINTH_PROJECTS_DEFAULT_VERSION_TYPE = "release";
 
           UID = toString minecraftUid;
           GID = toString minecraftGid;
