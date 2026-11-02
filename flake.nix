@@ -32,6 +32,7 @@
       system = "x86_64-linux";
       settings = import ./settings.nix;
       pkgs = nixpkgs.legacyPackages.${system};
+      haIntegrations = pkgs.callPackage ./packages/home-assistant-integrations { };
       unstablePkgs = import nixpkgs-unstable {
         inherit system;
         config.allowUnfree = true;
@@ -100,6 +101,8 @@
       formatter.${system} = pkgs.nixfmt-tree;
 
       packages.${system} = {
+        ha-lightfx = haIntegrations.ha_lightfx;
+        ha-scene-presets = haIntegrations.scene_presets;
         website-updater = pkgs.callPackage ./packages/website-updater { };
         home-manager = home-manager.packages.${system}.home-manager;
       };
@@ -135,6 +138,24 @@
       nixosConfigurations.${settings.server.hostName} = homeserver;
 
       checks.${system} = {
+        ha-integrations =
+          pkgs.runCommand "check-ha-integrations"
+            {
+              nativeBuildInputs = [
+                pkgs.python3
+                pkgs.nodejs
+              ];
+              HA_LIGHTFX = haIntegrations.ha_lightfx;
+              SCENE_PRESETS = haIntegrations.scene_presets;
+              HA_VOLUMES = builtins.toJSON homeserver.config.virtualisation.oci-containers.containers.homeassistant.volumes;
+              HA_STATE_DIR = homeserver.config.homelab.homeAssistant.dataDir;
+            }
+            ''
+              python ${./tests/ha_integrations.py}
+              node --check "$HA_LIGHTFX/www/ha-lightfx-card.js"
+              node --check "$SCENE_PRESETS/frontend/scene_presets_panel.js"
+              touch "$out"
+            '';
         schlage-local =
           pkgs.runCommand "check-schlage-local"
             {

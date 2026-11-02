@@ -72,7 +72,7 @@ else
         integration=true
         ;;
 
-      home-assistant/*)
+      home-assistant/* | packages/home-assistant-integrations/*)
         homeserver=true
         ;;
 
