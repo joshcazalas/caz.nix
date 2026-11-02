@@ -40,16 +40,16 @@
     "ha-lightfx-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1793477539,
-        "narHash": "sha256-df2cwOzz6/dT1KxzNz0eBYX2tzHl/0zRT11HvWqdoxU=",
+        "lastModified": 1785255379,
+        "narHash": "sha256-fVfizPAwwTjTLvrhvEh3eShCUxG0RghbqmK1uKonJ+M=",
         "owner": "rusty4444",
         "repo": "ha-lightfx",
-        "rev": "3f8d9a14f8d3860d979d71e6490e8c7b9a8073e7",
+        "rev": "47aa573576aa454e1c060e7c0943c2c55b80121e",
         "type": "github"
       },
       "original": {
         "owner": "rusty4444",
-        "ref": "v1.1.14",
+        "ref": "v1.1.13",
         "repo": "ha-lightfx",
         "type": "github"
       }
