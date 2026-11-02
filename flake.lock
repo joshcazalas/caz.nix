@@ -37,6 +37,23 @@
         "type": "github"
       }
     },
+    "ha-lightfx-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1793477539,
+        "narHash": "sha256-df2cwOzz6/dT1KxzNz0eBYX2tzHl/0zRT11HvWqdoxU=",
+        "owner": "rusty4444",
+        "repo": "ha-lightfx",
+        "rev": "3f8d9a14f8d3860d979d71e6490e8c7b9a8073e7",
+        "type": "github"
+      },
+      "original": {
+        "owner": "rusty4444",
+        "ref": "v1.1.14",
+        "repo": "ha-lightfx",
+        "type": "github"
+      }
+    },
     "home-manager": {
       "inputs": {
         "nixpkgs": [
@@ -124,10 +141,29 @@
     "root": {
       "inputs": {
         "auxide": "auxide",
+        "ha-lightfx-src": "ha-lightfx-src",
         "home-manager": "home-manager",
         "nixpkgs": "nixpkgs_2",
         "nixpkgs-unstable": "nixpkgs-unstable",
+        "scene-presets-src": "scene-presets-src",
         "sops-nix": "sops-nix"
+      }
+    },
+    "scene-presets-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1786312889,
+        "narHash": "sha256-pHY68H0nr7eO3tGtVLtzj6cOZO3+VxC00VZmhZy+2Pk=",
+        "owner": "Hypfer",
+        "repo": "hass-scene_presets",
+        "rev": "b53280c76f6a94ea68f313c53865c3922d40b2d7",
+        "type": "github"
+      },
+      "original": {
+        "owner": "Hypfer",
+        "ref": "2.4.0",
+        "repo": "hass-scene_presets",
+        "type": "github"
       }
     },
     "sops-nix": {

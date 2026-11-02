@@ -16,6 +16,15 @@
     };
 
     auxide.url = "github:joshcazalas/auxide";
+
+    ha-lightfx-src = {
+      url = "github:rusty4444/ha-lightfx/v1.1.14";
+      flake = false;
+    };
+    scene-presets-src = {
+      url = "github:Hypfer/hass-scene_presets/2.4.0";
+      flake = false;
+    };
   };
 
   outputs =
@@ -32,7 +41,7 @@
       system = "x86_64-linux";
       settings = import ./settings.nix;
       pkgs = nixpkgs.legacyPackages.${system};
-      haIntegrations = pkgs.callPackage ./packages/home-assistant-integrations { };
+      haIntegrations = pkgs.callPackage ./packages/home-assistant-integrations { inherit inputs; };
       unstablePkgs = import nixpkgs-unstable {
         inherit system;
         config.allowUnfree = true;
@@ -138,6 +147,20 @@
       nixosConfigurations.${settings.server.hostName} = homeserver;
 
       checks.${system} = {
+        container-pins =
+          pkgs.runCommand "check-container-pins"
+            {
+              nativeBuildInputs = [ pkgs.python3 ];
+              CONTAINER_MANIFESTS = ./containers;
+              CONTAINER_IMAGES = builtins.toJSON {
+                home-assistant = homeserver.config.virtualisation.oci-containers.containers.homeassistant.image;
+                minecraft = homeserver.config.virtualisation.oci-containers.containers.minecraft.image;
+              };
+            }
+            ''
+              python ${./tests/container_pins.py}
+              touch "$out"
+            '';
         ha-integrations =
           pkgs.runCommand "check-ha-integrations"
             {
@@ -149,6 +172,7 @@
               SCENE_PRESETS = haIntegrations.scene_presets;
               HA_VOLUMES = builtins.toJSON homeserver.config.virtualisation.oci-containers.containers.homeassistant.volumes;
               HA_STATE_DIR = homeserver.config.homelab.homeAssistant.dataDir;
+              HA_LOCKFILE = ./flake.lock;
             }
             ''
               python ${./tests/ha_integrations.py}

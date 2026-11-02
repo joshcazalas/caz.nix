@@ -1,8 +1,7 @@
 version: 2
 
 updates:
-  # Both root-flake groups share this weekday schedule. Keep Auxide separate
-  # so unrelated input updates cannot occupy its only available PR slot.
+  # Keep application sources separate from the OS/toolchain and from Auxide.
   - package-ecosystem: nix
     directory: /
     schedule:
@@ -13,14 +12,32 @@ updates:
       auxide:
         patterns:
           - "auxide"
+      ha-integrations:
+        patterns:
+          - "ha-lightfx-src"
+          - "scene-presets-src"
       flake-inputs:
         patterns:
           - "*"
         exclude-patterns:
           - "auxide"
-    open-pull-requests-limit: 2
+          - "ha-lightfx-src"
+          - "scene-presets-src"
+    open-pull-requests-limit: 3
     commit-message:
       prefix: "deps(nix)"
+
+  - package-ecosystem: docker
+    directories:
+      - /containers/home-assistant
+      - /containers/minecraft
+    schedule:
+      interval: daily
+      time: "09:32"
+      timezone: America/Chicago
+    open-pull-requests-limit: 2
+    commit-message:
+      prefix: "deps(containers)"
 
   # Action updates work for both private and public repositories. Scan both the
   # workflows and the local composite action; `/` does not recursively discover

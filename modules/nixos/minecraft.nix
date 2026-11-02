@@ -146,7 +146,7 @@ in
 
     image = lib.mkOption {
       type = lib.types.str;
-      default = "itzg/minecraft-server:2026.8.0-java25@sha256:e3335993929a1565f73c30b2041bcbc1473fc9c406fdd5a0d0ea24c08ef73320";
+      default = (import ../../containers).minecraft;
       description = "Immutable OCI image reference for the server runtime.";
     };
 

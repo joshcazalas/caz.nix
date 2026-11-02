@@ -72,7 +72,8 @@ else
         integration=true
         ;;
 
-      home-assistant/* | packages/home-assistant-integrations/*)
+      home-assistant/* | packages/home-assistant-integrations/* | containers/* | \
+        tests/ha_integrations.py | tests/container_pins.py)
         homeserver=true
         ;;
 

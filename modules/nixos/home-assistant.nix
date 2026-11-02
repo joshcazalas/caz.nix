@@ -1,5 +1,6 @@
 {
   config,
+  inputs,
   lib,
   pkgs,
   settings,
@@ -21,7 +22,9 @@ let
           builtins.attrNames componentSources
         )
       );
-  upstreamComponents = pkgs.callPackage ../../packages/home-assistant-integrations { };
+  upstreamComponents = pkgs.callPackage ../../packages/home-assistant-integrations {
+    inherit inputs;
+  };
   upstreamMounts = lib.mapAttrsToList (
     name: source: "${source}:/config/custom_components/${name}:ro"
   ) { inherit (upstreamComponents) ha_lightfx scene_presets; };
@@ -45,7 +48,7 @@ in
 
     image = lib.mkOption {
       type = lib.types.strMatching ".+@sha256:[0-9a-f]{64}";
-      default = "ghcr.io/home-assistant/home-assistant:2026.8.3@sha256:8e9751cb66d3ba6624f5360a7d31b0c6821f7f5b3fb8ba0d10d58f0f481c540c";
+      default = (import ../../containers).home-assistant;
       description = "Immutable linux/amd64 Home Assistant Container image reference.";
     };
 

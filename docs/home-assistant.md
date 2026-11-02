@@ -255,14 +255,20 @@ and HA-managed state remain writable. Shipping a component does not enable it;
 config entries and device selection stay in HA runtime state. Update bundled
 code through the normal release process, including rollback.
 
-HA LightFX **1.1.14** and Scene Presets **2.4.0** are also installed from
-upstream source, pinned by immutable commit and content hash in
-`packages/home-assistant-integrations/default.nix`. Their Python code, bundled
-frontend, and upstream preset assets are mounted read-only. These releases
-were selected for the pinned Home Assistant Container version. Update the
-source pins and expected versions in `tests/ha_integrations.py` together, then
-run `nix build .#checks.x86_64-linux.ha-integrations` and the normal release
-checks. HACS is not needed for these two installations.
+HA LightFX and Scene Presets are installed from tagged upstream source inputs
+in `flake.nix`, with immutable commits and content hashes in `flake.lock`.
+Dependabot checks these tags for updates. The package reads each version from
+the upstream manifest; the integration check verifies it matches the selected
+tag, so version bumps do not need duplicate edits to packaging or tests.
+Their Python code, bundled frontend, and upstream preset assets are mounted
+read-only. Review release compatibility with the HA Container version, then
+run `nix build .#checks.x86_64-linux.ha-integrations` and normal release checks.
+HACS is not needed for these two installations.
+
+The HA Container tag and digest live in `containers/home-assistant/Dockerfile`.
+Nix reads that image reference directly and Dependabot updates the same file.
+See [dependency updates](ci-and-releases.md#dependency-updates) for coverage
+and the remaining manual maintenance items.
 
 The declarative boundary is **software installation only**. Enable integrations
 and configure devices, names, areas, layouts, dashboards, profiles, and
