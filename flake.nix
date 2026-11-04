@@ -18,7 +18,7 @@
     auxide.url = "github:joshcazalas/auxide";
 
     ha-lightfx-src = {
-      url = "github:rusty4444/ha-lightfx/v1.1.13";
+      url = "github:rusty4444/ha-lightfx/v1.1.14";
       flake = false;
     };
     scene-presets-src = {
