@@ -20,6 +20,7 @@ in
     ./hardware.nix
     ../../modules/nixos/base.nix
     ../../modules/nixos/storage.nix
+    ../../modules/nixos/secondary-backup.nix
     ../../modules/nixos/networking.nix
     ../../modules/nixos/network-policy.nix
     ../../modules/nixos/device-network.nix

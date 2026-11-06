@@ -235,13 +235,24 @@
         deployment-storage =
           pkgs.runCommand "check-deployment-storage"
             {
-              nativeBuildInputs = [ pkgs.python3 ];
+              SECONDARY_BACKUP_COMMAND =
+                homeserver.config.systemd.services.caz-secondary-backup.serviceConfig.ExecStart;
+              nativeBuildInputs = [
+                pkgs.python3
+                pkgs.bash
+                pkgs.rsync
+                pkgs.util-linux
+              ];
             }
             ''
+              test -x "$SECONDARY_BACKUP_COMMAND"
               mkdir scripts tests
               cp ${./scripts/check-deployment-storage.py} scripts/check-deployment-storage.py
               cp ${./tests/test_deployment_storage.py} tests/test_deployment_storage.py
+              cp ${./scripts/copy-secondary-backups.sh} scripts/copy-secondary-backups.sh
+              cp ${./tests/test_secondary_backup.py} tests/test_secondary_backup.py
               python -m unittest discover -s tests -p 'test_deployment_storage.py' -v
+              python -m unittest discover -s tests -p 'test_secondary_backup.py' -v
               touch "$out"
             '';
         deployment-storage-integration = import ./tests/deployment-storage.nix { inherit pkgs; };

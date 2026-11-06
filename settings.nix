@@ -14,8 +14,8 @@
     lanAddress = "192.168.1.124";
     lanInterface = "eno2";
     timeZone = "America/Chicago";
-    # Until reliable secondary storage is installed, shared service data lives
-    # explicitly on the root NVMe instead of implying that /srv is available.
+    # Live service data and media stay on the root NVMe. The secondary filesystem
+    # is reserved for a second copy of completed backups.
     dataRoot = "/var/lib/homelab";
   };
 

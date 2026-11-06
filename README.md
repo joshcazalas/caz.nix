@@ -115,13 +115,14 @@ Jellyfin provides separate, non-admin usernames and passwords.
   its seven most recent local archives live at `/var/backup/factorio`.
 - Three pre-deployment archives of mutable application state are retained under
   `/var/backup/caz-release-updater`.
-- The unreliable HDD is not mounted, scrubbed, or referenced by this flake.
+- The secondary filesystem at `/var/backup-secondary` receives a daily second
+  copy of these completed archives, retaining 30 days plus archives still retained
+  on the main drive. See [setup and verification](docs/install-server.md#secondary-backup-filesystem).
 - zram handles incidental swap; there is no disk swap partition.
 
-This SSD-only phase has no disk redundancy: local Minecraft archives protect
-against bad edits and upgrades, but not NVMe failure. A second SSD can become a
-separate data or backup target after it is connected and tested. Anything that
-becomes emotionally valuable still needs an independent off-machine copy.
+The second SSD adds a separate copy of selected backups, not live filesystem
+redundancy. It shares the host and power supply with the primary SSD. Anything
+that becomes emotionally valuable still needs an independent off-machine copy.
 
 ## Repository map
 

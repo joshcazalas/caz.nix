@@ -98,6 +98,7 @@ else
         ;;
 
       scripts/check-server-health.sh | scripts/pre-deploy-backup.sh | \
+        scripts/copy-secondary-backups.sh | tests/test_secondary_backup.py | \
         scripts/release-notifications.py | tests/test_release_notifications.py | \
         tests/test_deployment_storage.py | tests/test_release_downloads.py)
         homeserver=true

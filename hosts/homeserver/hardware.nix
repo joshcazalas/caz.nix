@@ -1,6 +1,6 @@
 {
-  # These stable labels are the installation contract. The install guide has
-  # the proposed partition layout, but intentionally contains no wipe command.
+  # These stable labels are the root-disk installation contract. Partitioning
+  # and formatting are manual operations, never part of system activation.
   fileSystems."/" = {
     device = "/dev/disk/by-label/NIXOS_ROOT";
     fsType = "ext4";
@@ -12,6 +12,20 @@
     options = [
       "fmask=0077"
       "dmask=0077"
+    ];
+  };
+
+  # Provision and verify this unique label locally. Keep physical device
+  # identifiers in private records. Its absence must not prevent boot.
+  fileSystems."/var/backup-secondary" = {
+    device = "/dev/disk/by-label/CAZ_BACKUPS";
+    fsType = "ext4";
+    options = [
+      "nofail"
+      "nodev"
+      "nosuid"
+      "noexec"
+      "x-systemd.device-timeout=10s"
     ];
   };
 
