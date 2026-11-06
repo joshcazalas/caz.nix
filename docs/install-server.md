@@ -2,7 +2,7 @@
 
 Nothing in this document should be run against a disk until the PC is present
 and every device identity has been checked. Only the explicitly verified NVMe
-is an installation target; the unreliable HDD must remain untouched.
+is an installation target; all unrelated disks must remain untouched.
 
 ## Proposed layout
 
@@ -13,13 +13,12 @@ is an installation target; the unreliable HDD must remain untouched.
 
 There is no RAID and no disk swap. zram is enabled. The operating system,
 application databases, and current shared data all live on the root NVMe. The
-unreliable HDD is deliberately absent from the configuration, and `/srv` is not
-a storage contract. A second SSD will be designed and added separately after it
-is connected and tested.
+secondary backup filesystem is mounted separately as described below. `/srv`
+is not a storage contract. Only the root disk is an initial OS installation target.
 
 ## Before erasing anything
 
-1. Leave the unreliable HDD and any unrelated USB storage unplugged.
+1. Leave unrelated storage unplugged.
 2. Boot the current NixOS minimal ISO in UEFI mode.
 3. Inventory disks with model, serial, size, transport, and existing mounts:
 
@@ -40,7 +39,8 @@ is connected and tested.
 
 6. After the reported test duration, confirm the extended test completed
    without error.
-7. Record `/dev/disk/by-id/` names in the installation notes.
+7. Keep device identifiers and health reports in private installation notes
+   outside Git.
 
 The exact destructive partitioning commands are intentionally deferred until
 those identifiers are available. At that point the declarative label contract
@@ -62,12 +62,64 @@ in `hosts/homeserver/hardware.nix` can be verified before formatting.
 5. Reboot, then make a DHCP reservation in the router so the server's LAN
    address stays stable.
 
-The i7-9700K's Intel UHD 630 is configured for Jellyfin VA-API transcoding
-through the `iHD` driver. When an RTX 2080 remains installed, configure the ASUS
-firmware under `Advanced > System Agent (SA) Configuration > Graphics
-Configuration` with `Primary Display` set to `PCIE` and `iGPU Multi-Monitor`
-enabled. Jellyfin selects the Intel render device by its stable PCI path, leaving
-the RTX available for later CUDA workloads.
+Jellyfin uses Intel VA-API through the `iHD` driver. Verify its configured
+render-device path locally before testing transcoding.
+
+## Secondary backup filesystem
+
+The primary filesystem keeps live application state, media, and original
+backups. A separate ext4 filesystem labeled `CAZ_BACKUPS` supplies a second
+copy at `/var/backup-secondary`.
+
+### Provisioning
+
+Identify and test the intended disk locally, confirm whether its existing files
+can be erased, and verify that neither it nor its partitions are mounted.
+Partition and format only that verified device. Assign `CAZ_BACKUPS` to the
+new ext4 filesystem and ensure that this label is unique among attached disks.
+Never repeat formatting on an existing backup volume. No format or wipe occurs
+during NixOS activation.
+
+Device serials, filesystem UUIDs, hardware inventory, diagnostic results, and
+installation history belong in private records, not this public guide. The
+configuration uses `/dev/disk/by-label/CAZ_BACKUPS`; its preflight compares the
+mounted block device against the device resolved by that label. This relies on
+correct local provisioning and a unique label, rather than a published serial.
+
+Deploy the reviewed repository change using the normal release process, or
+switch a reviewed checkout with `sudo nixos-rebuild switch --flake .#homeserver`.
+Then create the first second copy and inspect it:
+
+```bash
+findmnt /var/backup-secondary
+sudo systemctl start caz-secondary-backup.service
+sudo journalctl -u caz-secondary-backup.service -n 60 --no-pager
+sudo du -h --max-depth=1 /var/backup-secondary
+sudo cat /var/backup-secondary/last-success
+systemctl list-timers caz-secondary-backup.timer
+```
+
+The timer runs daily at 06:30 plus up to 15 minutes, and catches up after a missed
+run. It copies only finalized Minecraft, Factorio, and pre-deployment application
+archives. Existing original backups remain intact. Retention on the secondary
+filesystem is 30 days by archive mtime, plus any older archives still retained
+on the main SSD; pruning occurs only
+after all three sources copy successfully. This is not a fixed space quota.
+
+The service verifies the exact mounted block device, ext4, writable status,
+at least 10 GiB free before copying, and available inodes. An empty/missing
+source fails the job without pruning. Rsync checks file contents on repeat runs
+and publishes copies by rename. These checks verify copying, not restorability
+of application data; a restore drill remains necessary. Failed services are
+covered by the existing systemd monitoring alert.
+
+The mount is optional at boot (`nofail`) but required by the copy service.
+A missing or failed backup filesystem cannot redirect copies onto the main disk.
+The copy service does not stop applications or create fresh archives: game backups keep
+their daily schedules, while Home Assistant, Jellyfin, AdGuard, Samba and Grafana
+state is only as fresh as the latest pre-deployment backup. Media and general
+shared files are not included. The two disks share a host and power supply;
+an off-site copy is still separate future work.
 
 ## First local setup
 
@@ -114,7 +166,7 @@ Then:
 ## Deliberately postponed
 
 - A UPS and automated graceful shutdown.
-- Off-site backups and a second local copy.
+- Off-site backups and a tested application restore from the second local copy.
 - Filesystem snapshots, after the long-term storage architecture is revisited.
 - Immich activation.
 - Public Jellyfin and its port forwarding.

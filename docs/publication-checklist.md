@@ -24,6 +24,13 @@ public.
 
 ## Content review
 
+Review code, comments, tests, documentation, commit messages, and pull-request
+metadata for personal infrastructure details before publishing. Keep device
+serials and filesystem UUIDs, unnecessary hardware inventories, provenance and
+maintenance history, health/usage measurements, home layouts, room names, and
+physical device locations in private records outside Git. Prefer generic
+filesystem labels and examples. A secret scan alone does not enforce this rule.
+
 - [x] Confirm no plaintext sops files or private keys are tracked.
 - [x] Review domains, IP addresses, usernames, and service topology.
 - [x] Confirm every value in `settings.nix` is suitable for publication.

@@ -8,9 +8,8 @@ let
   dataRoot = settings.server.dataRoot;
 in
 {
-  # Shared service state intentionally stays on the root NVMe until a reliable
-  # second SSD is installed. Declaring it through tmpfiles preserves ownership
-  # and permissions without pretending an external /srv mount exists.
+  # Shared service state and media stay on the root NVMe. The secondary filesystem
+  # stores a second copy of completed backups, not live application state.
   systemd.tmpfiles.rules = [
     "d ${dataRoot} 0750 root media -"
     "d ${dataRoot}/backups 2775 root media -"
