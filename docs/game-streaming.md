@@ -163,9 +163,11 @@ state. Tunnel presence and handshake state are printed as observations.
 
 ## Wake from sleep
 
-Turning off the TV does not require sleeping the PC. The virtual display keeps
-capture independent of the TV; waking the computer itself requires hardware
-support and a separate acceptance test.
+Turning off the physical display does not require sleeping the game stream
+host. The virtual display keeps capture independent of the physical display;
+waking the computer itself requires hardware support and a separate acceptance
+test. Sunshine is suspended while Windows sleeps. Use Moonlight's **Wake PC**,
+wait for the host to become reachable, then start the stream.
 
 The gateway's `wakeOnLan` configuration pins the host's Ethernet MAC to its
 reserved IP on the homeserver's physical LAN interface. Moonlight sends its
@@ -176,25 +178,94 @@ sleep. No UDP 9 forward, new server listener, or broader VPN access is needed.
 Keep this MAC, the Ethernet DHCP reservation, and the physical interface in
 `hosts/homeserver/default.nix` synchronized if hardware changes.
 
-On the gaming PC:
+Hardware wake settings remain a manual setup step. The WinGet bootstrap installs
+the streaming software and applies its stable policy; it does not configure
+firmware, choose NIC drivers, arm USB devices, or set an idle-sleep timeout.
+Recheck these settings when replacing hardware or changing drivers.
+
+On the game stream host:
 
 1. Check `powercfg /a` for supported sleep states.
-2. Enable Wake-on-LAN/PCIe wake in the motherboard's BIOS/UEFI if needed.
-3. For the wired NIC in Device Manager, enable **Wake on Magic Packet** and
+2. Enable Wake-on-LAN/PCIe wake in the motherboard's BIOS/UEFI if needed, plus USB
+   resume for local USB wake. If the firmware has a wake-event source selector,
+   check the individual resume options as well. Setting names vary by vendor.
+3. Install the appropriate signed NIC driver from the hardware vendor if the
+   wake options are missing. A working Ethernet connection with the default
+   Windows driver does not establish that wake support is available.
+4. For the wired NIC in Device Manager, enable **Wake on Magic Packet** and
    **Allow this device to wake the computer**. Prefer magic-packet-only wake
-   over waking on arbitrary traffic. Options depend on the NIC and sleep model.
-4. Connect Moonlight once while the PC is awake on Ethernet so each client learns
+   over waking on arbitrary traffic; disable **Wake on Pattern Match** when
+   available. Options depend on the NIC and sleep model. Check that the Ethernet
+   adapter appears in `powercfg /devicequery wake_armed`.
+5. Connect Moonlight once while the PC is awake on Ethernet so each client learns
    the current Ethernet MAC. Existing Wi-Fi pairing does not prove it has the
    right wake address.
-5. With the TV off, sleep the PC and use Moonlight's **Wake PC**. Repeat through
-   WireGuard from an external network, then after extended idle. A successful
+6. With the physical display off, choose **Start > Power > Sleep**, then use
+   Moonlight's **Wake PC** from the local network with the tunnel off. Repeat
+   through WireGuard from an external network, then after extended idle. Ensure
+   the client stays on that external network throughout the test; automatic
+   reconnection to the local network makes the route ambiguous. A successful
    wake must lead to usable video and input.
+
+### USB wake
+
+USB wake uses the USB device and firmware wake path, not Ethernet magic packets.
+For a USB receiver that supports wake, inspect both **Allow the computer to turn
+off this device to save power** and **Allow this device to wake the computer**
+in Device Manager's Power Management tab. Some drivers need device power
+management enabled for wake permission to persist. If wake permission disappears
+after a restart, enable both supported options and retest.
+
+Check `powercfg /devicequery wake_programmable` for configurable devices and
+`powercfg /devicequery wake_armed` for devices currently allowed to wake the
+host. For a receiver exposed as a network adapter, inspect its power-management
+state in an elevated PowerShell window. Find its adapter name first, then
+replace the placeholder below:
+
+```powershell
+Get-NetAdapter -IncludeHidden | Format-Table Name, InterfaceDescription
+Get-NetAdapterPowerManagement -Name 'RECEIVER_ADAPTER_NAME' |
+    Format-List Name, AllowComputerToTurnOffDevice, WakeOnMagicPacket, WakeOnPattern
+```
+
+`WakeOnMagicPacket` and `WakeOnPattern` may report `Unsupported` for a USB
+receiver. Do not force unsupported Ethernet features to configure USB wake.
+
+If a correctly armed receiver reconnects during sleep but cannot wake the host,
+try a port directly connected to the motherboard rather than an intermediate
+USB hub. A powered receiver alone does not establish that the full USB path
+supports wake. Recheck wake permission after a restart or driver change.
+
+### Verify before enabling automatic sleep
 
 The integration test proves magic-packet delivery when the target refuses ARP;
 it cannot emulate a physical NIC waking the Windows PC. Keep automatic PC sleep
-disabled until the real sleep/wake test passes. Windows shutdown, hibernation,
-Modern Standby, and ordinary sleep can have different wake support; do not
-infer shutdown support from a successful sleep test.
+disabled until the real sleep/wake test passes. Then choose a plugged-in idle
+timeout using Windows power settings or PowerShell, for example 30 minutes:
+
+```powershell
+powercfg /change standby-timeout-ac 30
+powercfg /query SCHEME_CURRENT SUB_SLEEP STANDBYIDLE
+```
+
+The query should show an AC value of `0x00000708` (1,800 seconds) for the active
+power plan. If the host sleeps during streaming or stays awake after a session,
+inspect `powercfg /requests` in an elevated terminal before changing settings.
+Windows shutdown, hibernation, Modern Standby, and ordinary sleep can have
+different wake support; do not infer shutdown support from a successful sleep
+test.
+
+For diagnosis, use `powercfg /lastwake` and the System event log's
+`Microsoft-Windows-Power-Troubleshooter` events. A wake may identify only a USB
+controller or report a generic source; it does not necessarily identify the
+individual device or network sender. Sunshine's
+`C:\Program Files\Sunshine\config\sunshine.log` can confirm a streaming session,
+but absence of a session does not prove that no wake packet reached the NIC.
+For a Windows client, Wi-Fi connection/disconnection events `8001` and `8003` in
+`Microsoft-Windows-WLAN-AutoConfig/Operational` can establish when it left a
+network and joined another. Compare those times with the host's wake event,
+accounting for clock differences, to check which network was in use during a
+remote-wake attempt.
 
 References: [Moonlight wake implementation](https://github.com/moonlight-stream/moonlight-qt/blob/master/app/backend/nvcomputer.cpp),
 [Moonlight wake guide](https://github.com/moonlight-stream/moonlight-docs/wiki/WOL-%28Wake-On-LAN%29),
