@@ -68,6 +68,10 @@ in
     };
 
     serialDevice.enable = lib.mkEnableOption "a privately selected serial device";
+
+    bluetooth.enable = lib.mkEnableOption ''
+      local Bluetooth via BlueZ (grants HA host D-Bus and network administration access)
+    '';
   };
 
   config = lib.mkIf cfg.enable {
@@ -128,6 +132,12 @@ in
       "d ${scenePresetsUserdata} 0700 root root -"
     ];
 
+    hardware.bluetooth = lib.mkIf cfg.bluetooth.enable {
+      enable = true;
+      powerOnBoot = true;
+    };
+    services.dbus.enable = lib.mkIf cfg.bluetooth.enable true;
+
     virtualisation.oci-containers.containers.${containerName} = {
       inherit (cfg) image;
       autoStart = true;
@@ -141,7 +151,8 @@ in
       ]
       ++ componentMounts
       ++ upstreamMounts
-      ++ [ scenePresetsUserdataMount ];
+      ++ [ scenePresetsUserdataMount ]
+      ++ lib.optional cfg.bluetooth.enable "/run/dbus:/run/dbus:ro";
       environment.TZ = settings.server.timeZone;
       extraOptions = [
         "--memory=2g"
@@ -149,17 +160,36 @@ in
         "--pids-limit=512"
         "--security-opt=no-new-privileges:true"
         "--stop-timeout=60"
+      ]
+      # Upstream requires both capabilities for scanning and adapter recovery.
+      # With host networking, NET_ADMIN also permits changes to the host's
+      # interfaces, routes and firewall; this is not a Bluetooth-only grant.
+      ++ lib.optionals cfg.bluetooth.enable [
+        "--cap-add=NET_ADMIN"
+        "--cap-add=NET_RAW"
       ];
     };
 
     # Home Assistant may need more than Docker's default ten seconds to close
     # its SQLite database cleanly. The container stop timeout is the effective
     # grace period; leave additional room for the generated systemd wrapper.
-    systemd.services.docker-homeassistant.serviceConfig = {
-      TimeoutStopSec = lib.mkForce 90;
-      RuntimeDirectory = "caz-home-assistant";
-      RuntimeDirectoryMode = "0700";
-      ExecStartPre = lib.mkBefore [ (lib.getExe prepare) ];
+    systemd.services.docker-homeassistant = {
+      # Order startup after BlueZ takes its bus name. A failed or absent radio
+      # must not stop HA's other integrations or its remote Bluetooth proxies.
+      wants = lib.optionals cfg.bluetooth.enable [
+        "bluetooth.service"
+        "dbus.service"
+      ];
+      after = lib.optionals cfg.bluetooth.enable [
+        "bluetooth.service"
+        "dbus.service"
+      ];
+      serviceConfig = {
+        TimeoutStopSec = lib.mkForce 90;
+        RuntimeDirectory = "caz-home-assistant";
+        RuntimeDirectoryMode = "0700";
+        ExecStartPre = lib.mkBefore [ (lib.getExe prepare) ];
+      };
     };
   };
 }

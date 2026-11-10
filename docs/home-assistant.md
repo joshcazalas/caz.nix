@@ -154,7 +154,7 @@ permanent `/dev/serial/by-id/` path is selected in private `hardware.json`,
 not in the host's Nix configuration. Startup validates the mapping and creates
 `/run/caz-home-assistant/serial`; the container sees `/dev/ttyZigbee` with
 read/write access. No device-creation permission or directory-wide grant is used.
-Bluetooth and other hardware need their own explicitly scoped access.
+Local Bluetooth has a separate opt-in with broader permissions, described below.
 
 For temporary remote administration, forward the private listener over SSH:
 
@@ -165,6 +165,46 @@ ssh -L 8123:127.0.0.1:8123 joshcaz@ssh.joshcaz.com
 Then browse `http://127.0.0.1:8123`. A future always-on mobile setup should use
 a reviewed VPN or Home Assistant Cloud design rather than a raw router port
 forward.
+
+## Bluetooth setup
+
+The homeserver enables `homelab.homeAssistant.bluetooth.enable` to use its
+onboard adapter alongside the ESPHome proxy. The proxy extends coverage to
+devices beyond the server's radio range; enabling the local adapter preserves
+the existing proxy integration and pairing state.
+
+The option enables host BlueZ, powers the controller at boot, mounts
+`/run/dbus:/run/dbus:ro`, and adds `NET_ADMIN` and `NET_RAW` to Home Assistant.
+These are the [upstream Container requirements](https://www.home-assistant.io/integrations/bluetooth/#additional-details-for-container)
+for scanning and automatic adapter recovery. HA starts after BlueZ and D-Bus,
+but a Bluetooth service failure does not stop HA's other integrations.
+
+This is a security tradeoff. Because HA already uses host networking,
+`NET_ADMIN` also permits changes to host interfaces, routes and firewall rules.
+The read-only D-Bus mount prevents filesystem writes through that mount; it
+does **not** make bus method calls read-only or restrict them to BlueZ. A
+compromised HA integration gains these permissions too. The container remains
+unprivileged and retains `no-new-privileges`, but those settings do not remove
+the explicitly granted access. The option defaults off for other hosts.
+
+Deploy through the normal [server release process](server-updates.md), which
+recreates the container with the new permissions. After deployment, inspect:
+
+```bash
+systemctl status bluetooth.service docker-homeassistant.service --no-pager
+bluetoothctl show
+sudo docker inspect --format '{{json .HostConfig.CapAdd}}' homeassistant
+sudo docker inspect --format '{{json .Mounts}}' homeassistant
+sudo docker logs --since 5m homeassistant
+```
+
+The controller should be powered, the D-Bus mount should be read-only, and
+the Bluetooth management permission errors should disappear. In **Settings >
+Devices & services > Bluetooth**, confirm that the local adapter is enabled
+and advertisements appear from nearby devices. Confirm that the ESPHome proxy
+still supplies its remote devices. Do not enable discoverable mode merely to
+scan for BLE devices. Radio range and real device connections require this
+post-deployment hardware check; the VM test covers host/container access.
 
 ## Zigbee setup
 
