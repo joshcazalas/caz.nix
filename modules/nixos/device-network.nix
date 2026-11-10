@@ -152,6 +152,7 @@ in
           ExecStartPre = "${executable} prepare";
           ExecStart = "${executable} --config ${runtime}/config.json up";
           ExecStopPost = "${executable} down";
+          # Includes the bounded 30-second wait for the dedicated interface.
           TimeoutStartSec = 45;
           TimeoutStopSec = 30;
           UMask = "0077";

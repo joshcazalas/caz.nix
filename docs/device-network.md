@@ -157,6 +157,27 @@ They start at boot and stop before their namespace disappears. Stopping the
 target returns the dedicated interface to the host, down and without addresses.
 Unexpected namespace processes prevent cleanup rather than being killed.
 
+Startup waits up to 30 seconds for udev to initialize the exact interface named
+in the private configuration before inspecting or moving it. The ownership
+checks still reject an active, addressed, routed or shared interface. Missing
+hardware fails without creating a namespace. There is no ongoing dependency on
+the host's interface device unit: moving the interface into its namespace
+deliberately removes it from the host network view.
+
+If setup failed at boot and the hardware is now available, recover the complete
+target after reviewing the failure:
+
+```bash
+sudo systemctl start device-network.target
+sudo caz-device-network health
+sudo caz-server-health --wait 30 --stabilize 60
+```
+
+Starting only `device-network.service` creates the namespace but does not start
+DNS, Wi-Fi and proxy members whose earlier jobs failed on that dependency.
+`systemctl --failed` can therefore omit the unavailable members: they are
+inactive rather than failed. Start the target to bring them up together.
+
 The release health gate checks the isolation invariants, access-point readiness
 and all declared service instances. The normal monitoring rules already report
 failed systemd services. Application-specific health checks must separately test
@@ -165,8 +186,9 @@ is healthy. Keep protocol captures and detailed logs private.
 
 The integration test uses synthetic devices on virtual Ethernet links. It tests
 both allowed directions, local DNS, blocked LAN/internet access, host firewall
-independence, namespace restart and reboot. Physical Wi-Fi association and radio
-coverage still require a deployment check.
+independence, delayed and missing interfaces, recovery, namespace restart and
+reboot. Physical Wi-Fi association and radio coverage still require a deployment
+check.
 
 References: [Linux network namespaces](https://man7.org/linux/man-pages/man7/network_namespaces.7.html),
 [systemd namespace execution](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html),
