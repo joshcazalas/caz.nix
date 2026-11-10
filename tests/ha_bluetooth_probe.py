@@ -1,5 +1,7 @@
 """Exercise Bluetooth access from the HA container fixture, without a radio."""
 
+import ctypes
+import errno
 import json
 import os
 from pathlib import Path
@@ -29,7 +31,15 @@ if enabled:
     # Read the kernel management API version; no real controller is required.
     with socket.socket(socket.AF_BLUETOOTH, socket.SOCK_RAW, socket.BTPROTO_HCI) as management:
         management.settimeout(5)
-        management.bind((0xFFFF, 3))  # HCI_DEV_NONE, HCI_CHANNEL_CONTROL
+        # Python 3.13's HCI bind wrapper cannot select a channel. Pass the
+        # Linux sockaddr_hci directly: family, HCI_DEV_NONE, CONTROL channel.
+        address = ctypes.create_string_buffer(struct.pack("=HHH", socket.AF_BLUETOOTH, 0xFFFF, 3))
+        bind = ctypes.CDLL(None, use_errno=True).bind
+        bind.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_uint]
+        bind.restype = ctypes.c_int
+        if bind(management.fileno(), address, 6) != 0:
+            error = ctypes.get_errno()
+            raise OSError(error, os.strerror(error))
         management.sendall(struct.pack("<HHH", 1, 0xFFFF, 0))
         reply = management.recv(1024)
         event, index, length = struct.unpack_from("<HHH", reply)
@@ -41,7 +51,6 @@ if enabled:
     except PermissionError:
         pass
     except OSError as error:
-        import errno
         assert error.errno == errno.EROFS, error
     else:
         raise AssertionError("Host D-Bus directory is writable from the container")

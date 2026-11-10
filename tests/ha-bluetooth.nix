@@ -3,6 +3,7 @@ let
   fixture = pkgs.dockerTools.buildLayeredImage {
     name = "ha-bluetooth-test";
     tag = "fixture";
+    maxLayers = 2;
     contents = [
       pkgs.python3
       pkgs.dbus
@@ -69,7 +70,7 @@ pkgs.testers.runNixOSTest {
     server.wait_for_unit("bluetooth.service")
     server.wait_for_unit("docker-homeassistant.service")
     result = "/var/lib/homelab/home-assistant/bluetooth-probe.json"
-    server.wait_until_succeeds(f"test -s {result}")
+    server.wait_until_succeeds(f"test -s {result}", timeout=60)
     assert json.loads(server.succeed(f"cat {result}")) == {"enabled": True}
     container = json.loads(server.succeed("docker inspect homeassistant"))[0]
     assert container["RestartCount"] == 0
@@ -85,7 +86,7 @@ pkgs.testers.runNixOSTest {
         server.succeed(f"rm {result}")
         server.succeed("/run/current-system/specialisation/withoutBluetooth/bin/switch-to-configuration test")
         server.wait_for_unit("docker-homeassistant.service")
-        server.wait_until_succeeds(f"test -s {result}")
+        server.wait_until_succeeds(f"test -s {result}", timeout=60)
         assert json.loads(server.succeed(f"cat {result}")) == {"enabled": False}
         container = json.loads(server.succeed("docker inspect homeassistant"))[0]
         assert not container["HostConfig"]["CapAdd"]
