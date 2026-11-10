@@ -471,6 +471,32 @@ token. The same process configuration connected successfully after rollback
 restored networking. A runtime `test-build.conf` drop-in was present in that
 incident, but these changes do not remove or alter local service overrides.
 
+### Device network fails before its interface appears
+
+On November 8, device-network setup checked for its dedicated Wi-Fi interface
+at 5.517 seconds after boot. The kernel completed the interface rename at
+5.521 seconds. Setup failed, and DNS, Wi-Fi and proxy start jobs failed on that
+dependency. Starting setup alone the next day restored the namespace but left
+those members inactive. On November 10 the updater reproduced the new release
+successfully, then correctly refused deployment at the current-generation
+health gate, before backups or activation.
+
+Device-network startup now waits up to 30 seconds for the configured interface
+to finish udev initialization. The existing interface ownership and isolation
+checks still apply. A permanently absent interface remains an error.
+
+An already unhealthy generation cannot automatically deploy this correction
+through its current health gate. After review, an administrator must first
+recover the complete network using the
+[device-network recovery procedure](device-network.md#operations-and-releases),
+then run the verified updater. This pre-activation failure does not quarantine
+the new release, so `--force` is unnecessary. Running the updater through its
+service also replaces the earlier failed service result:
+
+```bash
+sudo systemctl start caz-release-updater.service
+```
+
 ## Reboots and remaining boundary
 
 Live service and userspace changes deploy automatically. The new generation is

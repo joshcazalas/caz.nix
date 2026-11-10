@@ -174,6 +174,14 @@ def prepare(config):
 def up(config):
     iface = config["interface"]
     require(not Path(f"/run/netns/{NAMESPACE}").exists(), "Device namespace already exists; refusing to take ownership")
+    # Drivers and predictable interface renames can finish after this service
+    # starts. Wait for this device's udev initialization before inspecting it.
+    # Do not bind the service to its host .device unit: moving the interface
+    # into our namespace intentionally removes it from the host network view.
+    try:
+        run("udevadm", "wait", "--timeout=30", f"/sys/class/net/{iface}")
+    except subprocess.CalledProcessError as error:
+        raise ConfigurationError("Dedicated interface did not initialize within 30 seconds") from error
     link = json.loads(run("ip", "-j", "address", "show", "dev", iface, capture=True).stdout)[0]
     require("UP" not in link["flags"] and not link["addr_info"],
             "Dedicated interface must be down and unconfigured; refusing to take an active interface")

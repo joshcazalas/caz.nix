@@ -250,6 +250,29 @@ pkgs.testers.runNixOSTest {
         server.wait_until_succeeds("caz-device-network health")
         check_boundary()
 
+    with subtest("Startup waits for the dedicated interface to appear"):
+        server.succeed("systemctl stop device-network.target device-network.service")
+        server.succeed("ip link set eth2 name delayed0")
+        server.succeed("systemctl start --no-block device-network.target")
+        server.wait_until_succeeds("pgrep -f '^udevadm wait --timeout=30 /sys/class/net/eth2$'", timeout=15)
+        server.succeed("test ! -e /run/netns/devices; test ! -e /run/caz-device-network/owned")
+        server.succeed("ip link set delayed0 name eth2")
+        server.wait_until_succeeds("caz-device-network health")
+        check_boundary()
+
+    with subtest("Missing hardware fails without claiming a namespace and can recover"):
+        server.succeed("systemctl stop device-network.target device-network.service")
+        server.succeed("ip link set eth2 name delayed0")
+        server.fail("systemctl start device-network.target")
+        server.succeed("journalctl -u device-network.service --no-pager | grep 'Dedicated interface did not initialize within 30 seconds'")
+        server.succeed("test ! -e /run/netns/devices; test ! -e /run/caz-device-network/owned")
+        server.fail("systemctl is-active --quiet device-network-dns.service")
+        server.succeed("ip link set delayed0 name eth2")
+        # Recover the full target, including members whose start jobs failed.
+        server.succeed("systemctl start device-network.target")
+        server.wait_until_succeeds("caz-device-network health")
+        check_boundary()
+
     with subtest("Revoking a grant closes the old listener"):
         config_file = "/var/lib/homelab/device-network/network.json"
         server.succeed(f"cp {config_file} /run/device-network-original.json")
