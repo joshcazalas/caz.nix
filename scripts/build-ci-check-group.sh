@@ -35,7 +35,7 @@ while IFS= read -r check_name; do
   case "${check_name}" in
     homeserver | release-downloads | release-notifications | deployment-storage | server-health | factorio | website-updater | ha-private | ha-integrations | container-pins | schlage-local) check_group=homeserver ;;
     wsl-*) check_group=wsl ;;
-    game-stream-* | home-access-gateway | network-policy | network-readiness | device-network* | deployment-storage-integration) check_group=integration ;;
+    game-stream-* | home-access-gateway | network-policy | network-readiness | device-network* | deployment-storage-integration | ha-bluetooth) check_group=integration ;;
     *)
       echo "Flake check '${check_name}' has no CI group." >&2
       unclassified=true

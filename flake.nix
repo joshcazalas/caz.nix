@@ -324,6 +324,7 @@
           inherit (inputs) sops-nix;
         };
         network-policy = import ./tests/network-policy.nix { inherit pkgs; };
+        ha-bluetooth = import ./tests/ha-bluetooth.nix { inherit pkgs inputs; };
         device-network = import ./tests/device-network.nix { inherit pkgs; };
         device-network-config =
           pkgs.runCommand "check-device-network-config"

@@ -167,6 +167,8 @@ in
   homelab.homeAssistant = {
     enable = true;
     serialDevice.enable = true;
+    # Local coverage complements the remote ESPHome Bluetooth proxy.
+    bluetooth.enable = true;
   };
 
   # A reusable local-only network. Its Wi-Fi identity, device inventory and
