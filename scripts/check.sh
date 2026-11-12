@@ -27,5 +27,8 @@ shellcheck "${shell_files[@]}"
 echo "==> Testing the WSL-to-Windows launcher"
 ./scripts/test-windows-launcher.sh
 
+echo "==> Testing CI selection and check ownership"
+python3 -B -m unittest discover -s tests -p test_ci_checks.py -v
+
 echo "==> Linting GitHub Actions workflows"
 actionlint
