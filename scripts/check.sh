@@ -28,7 +28,4 @@ echo "==> Testing the WSL-to-Windows launcher"
 ./scripts/test-windows-launcher.sh
 
 echo "==> Linting GitHub Actions workflows"
-# GitHub supports `concurrency.queue`, but actionlint 1.7.12 does not know
-# about it yet. Ignore only that specific schema false positive; all other
-# workflow diagnostics remain fatal.
-actionlint -ignore 'unexpected key "queue" for "concurrency" section'
+actionlint
