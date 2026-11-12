@@ -176,11 +176,15 @@ Neither has a public delivery date as of November 2026.
 
 ## Release identity and contents
 
-Each authorized push to `main` creates one release named:
+Authorized pushes to `main` trigger releases named:
 
 ```text
 caz.nix-YYYY.MM.DD-g<12-character-commit>
 ```
+
+Pushes that change only `docs/**`, README files, or `SECURITY.md` do not trigger
+a release. A push that also changes other files still triggers one. Manual
+dispatch remains available when a release is wanted without a code change.
 
 The release job runs only on `main` when the initiating GitHub account ID is
 `73436834` (`joshcazalas`) and the current triggering account matches the
@@ -195,8 +199,22 @@ committer metadata. It is defense in depth: it does not protect against a
 compromised maintainer account, unsafe changes the maintainer approves, or an
 authorized change that removes the gate from this workflow.
 
-The release job builds every declared output from the resulting `main` commit.
-It does not repeat linting or the full-history secret scan.
+Only one release runs at a time, with at most one pending run. A newer run
+replaces the pending run without interrupting the active release. If A is
+releasing while B and then C merge, C replaces B in the queue; C's `main`
+commit includes B's changes, so they are still included in C's release.
+
+The release job evaluates the flake with `nix flake check --no-build`, then the
+artifact script builds the actual homeserver and WSL outputs needed for closure
+metadata and SBOMs. Tests, including NixOS VM integration tests, run in PR CI
+and are not repeated during release. Linting and the full-history secret scan
+also remain in PR CI.
+
+Branch protection requires `Validate` but deliberately does not require a PR
+branch to be up to date before merging. The sole maintainer accepts that the
+final merged combination may not have run the integration tests; release-time
+evaluation and the actual configuration builds still validate the resulting
+`main` commit before publication.
 
 The UTC date is pleasant to scan, and the commit suffix makes the tag unique
 and traceable if several changes land on one day. A release contains:

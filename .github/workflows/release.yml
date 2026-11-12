@@ -4,6 +4,10 @@ on:
   push:
     branches:
       - main
+    paths-ignore:
+      - docs/**
+      - '**/README.md'
+      - SECURITY.md
   workflow_dispatch:
 
 permissions:
@@ -11,8 +15,9 @@ permissions:
 
 concurrency:
   group: release-main
+  # Finish the active release and replace any pending run with the newest one.
+  # The newer main commit includes changes from superseded pending releases.
   cancel-in-progress: false
-  queue: max
 
 jobs:
   release:
@@ -51,9 +56,10 @@ jobs:
       - name: Cache the pinned Auxide build
         uses: ./.github/actions/cache-auxide
 
-      # Linting and the full-history secret scan are not repeated here.
-      - name: Evaluate and build every declared output
-        run: nix flake check --print-build-logs
+      # Tests, linting, and the full-history secret scan run in PR CI.
+      # The artifact script below builds the actual server and WSL outputs.
+      - name: Evaluate every flake output
+        run: nix flake check --no-build
 
       - name: Choose the immutable release identity
         id: release
