@@ -25,22 +25,37 @@ validation jobs in parallel:
   restores the pinned Auxide cache.
 - **Build WSL home** realises the Home Manager activation and every `wsl-*`
   assertion without paying Auxide-cache overhead.
-- **Run NixOS integration tests** builds every `game-stream-*` check when one
-  is declared and its inputs changed.
+- **Integration** runs only affected checks across up to three parallel runners:
+  device networking, gateways/network policy, and services/storage. Each runner
+  builds just the checks selected for its shard, and a failure in one shard does
+  not cancel the others.
 - **Validate Windows configuration** parses and resolves the declarative
   Windows profiles when their inputs changed.
+- **Validate ESPHome** installs the pinned build tool and validates the template
+  when ESPHome inputs, its preparation script, or its validator changed.
 
-`scripts/build-ci-check-group.sh` assigns every declared flake check to one of
-the homeserver, WSL, or integration jobs. CI fails if a new check has not been
-classified, so splitting the builds cannot silently turn a declared check into
-evaluation-only coverage.
+`scripts/ci_checks.py` owns both path selection and flake check ownership;
+`scripts/classify-ci-changes.sh` and `scripts/build-ci-check-group.sh` expose its
+CLI. CI fails if a new check has not been classified or an integration shard
+references a removed check. Every integration check belongs to exactly one
+shard, so splitting the builds cannot silently turn a declared check into
+evaluation-only coverage. Classifier regression tests run in the lint job.
 
 `scripts/classify-ci-changes.sh` maps known source paths to the components they
-can affect. Shared flake inputs fan out to every Nix job, manual dispatches run
-everything, and any unfamiliar path fails safe by selecting every component.
+can affect, including the test source files themselves. For example, HA's
+preparation script selects homeserver checks and the Bluetooth VM test; the
+HA private-input unit test selects the homeserver group that actually owns it.
+Shared flake inputs/settings and CI policy changes fan out to every component,
+manual dispatches run everything, and any unfamiliar path fails safe by
+selecting every component. Multiple changed paths select the union of their
+checks; deleted files and both sides of renames are included.
 Documentation and operational-only changes still run linting, scanning, and
 flake evaluation but avoid unrelated closure builds. A skipped component is
 acceptable only when the classifier explicitly selected `false` for it.
+
+VM container fixtures handle SIGTERM so shutdown and restart tests do not wait
+for Docker to force-kill them. Production container shutdown grace periods and
+the integration tests' deliberate failure-timeout assertions are unchanged.
 
 The final `Validate` job passes only when classification and linting succeeded
 and every component job either succeeded or was deliberately skipped. It

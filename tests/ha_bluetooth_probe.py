@@ -6,8 +6,10 @@ import json
 import os
 from pathlib import Path
 import socket
+import signal
 import struct
 import subprocess
+import sys
 
 
 enabled = os.environ["EXPECT_BLUETOOTH"] == "1"
@@ -57,5 +59,9 @@ if enabled:
 else:
     assert not Path("/run/dbus/system_bus_socket").exists()
 
+# This fixture is PID 1, which must handle SIGTERM explicitly. Keep the
+# production HA stop timeout intact while allowing the fixture to stop cleanly.
+signal.signal(signal.SIGTERM, lambda _signal, _frame: sys.exit(0))
 Path("/config/bluetooth-probe.json").write_text(json.dumps({"enabled": enabled}))
-os.execv("/bin/sleep", ["sleep", "infinity"])
+while True:
+    signal.pause()

@@ -5,8 +5,10 @@ let
     tag = "fixture";
     contents = [ pkgs.busybox ];
     config.Cmd = [
-      "/bin/sleep"
-      "infinity"
+      "/bin/sh"
+      "-c"
+      # Handle SIGTERM as PID 1 instead of waiting for Docker's stop timeout.
+      "trap 'exit 0' TERM INT; while :; do sleep 1 & wait $!; done"
     ];
   };
   dhcpHook = pkgs.writeShellScript "test-device-dhcp" ''

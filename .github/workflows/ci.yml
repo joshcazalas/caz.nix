@@ -20,7 +20,9 @@ jobs:
       homeserver: ${{ steps.classify.outputs.homeserver }}
       wsl: ${{ steps.classify.outputs.wsl }}
       integration: ${{ steps.classify.outputs.integration }}
+      integration_matrix: ${{ steps.classify.outputs.integration_matrix }}
       windows: ${{ steps.classify.outputs.windows }}
+      esphome: ${{ steps.classify.outputs.esphome }}
 
     steps:
       - name: Check out the complete history
@@ -65,12 +67,6 @@ jobs:
 
       - name: Check formatting, source, and workflows
         run: nix develop --command ./scripts/check.sh
-
-      - name: Validate ESPHome template with the pinned build tool
-        run: |
-          python3 -m venv "${RUNNER_TEMP}/esphome-venv"
-          "${RUNNER_TEMP}/esphome-venv/bin/python" -m pip install -r esphome/requirements.txt
-          PATH="${RUNNER_TEMP}/esphome-venv/bin:${PATH}" python3 tests/esphome_config.py
 
       - name: Scan the complete Git history for secrets
         run: nix develop --command ./scripts/secret-scan.sh
@@ -142,9 +138,13 @@ jobs:
         run: ./scripts/build-ci-check-group.sh wsl
 
   integration:
-    name: Run NixOS integration tests
+    name: Integration / ${{ matrix.name }}
     needs: changes
     if: needs.changes.outputs.integration == 'true'
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix: ${{ fromJSON(needs.changes.outputs.integration_matrix) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
 
@@ -166,7 +166,28 @@ jobs:
             build-dir = /nix/build
 
       - name: Build the integration checks
-        run: ./scripts/build-ci-check-group.sh integration
+        env:
+          SELECTED_CHECKS: ${{ toJSON(matrix.checks) }}
+        run: ./scripts/build-ci-check-group.sh integration --checks-json "${SELECTED_CHECKS}"
+
+  esphome:
+    name: Validate ESPHome
+    needs: changes
+    if: needs.changes.outputs.esphome == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Validate ESPHome template with the pinned build tool
+        run: |
+          python3 -m venv "${RUNNER_TEMP}/esphome-venv"
+          "${RUNNER_TEMP}/esphome-venv/bin/python" -m pip install -r esphome/requirements.txt
+          PATH="${RUNNER_TEMP}/esphome-venv/bin:${PATH}" python3 tests/esphome_config.py
 
   windows:
     name: Validate Windows configuration
@@ -220,6 +241,7 @@ jobs:
       - wsl
       - integration
       - windows
+      - esphome
     if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -237,8 +259,10 @@ jobs:
           INTEGRATION_RESULT: ${{ needs.integration.result }}
           WINDOWS_SELECTED: ${{ needs.changes.outputs.windows }}
           WINDOWS_RESULT: ${{ needs.windows.result }}
+          ESPHOME_SELECTED: ${{ needs.changes.outputs.esphome }}
+          ESPHOME_RESULT: ${{ needs.esphome.result }}
         run: |
-          echo "changes=${CHANGES_RESULT} lint=${LINT_RESULT} homeserver=${HOMESERVER_RESULT} wsl=${WSL_RESULT} integration=${INTEGRATION_RESULT} windows=${WINDOWS_RESULT}"
+          echo "changes=${CHANGES_RESULT} lint=${LINT_RESULT} homeserver=${HOMESERVER_RESULT} wsl=${WSL_RESULT} integration=${INTEGRATION_RESULT} windows=${WINDOWS_RESULT} esphome=${ESPHOME_RESULT}"
 
           [[ "${CHANGES_RESULT}" == success && "${LINT_RESULT}" == success ]]
 
@@ -267,3 +291,4 @@ jobs:
           require_component_result wsl "${WSL_SELECTED}" "${WSL_RESULT}"
           require_component_result integration "${INTEGRATION_SELECTED}" "${INTEGRATION_RESULT}"
           require_component_result windows "${WINDOWS_SELECTED}" "${WINDOWS_RESULT}"
+          require_component_result esphome "${ESPHOME_SELECTED}" "${ESPHOME_RESULT}"
