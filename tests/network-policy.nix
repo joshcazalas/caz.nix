@@ -21,6 +21,19 @@ let
     ${pkgs.coreutils}/bin/touch /var/lib/caz-website-preview/test-lock-ready
     exec ${pkgs.coreutils}/bin/sleep infinity
   '';
+  loopbackListeners = pkgs.writeText "loopback-test-listeners.py" ''
+    import socket
+    import time
+
+    sockets = []
+    for address in ("127.0.0.2", "127.0.0.3"):
+        sock = socket.socket()
+        sock.bind((address, 443))
+        sock.listen()
+        sockets.append(sock)
+    print("listeners ready", flush=True)
+    time.sleep(3600)
+  '';
 
   settings.server.lanAddress = serverAddress;
   settings.public = {
@@ -121,8 +134,30 @@ pkgs.testers.runNixOSTest {
 
     trusted = {
       imports = [ commonNode ];
+      # Exercise public serving separately from the server's preview lifecycle.
+      _module.args.settings = pkgs.lib.mkForce (settings // { server.lanAddress = trustedAddress; });
       virtualisation.vlans = [ 1 ];
       networking.interfaces.eth1 = staticAddress trustedAddress;
+      homelab.website = {
+        enable = true;
+        mode = "release";
+        public = {
+          enable = true;
+          domain = "website.test";
+        };
+      };
+      services.caddy.virtualHosts = {
+        "website.test".extraConfig = "tls internal";
+        "other.test".extraConfig = ''
+          tls internal
+          respond "other site"
+        '';
+      };
+      systemd.services.loopback-test-listeners = {
+        description = "Test listeners sharing HTTPS ports on other loopbacks";
+        after = [ "caddy.service" ];
+        serviceConfig.ExecStart = "${pkgs.python3}/bin/python ${loopbackListeners}";
+      };
     };
 
     restricted = {
@@ -142,6 +177,24 @@ pkgs.testers.runNixOSTest {
     server.wait_for_open_port(8088)
     assert "caz-website-updater.timer" not in server.succeed("systemctl list-timers --all")
     server.fail("test -e /var/lib/caz-website-release")
+
+    with subtest("Public Caddy sites coexist with other loopback HTTPS listeners"):
+        trusted.wait_for_unit("caddy.service")
+        trusted.succeed("mkdir -p /var/lib/caz-website-release/public/test")
+        trusted.succeed("echo 'public website' > /var/lib/caz-website-release/public/test/index.html")
+        trusted.succeed("ln -s public/test /var/lib/caz-website-release/current")
+        trusted.succeed("chmod -R a+rX /var/lib/caz-website-release")
+        trusted.succeed("systemctl start loopback-test-listeners.service")
+        trusted.wait_until_succeeds("journalctl -u loopback-test-listeners.service | grep -F 'listeners ready'")
+        trusted.succeed("systemctl restart caddy.service")
+        trusted.wait_for_unit("caddy.service")
+        for address, client in [("127.0.0.1", trusted), ("${trustedAddress}", server)]:
+            for domain, content in [("website.test", "public website"), ("other.test", "other site")]:
+                assert content in client.succeed(f"curl --noproxy '*' -fkSs --resolve {domain}:443:{address} https://{domain}/")
+                redirect = client.succeed(f"curl --noproxy '*' -sSI --resolve {domain}:80:{address} http://{domain}/")
+                assert "308" in redirect and f"https://{domain}/" in redirect, redirect
+        trusted.fail("ss -ltn | grep -E '(0.0.0.0|\\[::\\]|\\*):(80|443) '")
+        trusted.succeed("systemctl is-active loopback-test-listeners.service")
 
     updater = "runuser -u caz-website -- caz-website-updater --config /etc/website-updater.json"
     a, b = "a" * 40, "b" * 40
