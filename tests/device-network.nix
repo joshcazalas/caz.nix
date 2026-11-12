@@ -24,6 +24,7 @@ let
       dhcp = {
         start = "192.168.70.20";
         end = "192.168.70.50";
+        reservations."02:00:00:00:00:11" = "192.168.70.11";
       };
       dns."service.test" = "192.168.70.1";
       tcp = {
@@ -32,12 +33,27 @@ let
           listenPort = 8883;
           targetAddress = "127.0.0.1";
           targetPort = 18080;
+          sourceAddresses = [ "192.168.70.10" ];
         };
         control = {
           direction = "toNetwork";
           listenPort = 19080;
           targetAddress = "192.168.70.10";
           targetPort = 80;
+        };
+        fixed-one = {
+          direction = "toNetwork";
+          listenAddress = "127.0.0.2";
+          listenPort = 443;
+          targetAddress = "192.168.70.10";
+          targetPort = 80;
+        };
+        fixed-two = {
+          direction = "toNetwork";
+          listenAddress = "127.0.0.3";
+          listenPort = 443;
+          targetAddress = "192.168.70.10";
+          targetPort = 81;
         };
       };
     }
@@ -153,10 +169,21 @@ pkgs.testers.runNixOSTest {
         address = "192.168.70.1";
         interface = "eth1";
       };
-      networking.firewall.allowedTCPPorts = [ 80 ];
+      networking.firewall.allowedTCPPorts = [
+        80
+        81
+      ];
       systemd.services.test-device-service = {
         wantedBy = [ "multi-user.target" ];
         serviceConfig.ExecStart = "${pkgs.python3}/bin/python -m http.server 80 --bind 0.0.0.0";
+      };
+      systemd.services.test-second-service = {
+        wantedBy = [ "multi-user.target" ];
+        script = ''
+          mkdir -p /run/second-service
+          echo second-endpoint > /run/second-service/index.html
+          exec ${pkgs.python3}/bin/python -m http.server 81 --bind 0.0.0.0 --directory /run/second-service
+        '';
       };
     };
     lan = {
@@ -185,19 +212,26 @@ pkgs.testers.runNixOSTest {
     server.succeed("systemctl restart device-network.target")
     server.wait_for_unit("device-network-dns.service")
     for side in ("host", "network"):
-        for grant in ("events", "control"):
+        for grant in ("events", "control", "fixed-one", "fixed-two"):
             server.wait_for_unit(f"device-network-{side}@{grant}.service")
     server.wait_for_open_port(18080)
     device.wait_for_open_port(80)
+    device.wait_for_open_port(81)
     lan.wait_for_open_port(80)
 
     def check_boundary():
-        server.succeed("caz-device-network health")
+        server.wait_until_succeeds("caz-device-network health")
         # Active systemd units do not guarantee that the proxy listeners and
         # HTTP backends are ready yet, especially immediately after reboot.
         # Wait for both allowed paths before asserting the isolation boundary.
         device.wait_until_succeeds("curl -fsS --max-time 5 http://192.168.70.1:8883/ >/dev/null", timeout=60)
         server.wait_until_succeeds("curl -fsS --max-time 5 http://127.0.0.1:19080/ >/dev/null", timeout=60)
+        first = server.succeed("curl -fsS --max-time 5 http://127.0.0.2:443/")
+        second = server.succeed("curl -fsS --max-time 5 http://127.0.0.3:443/")
+        assert "second-endpoint" not in first and second.strip() == "second-endpoint"
+        device.succeed("ip addr add 192.168.70.12/24 dev eth1")
+        device.fail("curl --interface 192.168.70.12 -fsS --max-time 2 http://192.168.70.1:8883/")
+        device.succeed("ip addr del 192.168.70.12/24 dev eth1")
         assert "192.168.70.1" in device.succeed("dig +short @192.168.70.1 service.test")
         assert "NXDOMAIN" in device.succeed("dig +time=2 +tries=1 @192.168.70.1 example.com")
         assert "NXDOMAIN" in device.succeed("dig +tcp +time=2 +tries=1 @192.168.70.1 example.com")
@@ -220,6 +254,24 @@ pkgs.testers.runNixOSTest {
         assert lease[0].startswith("192.168.70."), lease
         assert lease[1:] == ["192.168.70.1", "192.168.70.1"], lease
         device.succeed("ip link delete dhcp-test")
+
+    with subtest("Private DHCP reservations are outside the dynamic pool"):
+        device.succeed("ip link add dhcp-test link eth1 address 02:00:00:00:00:11 type macvlan mode bridge")
+        device.succeed("ip link set dhcp-test up")
+        device.succeed("udhcpc -i dhcp-test -n -q -t 4 -T 2 -s ${dhcpHook}")
+        lease = device.succeed("cat /run/device-dhcp-result").splitlines()
+        assert lease == ["192.168.70.11", "192.168.70.1", "192.168.70.1"], lease
+        device.succeed("ip link delete dhcp-test")
+
+    with subtest("Health detects namespace firewall drift"):
+        server.succeed("ip netns exec devices iptables -I INPUT -j ACCEPT")
+        server.fail("caz-device-network health")
+        server.succeed("ip netns exec devices iptables -D INPUT -j ACCEPT")
+        server.succeed("caz-device-network health")
+        server.succeed("ip netns exec devices iptables -t nat -A POSTROUTING -j MASQUERADE")
+        server.fail("caz-device-network health")
+        server.succeed("ip netns exec devices iptables -t nat -D POSTROUTING -j MASQUERADE")
+        server.succeed("caz-device-network health")
 
     with subtest("Host forwarding and NAT rules cannot open an uplink"):
         server.succeed("sysctl -w net.ipv4.ip_forward=1")

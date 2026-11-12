@@ -56,7 +56,11 @@ no grants or aliases are needed.
 {
   "interface": "wlan-test",
   "address": "192.168.70.1/24",
-  "dhcp": { "start": "192.168.70.20", "end": "192.168.70.50" },
+  "dhcp": {
+    "start": "192.168.70.20",
+    "end": "192.168.70.50",
+    "reservations": { "02:00:00:00:00:10": "192.168.70.10" }
+  },
   "wifi": {
     "ssid": "Example isolated devices",
     "passphraseFile": "/var/lib/homelab/device-network/wifi-passphrase",
@@ -67,15 +71,17 @@ no grants or aliases are needed.
   "tcp": {
     "events": {
       "direction": "toHost",
+      "sourceAddresses": ["192.168.70.10"],
       "listenPort": 8883,
       "targetAddress": "127.0.0.1",
       "targetPort": 1883
     },
     "control": {
       "direction": "toNetwork",
-      "listenPort": 19080,
+      "listenAddress": "127.0.0.2",
+      "listenPort": 443,
       "targetAddress": "192.168.70.10",
-      "targetPort": 80
+      "targetPort": 443
     }
   }
 }
@@ -84,9 +90,25 @@ no grants or aliases are needed.
 Use an unused RFC 1918 subnet, and a radio that no other network manager owns.
 Never use the server's LAN uplink. Startup refuses an interface that is up,
 already addressed, routed, or shares its Wi-Fi radio with another interface.
-For stable `toNetwork` targets, configure static device addresses outside the
-DHCP pool. The initial implementation does not maintain a device inventory or
-DHCP reservations. DNS suffix answers must point into the isolated subnet.
+For stable `toNetwork` targets, use private DHCP reservations or static device
+addresses outside the dynamic DHCP pool. Reservations map unique unicast MAC
+addresses to unique device addresses; gateway, network and broadcast addresses
+are rejected. DNS suffix answers must point into the isolated subnet.
+
+`toNetwork.listenAddress` defaults to `127.0.0.1` and accepts only IPv4 loopback
+addresses. Separate addresses such as `127.0.0.2:443` and `127.0.0.3:443` let
+integrations use the same fixed protocol port for different devices. Configure
+the application with its assigned loopback endpoint. These listeners are
+accessible to other processes sharing the host network namespace, including
+host-networked containers; they do not identify or authorize a particular app.
+
+`toHost.sourceAddresses` restricts an incoming grant to a nonempty list of exact
+device IPv4 addresses. Omission retains access from the whole isolated subnet
+for compatibility with existing configurations. Prefer explicit addresses for
+new grants. IP and MAC restrictions are not authentication: a compromised
+station may spoof them. An MQTT broker must still authenticate clients and
+restrict their topics with ACLs. A device does not need access to an application's
+management API merely because the application controls it.
 
 Private configuration resides on the root filesystem. The systemd generator
 must be able to read it at boot and on daemon reload, before optional data
@@ -99,6 +121,12 @@ Nix owns the module, executable, service templates and tests. The private JSON
 owns the selected hardware, Wi-Fi identity and endpoint grants. Individual
 integration services own their application configuration, authentication,
 certificates and state independently; the network does not build or deploy them.
+
+Keep SSIDs, client addresses, hardware identifiers, appliance profiles and room
+assignments in those private runtime files. Public Nix should describe reusable
+mechanisms and use synthetic test fixtures. The private JSON remains a
+declarative input without making the household inventory public or copying it
+into the world-readable Nix store. Back it up privately before applying changes.
 
 `homelab.localIntegrations` optionally manages those applications using the
 existing Docker runtime. Its root-owned `0600`
@@ -178,17 +206,38 @@ DNS, Wi-Fi and proxy members whose earlier jobs failed on that dependency.
 `systemctl --failed` can therefore omit the unavailable members: they are
 inactive rather than failed. Start the target to bring them up together.
 
-The release health gate checks the isolation invariants, access-point readiness
-and all declared service instances. The normal monitoring rules already report
+The release health gate checks the isolation invariants, access-point readiness,
+the complete namespace iptables rules, and all declared service instances. It
+also checks TCP listener addresses and ports against each proxy's main process,
+requires root-owned mode `0600` bridge sockets, and rejects unexpected active
+proxy instances. The normal monitoring rules already report
 failed systemd services. Application-specific health checks must separately test
 the granted service's behavior; an active TCP proxy does not prove its backend
 is healthy. Keep protocol captures and detailed logs private.
 
 The integration test uses synthetic devices on virtual Ethernet links. It tests
-both allowed directions, local DNS, blocked LAN/internet access, host firewall
-independence, delayed and missing interfaces, recovery, namespace restart and
-reboot. Physical Wi-Fi association and radio coverage still require a deployment
-check.
+both allowed directions, source restrictions, fixed-port loopback endpoints,
+DHCP reservations, local DNS, blocked LAN/internet access, firewall drift, host
+firewall independence, delayed and missing interfaces, recovery, namespace
+restart and reboot. Physical Wi-Fi association and radio coverage still require
+a deployment check.
+
+Before enrolling appliances, associate two test clients with the actual access
+point. Confirm each receives its intended lease and can reach only its granted
+services. Run a temporary TCP listener on each client, allow its port in that
+client's firewall, and verify it works locally before checking that neither
+client can connect to the other. Also test peer ICMP; a failed ping alone does
+not prove station isolation. Check that both clients fail to reach LAN services,
+public IPs and external DNS servers, while allowed application traffic works.
+Repeat after an access-point restart and server reboot. Keep client identifiers
+and results private. The virtual Ethernet test cannot establish whether a real
+Wi-Fi driver enforces station isolation.
+
+The host and the services behind grants remain trusted. Review application
+capabilities separately: a host-networked application with network administration
+privileges can change networking regardless of these device-side restrictions.
+Remove privileges only after identifying and replacing the functionality that
+requires them, such as local Bluetooth management.
 
 References: [Linux network namespaces](https://man7.org/linux/man-pages/man7/network_namespaces.7.html),
 [systemd namespace execution](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html),

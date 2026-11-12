@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import stat
 import subprocess
 import sys
@@ -20,6 +21,7 @@ NAMESPACE = "devices"
 RUNTIME = Path("/run/caz-device-network")
 NAME = re.compile(r"[a-z][a-z0-9-]{0,31}\Z")
 INTERFACE = re.compile(r"[a-zA-Z0-9_-]{1,15}\Z")
+MAC = re.compile(r"(?:[0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}\Z")
 RFC1918 = tuple(map(ipaddress.ip_network, ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")))
 
 
@@ -50,6 +52,21 @@ def port(value):
     return value
 
 
+def device_address(value, address):
+    require(isinstance(value, str), "Device addresses must be IPv4 strings")
+    target = ipaddress.IPv4Address(value)
+    require(target in address.network and target not in (
+        address.ip, address.network.network_address, address.network.broadcast_address),
+        "Expected one device address inside the isolated subnet")
+    return target
+
+
+def listener_address(config, grant):
+    if grant["direction"] == "toNetwork":
+        return grant.get("listenAddress", "127.0.0.1")
+    return str(ipaddress.IPv4Interface(config["address"]).ip)
+
+
 def validate(config):
     keys(config, ("interface", "address", "dhcp"), ("wifi", "dns", "tcp"))
     require(isinstance(config["interface"], str) and INTERFACE.fullmatch(config["interface"]),
@@ -60,11 +77,23 @@ def validate(config):
     require(16 <= address.network.prefixlen <= 29, "Use an IPv4 subnet between /16 and /29")
     require(address.ip not in (address.network.network_address, address.network.broadcast_address),
             "Invalid gateway address")
-    keys(config["dhcp"], ("start", "end"))
+    keys(config["dhcp"], ("start", "end"), ("reservations",))
     start, end = (ipaddress.IPv4Address(config["dhcp"][key]) for key in ("start", "end"))
     require(address.network.network_address < start <= end < address.network.broadcast_address,
             "DHCP pool must be inside the device subnet")
     require(not start <= address.ip <= end, "DHCP pool includes the gateway")
+    reservations = config["dhcp"].get("reservations", {})
+    require(isinstance(reservations, dict), "DHCP reservations must be a mapping")
+    macs, addresses = set(), set()
+    for mac, value in reservations.items():
+        require(isinstance(mac, str) and MAC.fullmatch(mac), "Invalid reservation MAC address")
+        require(not int(mac[:2], 16) & 1 and mac.lower() != "00:00:00:00:00:00",
+                "Reservations require a unicast MAC address")
+        target = device_address(value, address)
+        require(not start <= target <= end, "Reservations must be outside the dynamic DHCP pool")
+        require(mac.lower() not in macs and target not in addresses, "Duplicate DHCP reservation")
+        macs.add(mac.lower())
+        addresses.add(target)
     wifi = config.get("wifi")
     if wifi is not None:
         keys(wifi, ("ssid", "passphraseFile", "channel", "countryCode"))
@@ -90,20 +119,30 @@ def validate(config):
     used = set()
     for name, grant in tcp.items():
         require(NAME.fullmatch(name) is not None, "Invalid TCP grant name")
-        keys(grant, ("direction", "listenPort", "targetAddress", "targetPort"))
+        keys(grant, ("direction", "listenPort", "targetAddress", "targetPort"),
+             ("listenAddress", "sourceAddresses"))
         require(grant["direction"] in ("toHost", "toNetwork"), "Invalid TCP grant direction")
-        endpoint = (grant["direction"], port(grant["listenPort"]))
+        bind = listener_address(config, grant)
+        require(isinstance(bind, str), "Listener addresses must be IPv4 strings")
+        endpoint = (grant["direction"], bind, port(grant["listenPort"]))
         require(endpoint not in used, "Duplicate TCP listener")
         used.add(endpoint)
         port(grant["targetPort"])
         target = private_address(grant["targetAddress"], loopback=True)
         if grant["direction"] == "toNetwork":
-            require(target in address.network and target not in (
-                address.ip, address.network.network_address, address.network.broadcast_address),
-                "Host access must target one device address")
+            device_address(grant["targetAddress"], address)
+            require(ipaddress.IPv4Address(bind).is_loopback,
+                    "Host-side listeners must use an IPv4 loopback address")
+            require("sourceAddresses" not in grant, "Source restrictions apply only to incoming grants")
         else:
+            require("listenAddress" not in grant, "Incoming grants must listen on the device gateway")
             require(target not in address.network, "Host endpoint overlaps the isolated subnet")
             require(grant["listenPort"] != 53, "DNS is reserved for the local resolver")
+            if "sourceAddresses" in grant:
+                sources = grant["sourceAddresses"]
+                require(isinstance(sources, list) and sources, "Source addresses must be a nonempty list")
+                normalized = [device_address(source, address) for source in sources]
+                require(len(set(normalized)) == len(normalized), "Duplicate source address")
     return config
 
 
@@ -151,6 +190,8 @@ def prepare(config):
            f"dhcp-range={config['dhcp']['start']},{config['dhcp']['end']},{address.network.netmask},12h",
            f"dhcp-option=option:router,{address.ip}", f"dhcp-option=option:dns-server,{address.ip}"]
     dns += [f"address=/{name}/{target}" for name, target in config.get("dns", {}).items()]
+    dns += [f"dhcp-host={mac.lower()},{target}" for mac, target in
+            sorted(config["dhcp"].get("reservations", {}).items())]
     write(RUNTIME / "dnsmasq.conf", "\n".join(dns) + "\n")
     wifi = config.get("wifi")
     if wifi:
@@ -169,6 +210,27 @@ def prepare(config):
         (RUNTIME / "hostapd.conf").unlink(missing_ok=True)
     write(RUNTIME / "config.json", json.dumps(config))
     run("dnsmasq", "--test", f"--conf-file={RUNTIME}/dnsmasq.conf")
+
+
+def filter_rules(config):
+    """Exact filter policy, shared by startup and drift detection."""
+    iface = config["interface"]
+    address = ipaddress.IPv4Interface(config["address"])
+    rules = [
+        ["-A", "INPUT", "-i", "lo", "-j", "ACCEPT"],
+        ["-A", "INPUT", "-m", "conntrack", "--ctstate", "RELATED,ESTABLISHED", "-j", "ACCEPT"],
+        ["-A", "INPUT", "-i", iface, "-p", "udp", "-m", "udp", "--sport", "68", "--dport", "67", "-j", "ACCEPT"],
+    ]
+    services = [("udp", 53, str(address.network)), ("tcp", 53, str(address.network))]
+    for grant in config.get("tcp", {}).values():
+        if grant["direction"] == "toHost":
+            sources = grant.get("sourceAddresses", [str(address.network)])
+            services.extend(("tcp", grant["listenPort"], str(ipaddress.ip_network(source)))
+                            for source in sources)
+    for protocol, number, source in services:
+        rules.append(["-A", "INPUT", "-s", source, "-d", f"{address.ip}/32", "-i", iface,
+                      "-p", protocol, "-m", protocol, "--dport", str(number), "-j", "ACCEPT"])
+    return rules
 
 
 def up(config):
@@ -205,15 +267,9 @@ def up(config):
     # out: host firewall reloads and Docker's forwarding rules cannot change that.
     ns("iptables", "-w", "-P", "INPUT", "DROP")
     ns("iptables", "-w", "-P", "FORWARD", "DROP")
-    ns("iptables", "-w", "-A", "INPUT", "-i", "lo", "-j", "ACCEPT")
-    ns("iptables", "-w", "-A", "INPUT", "-m", "conntrack", "--ctstate", "ESTABLISHED,RELATED", "-j", "ACCEPT")
-    ns("iptables", "-w", "-A", "INPUT", "-i", iface, "-p", "udp", "--sport", "68", "--dport", "67", "-j", "ACCEPT")
-    address = ipaddress.IPv4Interface(config["address"])
-    for protocol, number in [("udp", 53), ("tcp", 53)] + [
-        ("tcp", grant["listenPort"]) for grant in config.get("tcp", {}).values() if grant["direction"] == "toHost"
-    ]:
-        ns("iptables", "-w", "-A", "INPUT", "-i", iface, "-s", str(address.network),
-           "-d", str(address.ip), "-p", protocol, "--dport", str(number), "-j", "ACCEPT")
+    ns("iptables", "-w", "-P", "OUTPUT", "ACCEPT")
+    for rule in filter_rules(config):
+        ns("iptables", "-w", *rule)
     run("ip", "-n", NAMESPACE, "link", "set", "lo", "up")
     run("ip", "-n", NAMESPACE, "address", "add", config["address"], "dev", iface)
     run("ip", "-n", NAMESPACE, "link", "set", iface, "up")
@@ -255,7 +311,7 @@ def proxy(config, side, name):
         listener = f"UNIX-LISTEN:{socket},fork,unlink-early,mode=0600,max-children=64"
         destination = f"TCP4:{grant['targetAddress']}:{grant['targetPort']},connect-timeout=5"
     else:
-        bind = "127.0.0.1" if side == "host" else str(ipaddress.IPv4Interface(config["address"]).ip)
+        bind = listener_address(config, grant)
         listener = f"TCP4-LISTEN:{grant['listenPort']},bind={bind},reuseaddr,fork,max-children=64"
         destination = f"UNIX-CONNECT:{socket}"
     os.execlp("socat", "socat", listener, destination)
@@ -273,6 +329,71 @@ def generate(config, destination):
         (directory / name).symlink_to(f"/etc/systemd/system/{template}")
 
 
+def check_firewall(config, saved):
+    """Reject extra rules/chains, including NAT, without printing private rules."""
+    tables, table = {}, None
+    for line in saved.splitlines():
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("*"):
+            table = line[1:]
+            require(table not in tables, "Duplicate firewall table")
+            tables[table] = {"policies": {}, "rules": []}
+        elif line == "COMMIT":
+            table = None
+        elif table is not None and line.startswith(":"):
+            chain, policy, _ = line[1:].split()
+            tables[table]["policies"][chain] = policy
+        elif table is not None and line.startswith("-A "):
+            tables[table]["rules"].append(shlex.split(line))
+        else:
+            raise ConfigurationError("Unexpected firewall state")
+    require(tables.get("filter") == {
+        "policies": {"INPUT": "DROP", "FORWARD": "DROP", "OUTPUT": "ACCEPT"},
+        "rules": filter_rules(config),
+    }, "Namespace firewall differs from the configured policy")
+    # Empty kernel tables may be initialized by inspection tools. No additional
+    # rules or custom chains are allowed, even when the filter policy matches.
+    builtins = {"nat": {"PREROUTING", "INPUT", "OUTPUT", "POSTROUTING"},
+                "mangle": {"PREROUTING", "INPUT", "FORWARD", "OUTPUT", "POSTROUTING"},
+                "raw": {"PREROUTING", "OUTPUT"}, "security": {"INPUT", "FORWARD", "OUTPUT"}}
+    for name, contents in tables.items():
+        if name != "filter":
+            require(name in builtins and not contents["rules"]
+                    and set(contents["policies"]) == builtins[name]
+                    and set(contents["policies"].values()) == {"ACCEPT"},
+                    "Unexpected firewall rules outside the filter table")
+
+
+def check_proxy_listeners(config):
+    """Verify each TCP listener belongs to its service and binds only its grant."""
+    grants = config.get("tcp", {})
+    expected_units = {f"device-network-{side}@{name}.service"
+                      for name in grants for side in ("host", "network")}
+    active = run("systemctl", "list-units", "--state=active", "--no-legend", "--plain",
+                 "device-network-host@*.service", "device-network-network@*.service", capture=True).stdout
+    require({line.split()[0] for line in active.splitlines() if line.strip()} == expected_units,
+            "Unexpected or missing device-network proxy service")
+    listings = {}
+    for name, grant in grants.items():
+        side = "host" if grant["direction"] == "toNetwork" else "network"
+        if side not in listings:
+            command = run if side == "host" else ns
+            listings[side] = command("ss", "-H", "-ltnp", capture=True).stdout
+        pid = run("systemctl", "show", f"device-network-{side}@{name}.service",
+                  "--property=MainPID", "--value", capture=True).stdout.strip()
+        require(pid.isdigit() and int(pid) > 0, "Proxy service has no main process")
+        bound = []
+        for line in listings[side].splitlines():
+            if pid in re.findall(r"\bpid=(\d+)\b", line):
+                bound.append(line.split()[3])
+        require(bound == [f"{listener_address(config, grant)}:{grant['listenPort']}"],
+                "Proxy listener differs from the configured address or port")
+        info = (RUNTIME / f"{name}.sock").lstat()
+        require(stat.S_ISSOCK(info.st_mode) and info.st_uid == 0 and stat.S_IMODE(info.st_mode) == 0o600,
+                "Proxy socket has unsafe ownership or permissions")
+
+
 def check_isolation(config):
     links = json.loads(run("ip", "-n", NAMESPACE, "-j", "link", capture=True).stdout)
     require({link["ifname"] for link in links} == {"lo", config["interface"]}, "Unexpected namespace interface")
@@ -286,8 +407,7 @@ def check_isolation(config):
     require(ns("sysctl", "-n", "net.ipv4.ip_forward", capture=True).stdout.strip() == "0", "Forwarding is enabled")
     ipv6 = json.loads(run("ip", "-n", NAMESPACE, "-j", "-6", "address", capture=True).stdout)
     require(all(not link["addr_info"] for link in ipv6), "Unexpected IPv6 address")
-    rules = ns("iptables", "-w", "-S", capture=True).stdout
-    require("-P INPUT DROP" in rules and "-P FORWARD DROP" in rules, "Namespace firewall is not enforcing default deny")
+    check_firewall(config, ns("iptables-save", capture=True).stdout)
 
 
 def health(config):
@@ -305,6 +425,7 @@ def health(config):
               for name in config.get("tcp", {}) for side in ("host", "network")]
     for unit in units:
         run("systemctl", "is-active", "--quiet", unit)
+    check_proxy_listeners(config)
     print("Device network: isolated; configured services active")
 
 
