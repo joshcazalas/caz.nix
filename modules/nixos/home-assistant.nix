@@ -27,7 +27,7 @@ let
   };
   upstreamMounts = lib.mapAttrsToList (
     name: source: "${source}:/config/custom_components/${name}:ro"
-  ) { inherit (upstreamComponents) ha_lightfx scene_presets; };
+  ) { inherit (upstreamComponents) ha_lightfx scene_presets homeconnect_ws; };
   # Preserve the upstream private-data location, including existing manual installs.
   scenePresetsUserdata = "${cfg.dataDir}/custom_components/scene_presets/userdata";
   scenePresetsUserdataMount = "${scenePresetsUserdata}:/config/custom_components/scene_presets/userdata:rw";

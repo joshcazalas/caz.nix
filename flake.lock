@@ -54,6 +54,23 @@
         "type": "github"
       }
     },
+    "home-connect-direct-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1793973051,
+        "narHash": "sha256-PtZZBBIgsxi8IHhQCA/A74CUEKJWxxI8ytPx8yif1Ow=",
+        "owner": "Asmir1975",
+        "repo": "homeconnect_direct",
+        "rev": "0629a038c8ee15836216b62eb43d13436786a933",
+        "type": "github"
+      },
+      "original": {
+        "owner": "Asmir1975",
+        "ref": "1.13.1",
+        "repo": "homeconnect_direct",
+        "type": "github"
+      }
+    },
     "home-manager": {
       "inputs": {
         "nixpkgs": [
@@ -142,6 +159,7 @@
       "inputs": {
         "auxide": "auxide",
         "ha-lightfx-src": "ha-lightfx-src",
+        "home-connect-direct-src": "home-connect-direct-src",
         "home-manager": "home-manager",
         "nixpkgs": "nixpkgs_2",
         "nixpkgs-unstable": "nixpkgs-unstable",
