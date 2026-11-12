@@ -16,6 +16,7 @@ updates:
         patterns:
           - "ha-lightfx-src"
           - "scene-presets-src"
+          - "home-connect-direct-src"
       flake-inputs:
         patterns:
           - "*"
@@ -23,6 +24,7 @@ updates:
           - "auxide"
           - "ha-lightfx-src"
           - "scene-presets-src"
+          - "home-connect-direct-src"
     open-pull-requests-limit: 3
     commit-message:
       prefix: "deps(nix)"

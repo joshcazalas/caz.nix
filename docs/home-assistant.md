@@ -331,15 +331,62 @@ and HA-managed state remain writable. Shipping a component does not enable it;
 config entries and device selection stay in HA runtime state. Update bundled
 code through the normal release process, including rollback.
 
-HA LightFX and Scene Presets are installed from tagged upstream source inputs
+HA LightFX, Scene Presets, and Home Connect Direct are installed from tagged upstream source inputs
 in `flake.nix`, with immutable commits and content hashes in `flake.lock`.
-Dependabot checks these tags for updates. The package reads each version from
-the upstream manifest; the integration check verifies it matches the selected
-tag, so version bumps do not need duplicate edits to packaging or tests.
+Dependabot checks these tags daily and groups their updates in `ha-integrations`.
+The package reads each version from the upstream manifest, except Home Connect
+Direct: its tagged source uses `0.0.0`, so packaging substitutes the tag from
+`flake.lock`, matching upstream's release workflow. The integration check verifies
+versions match the selected tags, so version bumps do not need duplicate edits
+to packaging or tests. Updates take effect only through the normal reviewed
+server release and deployment process; an upstream PR merge alone changes nothing.
 Their Python code, bundled frontend, and upstream preset assets are mounted
 read-only. Review release compatibility with the HA Container version, then
 run `nix build .#checks.x86_64-linux.ha-integrations` and normal release checks.
-HACS is not needed for these two installations.
+HACS and Marketplace are not needed for these installations.
+
+### Home Connect Direct
+
+The `homeconnect_ws` component is mounted read-only at
+`/config/custom_components/homeconnect_ws`. Packaging it does not create config
+entries, provision appliance profiles, or change device networking. Credentials,
+addresses, device selection, and uploaded profiles remain private HA runtime
+state. Do not put exported diagnostics or profile archives in this repository.
+
+The package retains upstream's exact Git revision requirement for
+`homeconnect-websocket`. Home Assistant installs that Python dependency using its
+normal dependency mechanism; it is not bundled as a Nix-built Python environment.
+A fresh installation or a changed dependency may therefore require outbound
+access from the HA server to GitHub and Python package sources. This does not
+require internet access for appliances on the isolated device network.
+
+The `ha-integrations` check parses the component with Python 3.14, checks the
+pinned HA image against upstream's declared minimum version, verifies the
+read-only mount, and checks that packaged files match upstream except for the
+manifest version. Runtime compatibility still needs checking after deployment.
+
+For an existing Marketplace installation, migrate the code separately from
+moving devices between networks:
+
+1. Back up the private HA configuration, including `.storage`, and retain profile
+   archives securely. Disable Marketplace so it no longer manages updates to the
+   component. Do not use **Uninstall** or delete the appliance integration entries:
+   Marketplace uninstallation removes associated config entries as well as files.
+2. Release and deploy the server configuration through the normal operator process.
+   The read-only component mount takes precedence over the existing writable
+   installation. Its underlying files are not deleted, and existing HA config
+   entries, entity IDs, and credentials remain in the persistent `/config` mount.
+3. Confirm HA loads the expected Home Connect Direct version and existing devices
+   reconnect before changing their network. Moving devices requires a separate
+   private address/proxy migration; this package does not perform it.
+4. Once the release-managed installation is verified, revoke the temporary
+   Marketplace GitHub authorization if no longer needed. Disabling Marketplace
+   does not document a withdrawal of its previously accepted warning.
+
+Rolling back this packaging change exposes the previous writable installation
+again; retain that installation and the private backup until migration is verified.
+For Marketplace disable/revocation behavior, see the
+[Home Assistant Marketplace documentation](https://www.home-assistant.io/integrations/marketplace).
 
 The HA Container tag and digest live in `containers/home-assistant/Dockerfile`.
 Nix reads that image reference directly and Dependabot updates the same file.

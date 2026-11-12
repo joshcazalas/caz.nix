@@ -25,6 +25,10 @@
       url = "github:Hypfer/hass-scene_presets/2.4.0";
       flake = false;
     };
+    home-connect-direct-src = {
+      url = "github:Asmir1975/homeconnect_direct/1.13.1";
+      flake = false;
+    };
   };
 
   outputs =
@@ -165,11 +169,14 @@
           pkgs.runCommand "check-ha-integrations"
             {
               nativeBuildInputs = [
-                pkgs.python3
+                pkgs.python314
                 pkgs.nodejs
               ];
               HA_LIGHTFX = haIntegrations.ha_lightfx;
               SCENE_PRESETS = haIntegrations.scene_presets;
+              HOME_CONNECT_DIRECT = haIntegrations.homeconnect_ws;
+              HOME_CONNECT_SOURCE = inputs.home-connect-direct-src;
+              HA_IMAGE = homeserver.config.virtualisation.oci-containers.containers.homeassistant.image;
               HA_VOLUMES = builtins.toJSON homeserver.config.virtualisation.oci-containers.containers.homeassistant.volumes;
               HA_STATE_DIR = homeserver.config.homelab.homeAssistant.dataDir;
               HA_PRIVATE_DIR = homeserver.config.homelab.homeAssistant.privateConfigDir;
