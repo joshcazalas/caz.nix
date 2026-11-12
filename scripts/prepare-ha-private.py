@@ -51,8 +51,32 @@ def validate_hardware(data):
     return source
 
 
+def validate_extensions(directory, owner=0):
+    """Check a private HA package and its supporting files without following links."""
+    package = private_json(directory / "package.yaml", owner)
+    if (not isinstance(package, dict)
+            or any(not re.fullmatch(r"[a-z][a-z0-9_]*", key) for key in package)):
+        raise ValueError("Private extensions must contain a Home Assistant package mapping.")
+    pending = [directory]
+    while pending:
+        folder = pending.pop()
+        for path in folder.iterdir():
+            info = path.lstat()
+            if stat.S_ISDIR(info.st_mode):
+                expected = 0o700
+                pending.append(path)
+            elif stat.S_ISREG(info.st_mode):
+                expected = 0o600
+            else:
+                raise ValueError("Private extensions cannot contain links or special files.")
+            if info.st_uid != owner or stat.S_IMODE(info.st_mode) != expected:
+                raise ValueError("Private extension files and directories must be owner-only.")
+    return package
+
+
 def prepare(private_dir, runtime_dir, serial=False):
     validate_inputs(private_json(private_dir / "package-secrets.yaml"))
+    validate_extensions(private_dir / "extensions")
     if not serial:
         return
     source = validate_hardware(private_json(private_dir / "hardware.json"))

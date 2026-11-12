@@ -37,6 +37,11 @@ assert volumes.index(userdata_mount) > volumes.index(
     f"{os.environ['SCENE_PRESETS']}:/config/custom_components/scene_presets:ro"
 )
 assert f"{state_dir}:/config:rw" in volumes
+private_dir = os.environ["HA_PRIVATE_DIR"]
+assert f"{private_dir}/extensions:/config/private:ro" in volumes
+assert not any(mount.split(":")[0] == private_dir for mount in volumes)
+assert not any(mount.split(":")[1] == "/config/private" and not mount.endswith(":ro")
+               for mount in volumes)
 
 source = Path(os.environ["SCENE_PRESETS"])
 assert (source / "userdata").is_dir()

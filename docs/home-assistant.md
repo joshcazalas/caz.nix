@@ -62,7 +62,8 @@ Home Assistant's UI editors.
 
 This division is intentional:
 
-- Git and Nix own reviewed helpers, templates, scripts, and automations.
+- Git and Nix own reusable configuration and the loading mechanism. Household
+  device selections, room mappings, and calibrated zones stay on the server.
 - `/config/.storage` owns HomeKit pairing keys, integration setup, entity and
   device registries, authentication, and other mutable runtime state.
 - The Home Assistant database, backups, and UI-authored YAML stay writable
@@ -110,6 +111,41 @@ entities. Existing UI-created automations continue to use their normal writable
 files. Later household changes belong in the private input file and an HA
 restart, not a public commit. Do not commit live inputs, old package snapshots,
 serial numbers, or household examples in migration tests or PR descriptions.
+
+## Private configuration extensions
+
+`home-assistant/packages/private.yaml` loads a server-provisioned package from
+`/config/private/package.yaml`. The container mounts only the `extensions/`
+subdirectory of `homelab.homeAssistant.privateConfigDir` there, read-only.
+Hardware selections and the other private input files are not exposed by that
+mount. No extension contents are evaluated by Nix or copied into the Nix store.
+
+On first activation, systemd creates `extensions/` and an empty `package.yaml`
+without overwriting existing files. The package must be a JSON object (also
+valid YAML), with integration domains at its top level. It uses Home Assistant's
+standard [package merging](https://www.home-assistant.io/docs/configuration/packages/),
+so templates can coexist with the reusable packages and UI-managed automations.
+Keep UI-managed entities in their existing writable files to preserve their editors.
+
+Place any supporting custom device handlers beneath this private directory and
+reference their `/config/private/` paths in the package. Use root ownership,
+`0700` for directories and `0600` for files. Startup rejects links, special files,
+loose permissions, and an invalid package mapping before creating the container.
+HA's configuration check still validates the integration-specific contents.
+
+To migrate an existing local trial, provision its package and supporting files
+before deploying the loader change. Keep the same entity unique IDs and device
+handler code. Validate the new configuration with the pinned HA image, then remove
+the trial service override when activating the release. Do not preserve a copied
+container launcher: it would keep using an old image and old mounts after updates.
+Retain private backups of the original files until startup and the affected
+automation have been checked. Rolling back the release does not delete the private
+files, but an older release does not load them.
+
+The existing application-state backup includes the entire private configuration
+directory, including extensions. Restore it alongside HA state. Keep extension
+contents, device identifiers, calibration data, diagnostic traces, and migration
+payloads out of Git, public issues, release descriptions, and CI artifacts.
 
 ## Operations
 

@@ -23,6 +23,8 @@ class HVACCompatibility(unittest.IsolatedAsyncioTestCase):
         self.directory = tempfile.TemporaryDirectory()
         folder = Path(self.directory.name)
         shutil.copytree(ROOT / 'home-assistant/packages', folder / 'packages')
+        (folder / 'private').mkdir()
+        (folder / 'private/package.yaml').write_text('{}')
         (folder / 'packages/secrets.yaml').write_text(json.dumps({
             'hvac_thermostats': ['climate.example_a', 'climate.example_b'],
             'hvac_day_temperature': 77, 'hvac_night_temperature': 70}))
@@ -99,7 +101,17 @@ class HVACCompatibility(unittest.IsolatedAsyncioTestCase):
             (folder / name).write_text(content)
         config = load_yaml(folder / 'configuration.yaml', secrets=Secrets(folder))
         self.assertEqual(config['homeassistant']['auth_mfa_modules'], [{'type': 'totp'}])
-        self.assertEqual(set(config['homeassistant']['packages']), {'hvac'})
+        self.assertEqual(set(config['homeassistant']['packages']), {'hvac', 'private'})
+        self.assertEqual(config['homeassistant']['packages']['private'], {})
+
+        private = {'template': [{'binary_sensor': [{'name': 'Example', 'state': '{{ false }}'}]}],
+                   'zha': {'custom_quirks_path': '/config/private/quirks'}}
+        (folder / 'private/package.yaml').write_text(json.dumps(private))
+        config = load_yaml(folder / 'configuration.yaml', secrets=Secrets(folder))
+        self.assertEqual(config['homeassistant']['packages']['private'], private)
+        self.assertIn('hvac', config['homeassistant']['packages'])
+        self.assertEqual(config['automation'], [])
+        self.assertEqual(config['script'], {})
 
 
 if __name__ == '__main__':
