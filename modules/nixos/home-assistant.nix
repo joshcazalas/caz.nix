@@ -32,6 +32,7 @@ let
   scenePresetsUserdata = "${cfg.dataDir}/custom_components/scene_presets/userdata";
   scenePresetsUserdataMount = "${scenePresetsUserdata}:/config/custom_components/scene_presets/userdata:rw";
   packageInputsMount = "${cfg.privateConfigDir}/package-secrets.yaml:/config/packages/secrets.yaml:ro";
+  privateExtensionsMount = "${cfg.privateConfigDir}/extensions:/config/private:ro";
   runtime = "/run/caz-home-assistant";
   prepare = pkgs.writeShellApplication {
     name = "caz-prepare-home-assistant";
@@ -64,6 +65,7 @@ in
       description = ''
         Root-only runtime inputs, outside the HA writable mount and Nix store.
         Provision package-secrets.yaml and optional hardware.json before deployment.
+        Optional private packages and supporting files live under extensions/.
       '';
     };
 
@@ -117,7 +119,8 @@ in
         assertion =
           lib.elem configurationMount container.volumes
           && lib.elem packagesMount container.volumes
-          && lib.elem packageInputsMount container.volumes;
+          && lib.elem packageInputsMount container.volumes
+          && lib.elem privateExtensionsMount container.volumes;
         message = "Home Assistant's release-managed YAML must be mounted read-only beneath /config.";
       }
     ];
@@ -125,6 +128,9 @@ in
     systemd.tmpfiles.rules = [
       "d ${cfg.dataDir} 0700 root root -"
       "d ${cfg.privateConfigDir} 0700 root root -"
+      "d ${cfg.privateConfigDir}/extensions 0700 root root -"
+      # Create an empty package on first use; never overwrite provisioned inputs.
+      "f ${cfg.privateConfigDir}/extensions/package.yaml 0600 root root - {}"
       "d ${settings.server.dataRoot}/esphome-private 0700 root root -"
       "f ${cfg.dataDir}/automations.yaml 0600 root root - []"
       "f ${cfg.dataDir}/scripts.yaml 0600 root root - {}"
@@ -147,6 +153,7 @@ in
         configurationMount
         packagesMount
         packageInputsMount
+        privateExtensionsMount
         "/etc/localtime:/etc/localtime:ro"
       ]
       ++ componentMounts

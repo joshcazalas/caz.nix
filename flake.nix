@@ -172,6 +172,7 @@
               SCENE_PRESETS = haIntegrations.scene_presets;
               HA_VOLUMES = builtins.toJSON homeserver.config.virtualisation.oci-containers.containers.homeassistant.volumes;
               HA_STATE_DIR = homeserver.config.homelab.homeAssistant.dataDir;
+              HA_PRIVATE_DIR = homeserver.config.homelab.homeAssistant.privateConfigDir;
               HA_LOCKFILE = ./flake.lock;
             }
             ''

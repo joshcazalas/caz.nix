@@ -90,6 +90,51 @@ class Validation(unittest.TestCase):
             with self.assertRaises(ValueError): prepare.validate_hardware({'serial_device': source})
         with self.assertRaises(ValueError): prepare.validate_hardware({'serial_device': source, 'devices': []})
 
+    def test_private_extensions_accept_empty_or_synthetic_packages(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            package = folder / 'package.yaml'
+            for content in [{}, {'template': [{'binary_sensor': [
+                    {'name': 'Example', 'state': '{{ false }}'}]}]}]:
+                package.write_text(json.dumps(content))
+                package.chmod(0o600)
+                self.assertEqual(prepare.validate_extensions(folder, os.geteuid()), content)
+            for content in [[], None, {'not a domain': {}}]:
+                package.write_text(json.dumps(content))
+                with self.assertRaises(ValueError):
+                    prepare.validate_extensions(folder, os.geteuid())
+
+    def test_private_extensions_reject_insecure_support_files_and_links(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            package = folder / 'package.yaml'
+            package.write_text('{}')
+            package.chmod(0o600)
+            support = folder / 'support'
+            support.mkdir(mode=0o700)
+            file = support / 'example.py'
+            file.write_text('# Synthetic supporting module\n')
+            file.chmod(0o600)
+            prepare.validate_extensions(folder, os.geteuid())
+            file.chmod(0o644)
+            with self.assertRaises(ValueError): prepare.validate_extensions(folder, os.geteuid())
+            file.chmod(0o600)
+            support.chmod(0o755)
+            with self.assertRaises(ValueError): prepare.validate_extensions(folder, os.geteuid())
+            support.chmod(0o700)
+            for target in [file, support]:
+                link = folder / 'link'
+                link.symlink_to(target)
+                with self.assertRaises(ValueError): prepare.validate_extensions(folder, os.geteuid())
+                link.unlink()
+            package.unlink()
+            with self.assertRaises(OSError): prepare.validate_extensions(folder, os.geteuid())
+
+    def test_extensions_are_checked_without_serial_passthrough(self):
+        with patch.object(prepare, 'private_json', return_value=inputs()), \
+                patch.object(prepare, 'validate_extensions', side_effect=ValueError('invalid')):
+            with self.assertRaises(ValueError): prepare.prepare(Path('/unused'), Path('/unused'), False)
+
     def test_migration_preserves_targets_and_both_trigger_and_startup_temperatures(self):
         self.assertEqual(migration.extract_household(legacy()), inputs())
         changed = legacy()
