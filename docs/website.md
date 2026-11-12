@@ -11,6 +11,12 @@ separate HTTP listener on port 8088 binds to loopback and
 clients, denies restricted clients unless explicitly allowed, and excludes
 WireGuard and container interfaces from that listener.
 
+While the website module is enabled, Caddy's site listeners default to
+`127.0.0.1` and `settings.server.lanAddress`, including other modules' HTTPS
+sites. Public mode also binds HTTP redirects to those addresses. Router port
+forwards continue to reach the LAN address; other loopback addresses remain
+available for local services that need the same ports.
+
 ## Prepare DNS
 
 The homeserver's Cloudflare DDNS configuration manages the `joshcazalas.com`

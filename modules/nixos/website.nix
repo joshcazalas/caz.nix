@@ -113,6 +113,10 @@ in
 
     services.caddy = {
       enable = true;
+      # Keep other local addresses available for services using the same ports.
+      globalConfig = ''
+        default_bind 127.0.0.1 ${settings.server.lanAddress}
+      '';
       virtualHosts = {
         "http://:${toString cfg.previewPort}" = {
           logFormat = "output discard";
@@ -123,6 +127,8 @@ in
         };
       }
       // lib.optionalAttrs cfg.public.enable {
+        # Automatic HTTPS otherwise creates a wildcard HTTP redirect listener.
+        "http://".logFormat = "output discard";
         ${cfg.public.domain} = {
           logFormat = "output discard";
           extraConfig = serve;
