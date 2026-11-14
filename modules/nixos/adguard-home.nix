@@ -1,13 +1,12 @@
 { config, settings, ... }:
 let
-  # These are exactly the public records whose address follows this home's
-  # connection. Inside the LAN, answer them with the server's reserved address
-  # instead, while every other name continues to the normal upstream resolver.
+  # Resolve the server's short name and managed public names to its reserved
+  # LAN address. Reuse existing settings without publishing device inventory.
   localRewrites = map (domain: {
     inherit domain;
     answer = settings.server.lanAddress;
     enabled = true;
-  }) config.homelab.cloudflareDdns.domains;
+  }) ([ settings.server.hostName ] ++ config.homelab.cloudflareDdns.domains);
 in
 {
   services.adguardhome = {
@@ -17,6 +16,9 @@ in
     mutableSettings = true;
     settings = {
       dns = {
+        # NixOS maps its own hostname to loopback in /etc/hosts. Those local
+        # aliases must not become DNS answers sent to other machines.
+        hostsfile_enabled = false;
         upstream_dns = [ "https://dns.quad9.net/dns-query" ];
         # Keep encrypted resolution available when Quad9's DoH connection
         # fails. This alternate provider also filters malware domains.
