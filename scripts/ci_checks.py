@@ -16,7 +16,7 @@ INTEGRATION_CHECKS = {check for checks in INTEGRATION_SHARDS.values() for check 
 HOMESERVER_CHECKS = {
     "homeserver", "release-downloads", "release-notifications", "deployment-storage",
     "server-health", "factorio", "website-updater", "ha-private", "ha-integrations",
-    "container-pins", "schlage-local",
+    "container-pins", "schlage-local", "adguard-home",
 }
 COMPONENTS = ("homeserver", "wsl", "windows", "esphome")
 
@@ -68,7 +68,8 @@ RULES = [
     (("tests/ha-bluetooth.nix", "tests/ha_bluetooth_probe.py"), ("ha-bluetooth",)),
     (("tests/device-network.nix",), ("device-network",)),
     (("tests/test_device_network.py", "tests/test_local_integrations.py"), ("device-network-config",)),
-    (("tests/test_ha_private.py", "tests/ha_integrations.py", "tests/container_pins.py",
+    (("tests/adguard-home.nix", "tests/adguard_home.py", "tests/test_ha_private.py",
+      "tests/ha_integrations.py", "tests/container_pins.py",
       "tests/test_schlage_local.py", "tests/test_secondary_backup.py", "tests/test_deployment_storage.py",
       "tests/test_release_downloads.py", "tests/test_release_notifications.py", "tests/test_server_health.py",
       "tests/test_factorio_admin.py", "tests/test_factorio_prepare.py", "tests/factorio-runtime.py"),
