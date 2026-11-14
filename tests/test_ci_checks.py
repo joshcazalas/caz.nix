@@ -55,7 +55,7 @@ class CISelection(unittest.TestCase):
     def test_unit_tests_select_their_actual_owner(self):
         for path in ["tests/test_ha_private.py", "tests/test_schlage_local.py",
                      "tests/test_release_downloads.py", "tests/test_secondary_backup.py",
-                     "tests/adguard-home.nix", "tests/adguard_home.py"]:
+                     "tests/adguard-home.nix", "tests/adguard_home.py", "scripts/adguard-hostname-rules.py"]:
             with self.subTest(path=path):
                 result = self.classify(path)
                 self.assertTrue(result["homeserver"])
