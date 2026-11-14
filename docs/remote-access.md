@@ -111,7 +111,21 @@ boundary, but narrow client routes prevent accidental traffic capture and make
 the intended scope visible on the device.
 
 Mobile clients should activate the tunnel on demand away from the trusted LAN.
-When the tunnel is active, `http://10.77.1.1:8123` reaches Home Assistant and
+With the tunnel's `DNS = 10.77.1.1` setting, AdGuard answers the server's short
+hostname with the gateway address for registered household VPN peers. LAN and
+game-stream clients retain the LAN answer. The same
+`http://homeserver:8123/home/overview` bookmark therefore works on either path;
+no browser redirect or wider tunnel route is required. Managed public-name
+rewrites and existing custom AdGuard rules retain their behavior.
+
+Windows clients must already use that tunnel DNS setting; a server change cannot
+configure DNS on the laptop. After switching networks, reconnect the tunnel and
+run `ipconfig /flushdns` if Windows has cached the previous answer. With the VPN
+active, `Resolve-DnsName homeserver -Server 10.77.1.1` should return `10.77.1.1`.
+If that succeeds but the browser still cannot resolve the name, check whether
+Chrome's custom Secure DNS provider is bypassing the tunnel resolver.
+
+When the tunnel is active, `http://10.77.1.1:8123` also reaches Home Assistant and
 `ssh homeserver-vpn` reaches the administrative endpoint. The managed WSL SSH
 profile keeps the LAN alias separate from the remote WireGuard aliases. Consult
 the client platform's private enrollment notes rather than publishing device

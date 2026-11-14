@@ -1,94 +1,96 @@
-"""Exercise production DNS settings with synthetic names and a local upstream."""
+"""Run the real service preparation and DNS server with synthetic peer addresses."""
 
 import json
 import os
 from pathlib import Path
 import socket
-import struct
 import subprocess
 import sys
 import tempfile
 import threading
 import time
 
-
-def query(name):
-    question = b"".join(bytes([len(label)]) + label.encode() for label in name.split("."))
-    return struct.pack("!6H", 1, 0x0100, 1, 0, 0, 0) + question + b"\0\0\1\0\1"
-
-
-def lookup(port, name):
-    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as client:
-        client.settimeout(1)
-        client.sendto(query(name), ("127.0.0.1", port))
-        answer = client.recv(4096)
-    _, flags, _, count, _, _ = struct.unpack("!6H", answer[:12])
-    assert flags & 0xF == 0 and count == 1, answer
-    return socket.inet_ntoa(answer[-4:])
+import dns.message
+import dns.query
+import dns.rcode
+import dns.rrset
+import yaml
 
 
-with tempfile.TemporaryDirectory() as directory, socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as upstream:
-    upstream.bind(("127.0.0.1", 0))
-    upstream.settimeout(0.2)
-    stopped = threading.Event()
+CUSTOM_RULE = "|custom.example.test|$dnsrewrite=NOERROR;A;192.0.2.30"
+TIMESTAMP = "2020-01-01T00:00:00Z"
 
-    def serve():
-        while not stopped.is_set():
-            try:
-                request, peer = upstream.recvfrom(4096)
-            except socket.timeout:
-                continue
-            header = request[:2] + struct.pack("!5H", 0x8180, 1, 1, 0, 0)
-            # Copy only the question, excluding any EDNS additional record.
-            question_end = request.index(b"\0", 12) + 5
-            record = b"\xc0\x0c" + struct.pack("!HHIH", 1, 1, 60, 4)
-            upstream.sendto(header + request[12:question_end] + record + socket.inet_aton("192.0.2.20"), peer)
 
-    thread = threading.Thread(target=serve, daemon=True)
-    thread.start()
-    # Avoid collisions when several checks execute on the same builder.
+def free_port():
     with socket.socket() as reservation:
         reservation.bind(("127.0.0.1", 0))
-        dns_port = reservation.getsockname()[1]
-    with socket.socket() as reservation:
-        reservation.bind(("127.0.0.1", 0))
-        http_port = reservation.getsockname()[1]
+        return reservation.getsockname()[1]
 
-    config = json.loads(Path(sys.argv[1]).read_text())
+
+def lookup(port, name, source="127.0.0.1", transport="udp", record_type="A"):
+    response = getattr(dns.query, transport)(
+        dns.message.make_query(name, record_type), "127.0.0.1",
+        port=port, source=source, timeout=1,
+    )
+    assert response.rcode() == dns.rcode.NOERROR, response
+    return [record.to_text() for answer in response.answer for record in answer]
+
+
+def prepare(script, directory):
+    subprocess.run([script], env={**os.environ, "STATE_DIRECTORY": str(directory)}, check=True)
+    path = directory / "AdGuardHome.yaml"
+    assert path.stat().st_mode & 0o777 == 0o600
+    return yaml.safe_load(path.read_text())
+
+
+def exercise(directory, config, upstream_port, expected):
+    dns_port, http_port = free_port(), free_port()
     config["http"] = {"address": f"127.0.0.1:{http_port}"}
     config["dns"].update({
         "bind_hosts": ["127.0.0.1"],
         "port": dns_port,
-        "upstream_dns": [f"127.0.0.1:{upstream.getsockname()[1]}"],
+        # This synthetic regression deliberately sends a burst of queries.
+        "ratelimit": 0,
+        "upstream_dns": [f"127.0.0.1:{upstream_port}"],
         "fallback_dns": [],
         "bootstrap_dns": [],
     })
     config["filters"] = []
-    path = Path(directory) / "AdGuardHome.yaml"
-    # JSON is valid YAML and avoids adding a YAML parser to the fixture.
+    path = directory / "AdGuardHome.yaml"
     path.write_text(json.dumps(config))
-    os.chmod(path, 0o600)
-    with (Path(directory) / "adguard.log").open("w+") as log:
+    with (directory / "adguard.log").open("w+") as log:
         process = subprocess.Popen(
-            ["AdGuardHome", "--no-check-update", "-c", str(path), "-w", directory],
+            ["AdGuardHome", "--no-check-update", "-c", str(path), "-w", str(directory)],
             stdout=log, stderr=subprocess.STDOUT,
         )
         try:
             deadline = time.monotonic() + 30
             while True:
                 try:
-                    assert lookup(dns_port, "server") == "192.0.2.10"
+                    assert lookup(dns_port, "server") == ["192.0.2.10"]
                     break
-                except (TimeoutError, ConnectionRefusedError):
+                except (dns.exception.Timeout, ConnectionRefusedError):
                     if process.poll() is not None or time.monotonic() >= deadline:
                         raise RuntimeError("AdGuard did not become ready")
                     time.sleep(0.1)
-            assert lookup(dns_port, "service.example.test") == "192.0.2.10"
-            assert lookup(dns_port, "unmapped.example.test") == "192.0.2.20"
-            # The builder has localhost in /etc/hosts. It must not leak into DNS.
+            for transport in ("udp", "tcp"):
+                # Alternate clients repeatedly to catch cross-client cache leaks.
+                for source, address in list(expected.items()) * 2:
+                    for name in ("server", "SERVER."):
+                        result = lookup(dns_port, name, source, transport)
+                        assert result == [address], (source, name, result, address)
+                    assert lookup(dns_port, "server", source, transport, "AAAA") == []
+                    for name, answer in (
+                        ("service.example.test", "192.0.2.10"),
+                        ("custom.example.test", "192.0.2.30"),
+                        ("unmapped.example.test", "192.0.2.20"),
+                        ("server.example.test", "192.0.2.20"),
+                        ("sub.server", "192.0.2.20"),
+                        ("otherserver", "192.0.2.20"),
+                        ("localhost", "192.0.2.20"),
+                    ):
+                        assert lookup(dns_port, name, source, transport) == [answer], (source, name)
             assert socket.gethostbyname("localhost") == "127.0.0.1"
-            assert lookup(dns_port, "localhost") == "192.0.2.20"
-            print("Server and public rewrites work; OS hosts entries are not served.")
         except BaseException:
             log.seek(0)
             print(log.read(), file=sys.stderr)
@@ -96,5 +98,63 @@ with tempfile.TemporaryDirectory() as directory, socket.socket(socket.AF_INET, s
         finally:
             process.terminate()
             process.wait(timeout=10)
+
+
+def main():
+    preparations = json.loads(Path(sys.argv[1]).read_text())
+    with tempfile.TemporaryDirectory() as temporary, socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as upstream:
+        directory = Path(temporary)
+        upstream.bind(("127.0.0.1", 0))
+        upstream.settimeout(0.2)
+        stopped = threading.Event()
+
+        def serve():
+            while not stopped.is_set():
+                try:
+                    request, peer = upstream.recvfrom(4096)
+                except socket.timeout:
+                    continue
+                message = dns.message.from_wire(request)
+                response = dns.message.make_response(message)
+                question = message.question[0]
+                response.answer.append(dns.rrset.from_text(question.name, 60, "IN", "A", "192.0.2.20"))
+                upstream.sendto(response.to_wire(), peer)
+
+        thread = threading.Thread(target=serve, daemon=True)
+        thread.start()
+        try:
+            config = prepare(preparations["enabled"], directory)
+            config["user_rules"].insert(0, CUSTOM_RULE)
+            # Exercise migration from the previous global hostname rewrite.
+            config["filtering"]["rewrites"].append({"domain": "SERVER.", "answer": "192.0.2.10", "enabled": True})
+            config["filtering"]["protection_disabled_until"] = TIMESTAMP
+            config["querylog"] = {"enabled": False}
+            path = directory / "AdGuardHome.yaml"
+            path.write_text(json.dumps(config))
+            for iteration, variant in enumerate(("enabled", "enabled", "changed", "disabled", "empty", "enabled")):
+                config = prepare(preparations[variant], directory)
+                rules = config["user_rules"]
+                assert rules.count(CUSTOM_RULE) == 1
+                assert rules.count("! BEGIN caz managed server hostname") == 1
+                assert config["querylog"]["enabled"] is False
+                # safe_load may parse timestamps; inspect the serialized representation too.
+                if iteration == 0:
+                    assert "2020-01-01T00:00:00" in path.read_text()
+                assert not any(item["domain"].lower().rstrip(".") == "server"
+                               for item in config["filtering"]["rewrites"])
+                # Keep the test's JSON serializer independent of YAML datetime objects.
+                config["filtering"]["protection_disabled_until"] = TIMESTAMP
+                expected = {f"127.0.0.{index}": "192.0.2.10" for index in range(1, 6)}
+                if variant == "enabled":
+                    expected.update({"127.0.0.2": "198.51.100.1", "127.0.0.3": "198.51.100.1"})
+                elif variant == "changed":
+                    expected.update({"127.0.0.4": "198.51.100.2", "127.0.0.3": "198.51.100.2"})
+                exercise(directory, config, upstream.getsockname()[1], expected)
+                print(f"{variant}: LAN/VPN DNS, OS-host exclusion, custom rules, and upstream passed.")
+        finally:
             stopped.set()
             thread.join(timeout=2)
+
+
+if __name__ == "__main__":
+    main()
