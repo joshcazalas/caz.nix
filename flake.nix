@@ -332,7 +332,7 @@
           inherit (inputs) sops-nix;
         };
         network-policy = import ./tests/network-policy.nix { inherit pkgs; };
-        adguard-home = import ./tests/adguard-home.nix { inherit pkgs; };
+        adguard-home = import ./tests/adguard-home.nix { inherit pkgs nixpkgs; };
         ha-bluetooth = import ./tests/ha-bluetooth.nix { inherit pkgs inputs; };
         device-network = import ./tests/device-network.nix { inherit pkgs; };
         device-network-config =

@@ -1,6 +1,6 @@
-{ pkgs }:
+{ pkgs, nixpkgs }:
 let
-  evaluated = import "${pkgs.path}/nixos/lib/eval-config.nix" {
+  evaluated = nixpkgs.lib.nixosSystem {
     inherit (pkgs.stdenv.hostPlatform) system;
     specialArgs.settings.server = {
       hostName = "server";
