@@ -57,16 +57,16 @@
     "home-connect-direct-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1793973051,
-        "narHash": "sha256-PtZZBBIgsxi8IHhQCA/A74CUEKJWxxI8ytPx8yif1Ow=",
+        "lastModified": 1794649668,
+        "narHash": "sha256-hHODrgZB+TrIdLTAy0nZgrGsCe3nUvD2JGAt8xp1FqM=",
         "owner": "Asmir1975",
         "repo": "homeconnect_direct",
-        "rev": "0629a038c8ee15836216b62eb43d13436786a933",
+        "rev": "0b3af65e4d4a410cb1e0282f170c95737a3072ea",
         "type": "github"
       },
       "original": {
         "owner": "Asmir1975",
-        "ref": "1.13.1",
+        "ref": "1.13.2b1",
         "repo": "homeconnect_direct",
         "type": "github"
       }
