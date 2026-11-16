@@ -26,7 +26,7 @@
       flake = false;
     };
     home-connect-direct-src = {
-      url = "github:Asmir1975/homeconnect_direct/1.13.2b1";
+      url = "github:Asmir1975/homeconnect_direct/1.13.1";
       flake = false;
     };
   };
