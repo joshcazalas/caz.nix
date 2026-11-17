@@ -335,6 +335,7 @@
           inherit (inputs) sops-nix;
         };
         network-policy = import ./tests/network-policy.nix { inherit pkgs; };
+        bluemap-public = import ./tests/bluemap-public.nix { inherit pkgs unstablePkgs; };
         adguard-home = import ./tests/adguard-home.nix { inherit pkgs nixpkgs; };
         ha-bluetooth = import ./tests/ha-bluetooth.nix { inherit pkgs inputs; };
         device-network = import ./tests/device-network.nix { inherit pkgs; };

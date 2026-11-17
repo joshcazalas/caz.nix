@@ -10,7 +10,7 @@ import sys
 INTEGRATION_SHARDS = {
     "devices": ("device-network", "device-network-config"),
     "gateways": ("game-stream-gateway", "home-access-gateway", "network-policy"),
-    "services": ("ha-bluetooth", "network-readiness", "deployment-storage-integration"),
+    "services": ("ha-bluetooth", "network-readiness", "deployment-storage-integration", "bluemap-public"),
 }
 INTEGRATION_CHECKS = {check for checks in INTEGRATION_SHARDS.values() for check in checks}
 HOMESERVER_CHECKS = {
@@ -31,6 +31,7 @@ RULES = [
     ((".github/actions/cache-auxide/*",), ("homeserver",)),
     (("modules/nixos/game-stream-gateway.nix",), ("homeserver", "game-stream-gateway")),
     (("modules/nixos/home-access-gateway.nix",), ("homeserver", "home-access-gateway")),
+    (("modules/nixos/bluemap.nix", "modules/nixos/minecraft.nix"), ("homeserver", "bluemap-public")),
     (("modules/nixos/network-policy.nix", "modules/nixos/website.nix", "packages/website-updater/*"),
      ("homeserver", "network-policy")),
     (("modules/nixos/networking.nix", "modules/nixos/auxide.nix"),
@@ -45,10 +46,10 @@ RULES = [
     # Only known server-only modules may skip integration tests. A new module
     # falls back to all rather than silently assuming it has no test consumers.
     (("modules/nixos/monitoring*.nix", "modules/nixos/jellyfin.nix", "modules/nixos/secondary-backup.nix",
-      "modules/nixos/optional-services.nix", "modules/nixos/bluemap.nix", "modules/nixos/filesharing.nix",
+      "modules/nixos/optional-services.nix", "modules/nixos/filesharing.nix",
       "modules/nixos/storage.nix", "modules/nixos/release-updater.nix", "modules/nixos/factorio.nix",
       "modules/nixos/factorio-mods.json", "modules/nixos/cloudflare-ddns.nix",
-      "modules/nixos/minecraft.nix", "modules/nixos/adguard-home.nix"), ("homeserver",)),
+      "modules/nixos/adguard-home.nix"), ("homeserver",)),
     (("containers/*",), ("homeserver", "ha-bluetooth")),
     (("hosts/cazpc/*", "modules/home/development.nix", "modules/home/ssh.nix",
       "modules/home/windows-vscode.nix"), ("wsl",)),
@@ -64,6 +65,7 @@ RULES = [
     (("tests/game-stream-gateway.nix",), ("game-stream-gateway",)),
     (("tests/home-access-gateway.nix",), ("home-access-gateway",)),
     (("tests/network-policy.nix",), ("network-policy",)),
+    (("tests/bluemap-public.nix",), ("bluemap-public",)),
     (("tests/network-readiness.nix",), ("network-readiness",)),
     (("tests/deployment-storage.nix",), ("deployment-storage-integration",)),
     (("tests/ha-bluetooth.nix", "tests/ha_bluetooth_probe.py"), ("ha-bluetooth",)),

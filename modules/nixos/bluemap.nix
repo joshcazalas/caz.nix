@@ -30,6 +30,7 @@ let
   # data root, so it gets its own directory directly under /var/lib.
   stateDir = "/var/lib/bluemap";
   webRoot = "${stateDir}/web";
+  publicMount = "/run/bluemap";
 
   containerState = "/data/bluemap";
   pluginDir = "/data/plugins/BlueMap";
@@ -292,6 +293,22 @@ in
       "${overworldConf}:${pluginDir}/maps/overworld.conf:ro"
     ];
 
+    # Minecraft can replace web itself. Bind its parent, whose entry in
+    # /var/lib is controlled by root, so nosymfollow covers web as well as tiles.
+    systemd.mounts = mkIf publicCfg.bluemap [
+      {
+        what = stateDir;
+        where = publicMount;
+        type = "none";
+        options = "bind,ro,nosymfollow,nodev,nosuid,noexec";
+        wantedBy = [
+          "multi-user.target"
+          "caddy.service"
+        ];
+        before = [ "caddy.service" ];
+      }
+    ];
+
     services.caddy = mkIf publicCfg.bluemap {
       enable = true;
       virtualHosts.${hostName} = {
@@ -299,7 +316,7 @@ in
         # record who is looking at the map and from where.
         logFormat = "output discard";
         extraConfig = ''
-          root * ${webRoot}
+          root * ${publicMount}/web
           file_server
         '';
       };
