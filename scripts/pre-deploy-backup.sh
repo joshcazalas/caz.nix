@@ -75,6 +75,9 @@ cleanup() {
   if [[ "$services_restarted" == false ]]; then
     restart_services || true
   fi
+  if [[ -n "${path_list:-}" ]]; then
+    rm -f -- "$path_list"
+  fi
   if [[ -n "${temporary_archive:-}" ]]; then
     rm -f -- "$temporary_archive"
   fi
@@ -84,16 +87,29 @@ trap cleanup EXIT
 
 echo "==> Pausing mutable applications for a consistent local state archive"
 for unit in ${CAZ_BACKUP_PAUSE_UNITS:-}; do
-  if systemctl is-active --quiet "$unit"; then
-    systemctl stop "$unit"
-    stopped_units+=("$unit")
-  fi
+  state="$(systemctl is-active "$unit")" || true
+  case "$state" in
+    active|activating|reloading|refreshing)
+      stopped_units+=("$unit")
+      systemctl stop "$unit"
+      ;;
+    inactive|failed) ;;
+    *) echo "Cannot determine a stable backup state for $unit; refusing backup." >&2; exit 1 ;;
+  esac
 done
 
 mkdir -p "$backup_directory"
 chmod 0700 "$backup_directory"
 
-declare -a state_paths=()
+# The private helpers emit NUL-delimited, root-relative names. A failed
+# inventory must reach the EXIT trap before tar can publish a partial backup.
+path_list="$(mktemp --tmpdir="$backup_directory" .backup-paths.XXXXXX)"
+if [[ -n "${CAZ_BACKUP_DEVICE_NETWORK_COMMAND:-}" ]]; then
+  "$CAZ_BACKUP_DEVICE_NETWORK_COMMAND" backup-paths >> "$path_list"
+fi
+if [[ -n "${CAZ_BACKUP_LOCAL_INTEGRATIONS_COMMAND:-}" ]]; then
+  "$CAZ_BACKUP_LOCAL_INTEGRATIONS_COMMAND" backup-paths >> "$path_list"
+fi
 for path in ${CAZ_BACKUP_STATE_PATHS:-}; do
   if [[ "$path" == var/lib/AdGuardHome ]]; then
     # DynamicUser exposes the state through a symlink. Archive its actual
@@ -111,10 +127,10 @@ for path in ${CAZ_BACKUP_STATE_PATHS:-}; do
   elif [[ ! -e "$state_root/$path" ]]; then
     continue
   fi
-  state_paths+=("$path")
+  printf '%s\0' "$path" >> "$path_list"
 done
 
-if (( ${#state_paths[@]} == 0 )); then
+if [[ ! -s "$path_list" ]]; then
   echo "No configured application state paths exist; refusing an empty backup." >&2
   exit 1
 fi
@@ -135,7 +151,9 @@ tar \
   --exclude='var/lib/samba/private/msg.sock' \
   --exclude='var/lib/samba/winbindd_privileged/pipe' \
   --directory "$state_root" \
-  "${state_paths[@]}"
+  --null --files-from "$path_list"
+rm -f -- "$path_list"
+path_list=""
 chmod 0600 "$temporary_archive"
 mv -- "$temporary_archive" "$archive"
 temporary_archive=""

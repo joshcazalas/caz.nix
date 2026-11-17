@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Run under fakeroot with the pre-deployment and Minecraft scripts as arguments.
+# Run under fakeroot with the pre-deployment, Minecraft and device-network scripts.
 set -Eeuo pipefail
 
 script="$(realpath "$1")"
-export minecraft_script
+export minecraft_script network_script
+network_script="$(realpath "$3")"
 minecraft_script="$(realpath "$2")"
 fixture="$(mktemp -d)"
 trap 'rm -rf -- "$fixture"' EXIT
@@ -40,6 +41,11 @@ docker() {
 }
 
 systemctl() {
+  if [[ "${2:-}" == fixture.service ]]; then
+    echo "$1" >> "$rcon_log"
+    if [[ "$1" == is-active ]]; then echo active; fi
+    return 0
+  fi
   if [[ "$*" != "start minecraft-backup.service" ]]; then
     echo "$*" >> "$rcon_log"
     return 1
@@ -121,4 +127,31 @@ mkdir "$public"
 if bash "$script"; then exit 1; fi
 ln -s "$fixture/unexpected/AdGuardHome.yaml" "$public/AdGuardHome.yaml"
 if bash "$script"; then exit 1; fi
+[[ -z "$(ls -A "$CAZ_BACKUP_DIRECTORY")" ]]
+
+# Use the actual private-file reader. The key can live outside the configured
+# network directory, including a path containing spaces.
+unset CAZ_BACKUP_STATE_ROOT CAZ_BACKUP_STATE_PATHS
+export CAZ_BACKUP_PAUSE_UNITS=fixture.service
+export CAZ_BACKUP_DEVICE_NETWORK_COMMAND=network_backup
+export network_config="$fixture/network.json"
+key="$fixture/private input/wifi key"
+mkdir -m 0700 "${key%/*}" "$fixture/restore"
+printf 'synthetic passphrase\n' > "$key"
+printf '{"interface":"wlan-test","address":"192.168.70.1/24","dhcp":{"start":"192.168.70.20","end":"192.168.70.50"},"wifi":{"ssid":"fixture","channel":6,"countryCode":"US","passphraseFile":"%s"}}' "$key" > "$network_config"
+chmod 0600 "$network_config" "$key"
+network_backup() { python3 "$network_script" --config "$network_config" "$@"; }
+export -f network_backup
+bash "$script"
+archives=("$CAZ_BACKUP_DIRECTORY"/state-*.tar.zst)
+tar --zstd -xf "${archives[0]}" -C "$fixture/restore"
+for input in "$network_config" "$key"; do
+  cmp "$input" "$fixture/restore/$input"
+  [[ "$(stat --format=%a "$fixture/restore/$input")" == 600 ]]
+done
+
+rm -- "${archives[0]}" "$key"
+: > "$rcon_log"
+if bash "$script"; then exit 1; fi
+[[ "$(tail -3 "$rcon_log")" == $'is-active\nstop\nstart' ]]
 [[ -z "$(ls -A "$CAZ_BACKUP_DIRECTORY")" ]]

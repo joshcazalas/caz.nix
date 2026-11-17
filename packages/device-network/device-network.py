@@ -432,7 +432,7 @@ def health(config):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", default="/var/lib/homelab/device-network/network.json")
-    parser.add_argument("command", choices=("validate", "prepare", "up", "down", "proxy-host", "proxy-network", "generate", "health"))
+    parser.add_argument("command", choices=("validate", "prepare", "up", "down", "proxy-host", "proxy-network", "generate", "health", "backup-paths"))
     parser.add_argument("argument", nargs="?")
     parser.add_argument("generator_paths", nargs="*")
     args = parser.parse_args()
@@ -442,6 +442,16 @@ def main():
     config = load(args.config)
     if args.command == "validate":
         print("Device network configuration is valid")
+    elif args.command == "backup-paths":
+        paths = [Path(args.config)]
+        if config.get("wifi"):
+            passphrase = Path(config["wifi"]["passphraseFile"])
+            read_private(passphrase)
+            paths.append(passphrase)
+        for path in paths:
+            if ".." in path.parts:
+                path = path.resolve(strict=True)
+            sys.stdout.buffer.write(os.fsencode(path.absolute().relative_to("/")) + b"\0")
     elif args.command == "prepare":
         prepare(config)
     elif args.command == "up":

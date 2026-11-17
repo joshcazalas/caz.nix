@@ -263,7 +263,7 @@
               cp ${./tests/test_secondary_backup.py} tests/test_secondary_backup.py
               python -m unittest discover -s tests -p 'test_deployment_storage.py' -v
               python -m unittest discover -s tests -p 'test_secondary_backup.py' -v
-              fakeroot bash ${./tests/pre-deploy-backup.sh} ${./scripts/pre-deploy-backup.sh} ${./scripts/minecraft-backup.sh}
+              fakeroot bash ${./tests/pre-deploy-backup.sh} ${./scripts/pre-deploy-backup.sh} ${./scripts/minecraft-backup.sh} ${./packages/device-network/device-network.py}
               touch "$out"
             '';
         deployment-storage-integration = import ./tests/deployment-storage.nix { inherit pkgs; };

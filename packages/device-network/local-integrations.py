@@ -59,10 +59,80 @@ def compose(directory, *args, capture=False, check=True):
                           stderr=subprocess.PIPE if capture else None)
 
 
+class BackupError(ValueError):
+    """A backup diagnostic safe to include in the deployment journal."""
+
+
+def backup_paths(config, directory):
+    # Compose has stopped the project. Docker still owns its volume metadata;
+    # back up only the contents of ordinary local volumes used by this project.
+    def docker_output(*args):
+        return subprocess.run(["docker", *args], check=True, capture_output=True, text=True).stdout
+
+    volumes = {v["name"] for v in config.get("volumes", {}).values()}
+    ids = docker_output("ps", "--all", "--quiet", "--filter",
+                        "label=com.docker.compose.project=local-integrations").splitlines()
+    if ids:
+        fields = "[{{json .State.Status}},{{.State.ExitCode}},{{.State.OOMKilled}},{{json .Mounts}}]"
+        for line in docker_output("inspect", "--format", fields, *ids).splitlines():
+            state, code, oom_killed, mounts = json.loads(line)
+            if state not in ("exited", "created") or code == 137 or oom_killed:
+                raise BackupError("An integration container has not stopped cleanly.")
+            if any(m["Type"] == "volume" and m["Name"] not in volumes for m in mounts):
+                raise BackupError("A container has persistent storage outside the declared Compose volumes.")
+
+    if directory.is_symlink() or not directory.is_dir():
+        raise BackupError("The integration project must be backed by a directory.")
+    paths = [directory]
+    project_root = directory.resolve(strict=True)
+    # Compose normally inlines env_file values. The backup requests unresolved
+    # env files so file-backed inputs outside the project can be recovered too.
+    files = [Path(entry["file"]) for kind in ("configs", "secrets")
+             for entry in config.get(kind, {}).values() if "file" in entry]
+    for service in config["services"].values():
+        for entry in service.get("env_file", []):
+            path = Path(entry["path"])
+            if entry.get("required", True) or path.exists():
+                files.append(path)
+        for mount in service.get("volumes", []):
+            if mount["type"] == "bind":
+                source = Path(mount["source"]).resolve(strict=True)
+                if not source.is_relative_to(project_root):
+                    raise BackupError("A bind mount resolves outside the private integration directory.")
+    for path in files:
+        if not path.is_absolute() or not path.is_file():
+            raise BackupError("A file-backed Compose input is missing or invalid.")
+        # Keep the link and its referent when an explicit input points outside
+        # the project. Leave unrelated symlinks in application data untouched.
+        while True:
+            if ".." in path.parts or (path.is_relative_to(directory)
+                                      and not path.parent.resolve().is_relative_to(project_root)):
+                path = path.parent.resolve(strict=True) / path.name
+            if not path.is_relative_to(directory):
+                paths.append(path)
+            if not path.is_symlink():
+                break
+            path = path.parent / path.readlink()
+
+    for name in sorted(volumes):
+        # Normalized Compose supplies the engine name, including any name override.
+        info, = json.loads(docker_output("volume", "inspect", "--", name))
+        if info["Name"] != name or info["Driver"] != "local" or info.get("Options"):
+            raise BackupError("An integration volume is not an ordinary local Docker volume.")
+        if docker_output("ps", "--quiet", "--filter", f"volume={name}").strip():
+            raise BackupError("A running container still uses an integration volume.")
+        mountpoint = Path(info["Mountpoint"])
+        if not mountpoint.is_absolute() or mountpoint.is_symlink() or not mountpoint.is_dir():
+            raise BackupError("An integration volume data directory is missing.")
+        paths.append(mountpoint)
+
+    return list(dict.fromkeys(paths))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--directory", default="/var/lib/homelab/local-integrations")
-    parser.add_argument("command", choices=("validate", "start", "stop", "health"))
+    parser.add_argument("command", choices=("validate", "start", "stop", "health", "backup-paths"))
     args = parser.parse_args()
     directory = Path(args.directory)
     if args.command == "stop":
@@ -75,7 +145,8 @@ def main():
     info = (directory / "compose.yaml").lstat()
     if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or stat.S_IMODE(info.st_mode) != 0o600:
         raise ValueError("Compose configuration must be a regular root-owned mode 0600 file")
-    config = validate(json.loads(compose(directory, "config", "--format", "json", capture=True).stdout), directory)
+    options = ["--no-env-resolution"] if args.command == "backup-paths" else []
+    config = validate(json.loads(compose(directory, "config", "--format", "json", *options, capture=True).stdout), directory)
     if args.command == "start":
         # Immutable image archives preserve private patched builds through image
         # pruning, without publishing their source or allowing runtime pulls.
@@ -89,6 +160,9 @@ def main():
         os.execlp("docker", "docker", "compose", "--project-name", "local-integrations",
                   "--file", str(directory / "compose.yaml"), "up", "--no-build", "--pull", "never",
                   "--abort-on-container-exit", "--remove-orphans")
+    elif args.command == "backup-paths":
+        for path in backup_paths(config, directory):
+            sys.stdout.buffer.write(os.fsencode(path.relative_to("/")) + b"\0")
     elif args.command == "health":
         statuses = [json.loads(line) for line in compose(directory, "ps", "--all", "--format", "json", capture=True).stdout.splitlines()]
         healthy = {item["Service"] for item in statuses
@@ -113,6 +187,9 @@ def main():
 if __name__ == "__main__":
     try:
         main()
+    except BackupError as error:
+        print(f"Local integrations backup: {error}", file=sys.stderr)
+        sys.exit(1)
     except (ValueError, KeyError, TypeError, OSError, subprocess.CalledProcessError):
         print("Local integrations failed validation or execution; inspect private service state.", file=sys.stderr)
         sys.exit(1)
