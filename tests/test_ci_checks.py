@@ -67,6 +67,7 @@ class CISelection(unittest.TestCase):
         mapping = {
             "bluemap-public.nix": "bluemap-public",
             "ha_bluetooth_probe.py": "ha-bluetooth",
+            "schlage_ha_compat.py": "ha-bluetooth",
             "ha-bluetooth.nix": "ha-bluetooth",
             "deployment-storage.nix": "deployment-storage-integration",
             "device-network.nix": "device-network",

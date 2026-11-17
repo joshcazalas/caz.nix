@@ -8,7 +8,10 @@ import secrets
 from dataclasses import asdict
 from datetime import datetime, timezone
 
-from .protocol import Capabilities, CommandRejected, Operation, ProtocolError, request, response, response_structure
+from .protocol import (
+    Capabilities, CommandRejected, Operation, ProtocolError, UnsupportedPairing,
+    request, response, response_structure,
+)
 
 
 def now():
@@ -41,7 +44,7 @@ class Manager:
                 if not model.lower().startswith("be499"):
                     continue
                 self.transport_factory(connection)
-            except (ProtocolError, AttributeError, KeyError):
+            except (UnsupportedPairing, AttributeError, KeyError):
                 continue
             devices.append({"id": connection.config_entry.entry_id,
                             "name": connection.config_entry.title, "model": model})

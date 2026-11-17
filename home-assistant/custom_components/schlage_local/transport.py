@@ -11,17 +11,21 @@ from importlib.metadata import version
 from aiohomekit.controller.ble.pairing import BlePairing
 from aiohomekit.pdu import OpCode
 
-from .protocol import CONTROL, LOGS, SERVICE, SUPPORTED, ProtocolError, decode, encode, singletons
+from .protocol import (
+    CONTROL, LOGS, SERVICE, SUPPORTED, ProtocolError, UnsupportedPairing,
+    decode, encode, singletons,
+)
 
 
 class Transport:
     def __init__(self, connection):
         self.connection = connection
         self.pairing = connection.pairing
-        if version("aiohomekit") != "4.0.0":
-            raise ProtocolError("This extension needs review for the installed aiohomekit version.")
         if not isinstance(self.pairing, BlePairing):
-            raise ProtocolError("This extension currently supports HomeKit over Bluetooth only.")
+            raise UnsupportedPairing("This extension currently supports HomeKit over Bluetooth only.")
+        installed = version("aiohomekit")
+        if installed not in ("4.0.0", "4.0.1"):
+            raise ProtocolError(f"Schlage Local Codes needs a compatibility update for aiohomekit {installed}.")
 
     def _characteristic(self, characteristic_type):
         accessory = self.pairing.accessories.aid(1)

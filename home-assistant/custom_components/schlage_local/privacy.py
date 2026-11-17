@@ -19,8 +19,7 @@ class SensitiveTrafficFilter(logging.Filter):
 
 
 def install_filters() -> None:
-    # Logger filters do not propagate to parents. These are the emitters in
-    # aiohomekit 4.0.0 / HA 2026.8.3, verified by compatibility tests.
+    # Logger filters do not propagate to parents. Attach to the emitters.
     for name in (
         "aiohomekit.controller.ble.pairing",
         "aiohomekit.controller.ble.client",
