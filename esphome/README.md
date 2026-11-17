@@ -8,7 +8,8 @@ settings, Wi-Fi credentials, API keys, firmware binaries and build directories
 are private runtime material; firmware binaries contain credentials too.
 
 `scripts/prepare-esphome-proxy.py` prepares a root-only project and an
-administrator-owned build copy. It reads the existing private device-network
+administrator-owned build copy. When running the script outside the checkout,
+copy the contents of `scripts/private_file.py` beside it. It reads the existing private device-network
 configuration and accepts a private JSON file containing the existing proxy's
 `name`, `host` and `entry_id`. It proposes a static address outside the DHCP pool
 and one loopback-only `toNetwork` grant to native API port 6053. It does not

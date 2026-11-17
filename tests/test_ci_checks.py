@@ -87,6 +87,7 @@ class CISelection(unittest.TestCase):
             "modules/nixos/bluemap.nix": {"bluemap-public"},
             "modules/nixos/minecraft.nix": {"bluemap-public"},
             "modules/nixos/device-network.nix": {"device-network", "device-network-config"},
+            "packages/private-file/private_file.py": {"device-network", "device-network-config", "ha-bluetooth"},
             "packages/device-network/local-integrations.py": {"device-network", "device-network-config"},
             "packages/website-updater/src/index.ts": {"network-policy"},
             "modules/nixos/networking.nix": {"network-readiness"},
@@ -113,6 +114,7 @@ class CISelection(unittest.TestCase):
             result = self.classify(path)
             self.assertTrue(result["esphome"])
             self.assertFalse(result["homeserver"] or result["integration"])
+        self.assertTrue(self.classify("packages/private-file/private_file.py")["esphome"])
         result = self.classify("scripts/prepare-esphome-proxy.py")
         self.assertTrue(result["homeserver"] and result["esphome"])
         self.assertFalse(self.classify("modules/nixos/home-assistant.nix")["esphome"])

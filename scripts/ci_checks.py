@@ -36,6 +36,8 @@ RULES = [
      ("homeserver", "network-policy")),
     (("modules/nixos/networking.nix", "modules/nixos/auxide.nix"),
      ("homeserver", "network-readiness")),
+    (("packages/private-file/*", "scripts/private_file.py"),
+     ("homeserver", "device-network", "device-network-config", "ha-bluetooth", "esphome")),
     (("modules/nixos/device-network.nix", "modules/nixos/local-integrations.nix",
       "packages/device-network/*"), ("homeserver", "device-network", "device-network-config")),
     (("modules/nixos/home-assistant.nix", "home-assistant/*", "packages/home-assistant-integrations/*",

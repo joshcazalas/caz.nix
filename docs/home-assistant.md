@@ -99,8 +99,9 @@ or malformed inputs and unavailable hardware before creating the container.
 The pre-deployment backup includes both HA state and this private directory.
 
 Before deploying this configuration over the legacy HVAC package, run the
-reviewed `scripts/migrate-ha-private.py` with `scripts/prepare-ha-private.py`
-beside it, as root on the server. It reads the running package and current
+reviewed `scripts/migrate-ha-private.py` as root on the server. When copying
+the scripts out of the checkout, copy `scripts/prepare-ha-private.py` and the
+contents of `scripts/private_file.py` beside the migration script. It reads the running package and current
 container device mapping, validates consistent setpoints, and creates the
 private files without restarting HA. It refuses conflicting existing files.
 Keep the private files when rolling back; the older release simply ignores them.
