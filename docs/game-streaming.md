@@ -7,7 +7,7 @@ using source NAT. At home, use the same addresses with the tunnel off.
 | Client | Destination | TCP | UDP |
 | --- | --- | --- | --- |
 | Moonlight | Sunshine at `192.168.1.127` | 47984, 47989, 48010 | 47998–48000, 48002, 48010 |
-| chiaki-ng | Wired PS5 at `192.168.1.128` | 9295 | 9295–9297, 9302 |
+| chiaki-ng | Wired PS5 at `192.168.1.132` | 9295 | 9295–9297, 9302 |
 
 These grants apply to authenticated peers arriving on `wg-game`. The gateway
 drops other forwarding and gateway-local traffic from those peers. The router
@@ -152,7 +152,7 @@ state. Tunnel presence and handshake state are printed as observations.
 ## Set up PS5 streaming
 
 1. Check the router's DHCP leases, reservations, and any manually assigned
-   addresses before assigning `192.168.1.128`. Reserve it for the PS5's **wired
+   addresses before assigning `192.168.1.132`. Reserve it for the PS5's **wired
    LAN MAC**, connect Ethernet, select the wired connection on the PS5, and
    confirm the address under **Settings → Network → Connection Status → View
    Connection Status**. If the address is taken, choose a free one and update
@@ -160,13 +160,13 @@ state. Tunnel presence and handshake state are printed as observations.
 2. Deploy the homeserver change through the normal release process. On the
    Windows laptop, run the client baseline above. In the WireGuard editor,
    update **AllowedIPs** under the existing tunnel's **[Peer]** section to
-   `192.168.1.127/32, 192.168.1.128/32`. Existing peers reuse their keys.
+   `192.168.1.127/32, 192.168.1.132/32`. Existing peers reuse their keys.
 3. On the PS5, enable **Settings → System → Remote Play → Enable Remote Play**.
    Under **System → Power Saving → Features Available in Rest Mode**, enable
    **Stay Connected to the Internet** and **Enable Turning On PS5 from Network**.
 4. With the laptop on the home LAN and the tunnel off, register the console
    in chiaki-ng under **Settings → Consoles → Register New**. Enter
-   `192.168.1.128`, choose PS5, supply your PSN Account-ID and the temporary
+   `192.168.1.132`, choose PS5, supply your PSN Account-ID and the temporary
    code from **Remote Play → Link Device**. For the direct connection, use the
    **+** button in the main window, enter that same LAN IP, and select the
    registered PS5. Skip remote connection via PSN. Verify video, audio, and
@@ -343,7 +343,7 @@ configuration drift.
    WireGuard app. Change only its peer route:
 
    ```ini
-   AllowedIPs = 192.168.1.127/32, 192.168.1.128/32
+   AllowedIPs = 192.168.1.127/32, 192.168.1.132/32
    ```
 
    Keep its interface address, private key, gateway public key, endpoint, and
@@ -405,7 +405,7 @@ instead of a custom enrollment protocol.
 
    [Peer]
    PublicKey = GATEWAY_PUBLIC_KEY
-   AllowedIPs = 192.168.1.127/32, 192.168.1.128/32
+   AllowedIPs = 192.168.1.127/32, 192.168.1.132/32
    Endpoint = game-vpn.joshcaz.com:51820
    PersistentKeepalive = 25
    ```

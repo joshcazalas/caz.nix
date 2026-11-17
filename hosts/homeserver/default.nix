@@ -91,7 +91,7 @@ in
     listenPort = 51820;
     # The Sunshine host is a separate Windows machine, not the homeserver.
     hostAddress = "192.168.1.127";
-    ps5Address = "192.168.1.128";
+    ps5Address = "192.168.1.132";
     wakeOnLan = {
       enable = true;
       interface = settings.server.lanInterface;
