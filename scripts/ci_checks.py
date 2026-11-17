@@ -69,7 +69,7 @@ RULES = [
     (("tests/network-policy.nix",), ("network-policy",)),
     (("tests/bluemap-public.nix",), ("bluemap-public",)),
     (("tests/network-readiness.nix",), ("network-readiness",)),
-    (("tests/deployment-storage.nix",), ("deployment-storage-integration",)),
+    (("tests/deployment-storage.nix", "tests/release-recovery.sh"), ("deployment-storage-integration",)),
     (("tests/ha-bluetooth.nix", "tests/ha_bluetooth_probe.py",
       "tests/schlage_ha_compat.py", "scripts/test-schlage-ha-compat.sh"), ("ha-bluetooth",)),
     (("tests/device-network.nix",), ("device-network",)),

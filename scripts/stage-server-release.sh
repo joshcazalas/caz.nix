@@ -91,6 +91,8 @@ state_directory="${CAZ_RELEASE_STATE_DIRECTORY:-${STATE_DIRECTORY:-/var/lib/caz-
 runtime_parent="${RUNTIME_DIRECTORY:-/tmp}"
 accepted_state="${state_directory}/accepted-release.json"
 failed_state="${state_directory}/failed-release.json"
+pending_state="${state_directory}/pending-release.json"
+rollback_root="${state_directory}/rollback-system"
 
 verify_activation_access() {
   local path
@@ -138,6 +140,12 @@ if [[ "$mode" == status ]]; then
     jq . "$accepted_state"
   else
     echo "No release has been accepted by the automatic deployer yet."
+  fi
+
+  if [[ -e "$pending_state" ]]; then
+    echo
+    echo "Unfinished deployment awaiting recovery:"
+    jq . "$pending_state"
   fi
 
   if [[ -e "$failed_state" ]]; then
@@ -292,6 +300,184 @@ download_asset() {
     exit 1
   fi
 }
+
+set_health_durations() {
+  local value
+  health_wait_seconds="${CAZ_RELEASE_HEALTH_WAIT_SECONDS:-600}"
+  stabilization_seconds="${CAZ_RELEASE_STABILIZATION_SECONDS:-60}"
+  for value in "$health_wait_seconds" "$stabilization_seconds"; do
+    if [[ ! "$value" =~ ^[1-9][0-9]*$ ]]; then
+      echo "Deployment health durations must be positive integer seconds." >&2
+      exit 1
+    fi
+  done
+}
+
+# Always ask the *running* generation what healthy means.
+#
+# release-updater.nix sets restartIfChanged = false so this updater survives
+# activation and can supervise its own replacement, which means the script and
+# its build-time closure both belong to the previous generation. A release that
+# adds or removes a service also changes the set of units and endpoints that
+# define health, so a checker baked in at build time describes the system being
+# replaced rather than the one now running.
+#
+# Resolving through /run/current-system is correct at every call site because
+# that symlink tracks whatever is active: the old generation before activation,
+# the new one after it, and the restored one after a rollback.
+server_health() {
+  local checker=/run/current-system/sw/bin/caz-server-health
+
+  if [[ ! -x "$checker" ]]; then
+    echo "The active generation does not provide ${checker}." >&2
+    return 1
+  fi
+
+  "$checker" "$@"
+}
+
+# mktemp creates mode 0600 files in the same directory as the destination.
+publish_state() {
+  sync -- "$1" && mv -fT -- "$1" "$2" && sync -- "$state_directory"
+}
+
+write_failed_state() {
+  local reason="$1"
+  local rollback_status="$2"
+  local previous_store_path="$3"
+  local state_tmp
+
+  state_tmp="$(mktemp "${state_directory}/.failed-release.XXXXXX")" || return 1
+  jq --null-input \
+    --argjson releaseId "${release_id}" \
+    --arg release "${release_tag}" \
+    --arg commit "${commit_sha}" \
+    --arg attemptedStorePath "${built_store_path}" \
+    --arg previousStorePath "$previous_store_path" \
+    --arg reason "$reason" \
+    --arg rollbackStatus "$rollback_status" \
+    --arg failedAt "$(date --utc +%Y-%m-%dT%H:%M:%SZ)" '
+      {
+        schemaVersion: 1,
+        releaseId: $releaseId,
+        release: $release,
+        commit: $commit,
+        attemptedStorePath: $attemptedStorePath,
+        previousStorePath: $previousStorePath,
+        reason: $reason,
+        rollbackStatus: $rollbackStatus,
+        failedAt: $failedAt
+      }
+    ' >"$state_tmp" || return 1
+  publish_state "$state_tmp" "$failed_state"
+}
+
+rollback_deployment() {
+  local reason="$1"
+  rollback_status=failed
+
+  echo "Deployment failed: ${reason}" >&2
+  echo "==> Rolling back to ${previous_store_path}" >&2
+  write_failed_state "$reason" in-progress "$previous_store_path" || echo "Could not record rollback progress." >&2
+
+  if ! nix-env --profile /nix/var/nix/profiles/system --set "$previous_store_path"; then
+    rollback_status=profile-restore-failed
+  elif ! "${previous_store_path}/bin/switch-to-configuration" switch; then
+    rollback_status=activation-failed
+  elif [[ "$(readlink --canonicalize /run/current-system)" != "$previous_store_path" ]]; then
+    rollback_status=store-path-mismatch
+  elif ! server_health \
+    --wait "$health_wait_seconds" \
+    --stabilize "$stabilization_seconds"; then
+    rollback_status=health-check-failed
+  else
+    rollback_status=succeeded
+  fi
+
+  if ! write_failed_state "$reason" "$rollback_status" "$previous_store_path"; then
+    rollback_status=recording-failed
+    return 1
+  fi
+  [[ "$rollback_status" == succeeded ]] || return 1
+  # Commit quarantine before removing the recovery record and its GC root.
+  if ! { rm -- "$pending_state" && sync -- "$state_directory" && rm -f -- "$rollback_root"; }; then
+    rollback_status=recording-failed
+    return 1
+  fi
+}
+
+notify_rollback() {
+  if [[ "$rollback_status" == succeeded ]]; then
+    notify_release rolled-back
+  else
+    notify_release rollback-failed
+  fi
+}
+
+lock_container_maintenance() {
+  local container_maintenance_lock="${CAZ_CONTAINER_MAINTENANCE_LOCK:-/run/caz-container-maintenance/lock}"
+  exec 8>"$container_maintenance_lock"
+  echo "==> Waiting for exclusive container maintenance access"
+  flock --exclusive 8
+}
+
+recover_pending_deployment() {
+  local record running boot previous_profile
+  # Execute only the previous closure retained by this updater. Validate the
+  # complete record before taking any action on its contents.
+  if [[ ! -f "$pending_state" || -L "$pending_state" ]] || ! record="$(jq -er '
+    def systemPath: type == "string" and test("^/nix/store/[0-9a-df-np-sv-z]{32}-[A-Za-z0-9+._?=-]+$");
+    . as $r | select(.schemaVersion == 2 and (.status == "pending" or .status == "deployed")
+      and (.releaseId | type == "number" and . > 0 and . == floor)
+      and (.commit | test("^[0-9a-f]{40}$"))
+      and (.release | test("^caz\\.nix-[0-9]{4}\\.[0-9]{2}\\.[0-9]{2}-g[0-9a-f]{12}$"))
+      and (.release | endswith("-g" + $r.commit[:12]))
+      and (.storePath | systemPath) and (.previousStorePath | systemPath)
+      and (.previousProfilePath | systemPath) and .storePath != .previousStorePath)
+    | [.releaseId, .release, .commit, .storePath, .previousStorePath, .previousProfilePath] | @tsv
+  ' "$pending_state")"; then
+    echo "Invalid pending deployment record. Inspect $pending_state before retrying." >&2
+    return 1
+  fi
+  IFS=$'\t' read -r release_id release_tag commit_sha built_store_path previous_store_path previous_profile <<< "$record"
+  if [[ ! -L "$rollback_root" || "$(readlink -e -- "$rollback_root")" != "$previous_store_path" ]] ||
+     [[ ! -x "$previous_store_path/bin/switch-to-configuration" ]]; then
+    echo "Pending deployment is missing its matching rollback closure. Inspect $rollback_root." >&2
+    return 1
+  fi
+  running="$(readlink -e /run/current-system)"
+  boot="$(readlink -e /nix/var/nix/profiles/system)"
+  if [[ "$running" != "$previous_store_path" && "$running" != "$built_store_path" ]] ||
+     [[ "$boot" != "$previous_profile" && "$boot" != "$previous_store_path" && "$boot" != "$built_store_path" ]]; then
+    echo "A different generation was selected during the interruption. Inspect --status before recovering manually." >&2
+    return 1
+  fi
+
+  if rollback_deployment "deployment interrupted before acceptance"; then
+    echo "Recovered the previous generation. The interrupted release is quarantined." >&2
+  else
+    echo "Recovery is incomplete. Inspect --status and the service journal." >&2
+  fi
+  notify_rollback
+}
+
+if [[ "$check_only" == false ]]; then
+  if [[ -e "$pending_state" || -L "$pending_state" ]]; then
+    notification_phase=recovery
+    set_health_durations
+    lock_container_maintenance
+    verify_activation_access
+    caz-check-deployment-storage
+    recover_pending_deployment
+    # This run handled a failed transaction. A later run may deploy a newer release.
+    trap - EXIT
+    rm -rf -- "$work_directory"
+    exit 1
+  fi
+  # A crash just before recording intent or after committing acceptance can
+  # leave an unused GC root. Only the lock holder may release it.
+  rm -f -- "$rollback_root"
+fi
 
 echo "==> Discovering the latest immutable caz.nix release"
 api_get \
@@ -553,45 +739,15 @@ if [[ "${check_only}" == true ]]; then
 fi
 
 notification_phase=preflight
-health_wait_seconds="${CAZ_RELEASE_HEALTH_WAIT_SECONDS:-600}"
-stabilization_seconds="${CAZ_RELEASE_STABILIZATION_SECONDS:-60}"
-for value in "$health_wait_seconds" "$stabilization_seconds"; do
-  if [[ ! "$value" =~ ^[1-9][0-9]*$ ]]; then
-    echo "Deployment health durations must be positive integer seconds." >&2
-    exit 1
-  fi
-done
+set_health_durations
 
-# Always ask the *running* generation what healthy means.
-#
-# release-updater.nix sets restartIfChanged = false so this updater survives
-# activation and can supervise its own replacement, which means the script and
-# its build-time closure both belong to the previous generation. A release that
-# adds or removes a service also changes the set of units and endpoints that
-# define health, so a checker baked in at build time describes the system being
-# replaced rather than the one now running.
-#
-# Resolving through /run/current-system is correct at every call site because
-# that symlink tracks whatever is active: the old generation before activation,
-# the new one after it, and the restored one after a rollback.
-server_health() {
-  local checker=/run/current-system/sw/bin/caz-server-health
-
-  if [[ ! -x "$checker" ]]; then
-    echo "The active generation does not provide ${checker}." >&2
-    return 1
-  fi
-
-  "$checker" "$@"
-}
-
-write_accepted_state() {
+write_release_state() {
   local status="$1"
   local previous_store_path="$2"
   local reboot_required="$3"
-  local state_tmp
+  local destination="$4" state_tmp
 
-  state_tmp="$(mktemp "${state_directory}/.accepted-release.XXXXXX")"
+  state_tmp="$(mktemp "${state_directory}/.release-state.XXXXXX")"
   jq --null-input \
     --argjson releaseId "${release_id}" \
     --arg release "${release_tag}" \
@@ -600,6 +756,7 @@ write_accepted_state() {
     --arg storePath "${built_store_path}" \
     --arg derivation "${built_derivation}" \
     --arg previousStorePath "$previous_store_path" \
+    --arg previousProfilePath "${previous_profile_path:-}" \
     --arg status "$status" \
     --argjson rebootRequired "$reboot_required" \
     --arg deployedAt "$(date --utc +%Y-%m-%dT%H:%M:%SZ)" '
@@ -615,46 +772,9 @@ write_accepted_state() {
         status: $status,
         rebootRequired: $rebootRequired,
         deployedAt: $deployedAt
-      }
+      } + (if $previousProfilePath == "" then {} else {previousProfilePath: $previousProfilePath} end)
     ' >"$state_tmp"
-  chmod 0600 "$state_tmp"
-  mv "$state_tmp" "$accepted_state"
-
-  # A newer successful release supersedes any older quarantine record, and a
-  # forced successful retry clears its own quarantine.
-  rm -f -- "$failed_state"
-}
-
-write_failed_state() {
-  local reason="$1"
-  local rollback_status="$2"
-  local previous_store_path="$3"
-  local state_tmp
-
-  state_tmp="$(mktemp "${state_directory}/.failed-release.XXXXXX")"
-  jq --null-input \
-    --argjson releaseId "${release_id}" \
-    --arg release "${release_tag}" \
-    --arg commit "${commit_sha}" \
-    --arg attemptedStorePath "${built_store_path}" \
-    --arg previousStorePath "$previous_store_path" \
-    --arg reason "$reason" \
-    --arg rollbackStatus "$rollback_status" \
-    --arg failedAt "$(date --utc +%Y-%m-%dT%H:%M:%SZ)" '
-      {
-        schemaVersion: 1,
-        releaseId: $releaseId,
-        release: $release,
-        commit: $commit,
-        attemptedStorePath: $attemptedStorePath,
-        previousStorePath: $previousStorePath,
-        reason: $reason,
-        rollbackStatus: $rollbackStatus,
-        failedAt: $failedAt
-      }
-    ' >"$state_tmp"
-  chmod 0600 "$state_tmp"
-  mv "$state_tmp" "$failed_state"
+  publish_state "$state_tmp" "$destination"
 }
 
 reboot_is_required() {
@@ -672,10 +792,7 @@ reboot_is_required() {
   [[ -z "$booted_components" || "$booted_components" != "$deployed_components" ]]
 }
 
-container_maintenance_lock="${CAZ_CONTAINER_MAINTENANCE_LOCK:-/run/caz-container-maintenance/lock}"
-exec 8>"$container_maintenance_lock"
-echo "==> Waiting for exclusive container maintenance access"
-flock --exclusive 8
+lock_container_maintenance
 
 # Builds can consume substantial space. Recheck after waiting for maintenance
 # access, before a backup stops services or adoption refreshes boot entries.
@@ -685,20 +802,21 @@ caz-check-deployment-storage
 current_store_path="$(readlink --canonicalize /run/current-system)"
 if [[ "$current_store_path" == "$built_store_path" ]]; then
   echo "==> ${release_tag} is already the running system; adopting it as verified"
-  notification_phase=activation
-  nix-env --profile /nix/var/nix/profiles/system --set "$built_store_path"
-  "${built_store_path}/bin/switch-to-configuration" boot
   notification_phase=health
   server_health \
     --wait "$health_wait_seconds" \
     --stabilize "$stabilization_seconds"
+  notification_phase=activation
+  nix-env --profile /nix/var/nix/profiles/system --set "$built_store_path"
+  "${built_store_path}/bin/switch-to-configuration" boot
 
   reboot_required=false
   if reboot_is_required; then
     reboot_required=true
   fi
   notification_phase=recording
-  write_accepted_state already-running "$current_store_path" "$reboot_required"
+  write_release_state already-running "$current_store_path" "$reboot_required" "$accepted_state"
+  rm -f -- "$failed_state"
   echo "Release ${release_tag} is verified, healthy, and recorded."
   exit 0
 fi
@@ -718,52 +836,17 @@ echo "==> Rechecking storage after the local backups"
 caz-check-deployment-storage
 
 previous_store_path="$current_store_path"
+previous_profile_path="$(readlink -e /nix/var/nix/profiles/system)"
 # Keep the rollback closure alive even after the system profile moves forward.
 nix-store \
   --realise "$previous_store_path" \
-  --add-root "${work_directory}/rollback-system" >/dev/null
-
-rollback_required=false
-
-rollback_deployment() {
-  local reason="$1"
-  rollback_status=failed
-
-  echo "Deployment failed: ${reason}" >&2
-  echo "==> Rolling back to ${previous_store_path}" >&2
-  write_failed_state "$reason" in-progress "$previous_store_path"
-
-  if ! nix-env --profile /nix/var/nix/profiles/system --set "$previous_store_path"; then
-    rollback_status=profile-restore-failed
-  elif ! "${previous_store_path}/bin/switch-to-configuration" switch; then
-    rollback_status=activation-failed
-  elif [[ "$(readlink --canonicalize /run/current-system)" != "$previous_store_path" ]]; then
-    rollback_status=store-path-mismatch
-  elif ! server_health \
-    --wait "$health_wait_seconds" \
-    --stabilize "$stabilization_seconds"; then
-    rollback_status=health-check-failed
-  else
-    rollback_status=succeeded
-  fi
-
-  write_failed_state "$reason" "$rollback_status" "$previous_store_path"
-  [[ "$rollback_status" == succeeded ]]
-}
-
-notify_rollback() {
-  if [[ "$rollback_status" == succeeded ]]; then
-    notify_release rolled-back
-  else
-    notify_release rollback-failed
-  fi
-}
+  --add-root "$rollback_root" >/dev/null
 
 cleanup_after_activation() {
   local exit_status=$?
   trap - EXIT INT TERM
 
-  if [[ "$rollback_required" == true ]]; then
+  if [[ -f "$pending_state" ]]; then
     rollback_deployment "the deployment supervisor exited unexpectedly" || true
     notify_rollback
   fi
@@ -779,18 +862,16 @@ fail_and_rollback() {
   else
     echo "CRITICAL: automatic rollback did not restore a healthy server." >&2
   fi
-  rollback_required=false
   notify_rollback
   trap - EXIT INT TERM
   rm -rf -- "$work_directory"
   exit 1
 }
 
-trap - EXIT
+write_release_state pending "$previous_store_path" false "$pending_state"
 trap cleanup_after_activation EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
-rollback_required=true
 
 echo "==> Activating verified release ${release_tag}"
 notification_phase=activation
@@ -816,9 +897,13 @@ if reboot_is_required; then
   reboot_required=true
 fi
 notification_phase=recording
-write_accepted_state deployed "$previous_store_path" "$reboot_required"
-
-rollback_required=false
+# Renaming pending to accepted commits the health decision and removes the
+# rollback obligation in one operation, even on a forced retry of the same ID.
+write_release_state deployed "$previous_store_path" "$reboot_required" "$pending_state"
+# Clear any superseded quarantine while recovery can still recreate it.
+rm -f -- "$failed_state"
+publish_state "$pending_state" "$accepted_state"
+rm -f -- "$rollback_root"
 notify_release deployed
 trap - EXIT INT TERM
 rm -rf -- "$work_directory"
