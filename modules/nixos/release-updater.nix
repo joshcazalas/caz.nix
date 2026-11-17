@@ -95,9 +95,7 @@ let
     ++ optionals config.services.grafana.enable [
       "grafana=200=http://127.0.0.1:${toString config.services.grafana.settings.server.http_port}/api/health"
     ]
-    ++ optionals homeAssistantEnabled [
-      "home-assistant=200,302=https://${config.homelab.homeAssistant.https.hostName}:${toString config.homelab.homeAssistant.https.port}/"
-    ]
+    ++ optionals homeAssistantEnabled [ "home-assistant=200,302=http://127.0.0.1:8123/" ]
     ++ optionals config.homelab.immich.enable [ "immich=200=http://127.0.0.1:2283/api/server/ping" ]
     ++ optionals config.services.auxide.enable [ "auxide=200=http://127.0.0.1:9090/health/ready" ]
     # The unit check above proves systemd still has it; this proves the token
