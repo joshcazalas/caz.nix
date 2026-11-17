@@ -33,12 +33,12 @@ def reconcile(config, plan):
     if inside:
         raise ValueError("Unclosed managed hostname rule block")
     config["user_rules"] = rules + [BEGIN, *plan["rules"], END]
-    # Global rewrites for these exact names would take precedence over client rules.
-    managed = {name.rstrip(".").lower() for name in plan["hostnames"]}
+    # A global rewrite for this exact name would take precedence over the
+    # client-scoped rules. Public names and every other rewrite are retained.
     filtering = config.setdefault("filtering", {})
     filtering["rewrites"] = [
         item for item in filtering.get("rewrites", [])
-        if item["domain"].rstrip(".").lower() not in managed
+        if item["domain"].rstrip(".").lower() != plan["hostname"].lower()
     ]
     return config
 
