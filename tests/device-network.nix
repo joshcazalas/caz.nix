@@ -8,7 +8,7 @@ let
       "/bin/sh"
       "-c"
       # Handle SIGTERM as PID 1 instead of waiting for Docker's stop timeout.
-      "trap 'exit 0' TERM INT; while :; do sleep 1 & wait $!; done"
+      "trap 'if test -w /state; then echo clean > /state/checkpoint; fi; exit 0' TERM INT; while :; do sleep 1 & wait $!; done"
     ];
   };
   dhcpHook = pkgs.writeShellScript "test-device-dhcp" ''
@@ -107,6 +107,18 @@ pkgs.testers.runNixOSTest {
         wantedBy = [ "multi-user.target" ];
         serviceConfig.ExecStart = "${pkgs.python3}/bin/python -m http.server 18080 --bind 0.0.0.0";
       };
+      # The backup script verifies a fresh game archive before pausing services.
+      systemd.services.minecraft-backup = {
+        serviceConfig.Type = "oneshot";
+        path = with pkgs; [
+          gnutar
+          zstd
+        ];
+        script = ''
+          install -d /var/backup/minecraft
+          tar --zstd -cf "/var/backup/minecraft/minecraft-$INVOCATION_ID.tar.zst" -T /dev/null
+        '';
+      };
       systemd.services.test-private-config = {
         wantedBy = [ "multi-user.target" ];
         before = [
@@ -126,8 +138,12 @@ pkgs.testers.runNixOSTest {
           install -d -m 0700 /var/lib/homelab/device-network
           install -m 0600 ${privateConfig} /var/lib/homelab/device-network/network.json
           install -d -m 0700 /var/lib/homelab/local-integrations
+          install -d -m 0700 /var/lib/homelab/local-integrations/images
+          install -m 0600 /dev/null /var/lib/homelab/local-integrations/credential
+          echo fixture-value > /var/lib/homelab/local-integrations/credential
           docker load --input ${integrationImage}
           image=$(docker image inspect local-integration-test:fixture --format '{{.Id}}')
+          cp ${integrationImage} "/var/lib/homelab/local-integrations/images/''${image#sha256:}.tar"
           python - "$image" <<'PY'
           import json, os, sys
           path = "/var/lib/homelab/local-integrations/compose.yaml"
@@ -135,9 +151,11 @@ pkgs.testers.runNixOSTest {
             "services": {"test": {
               "image": sys.argv[1], "user": "1000:1000", "read_only": True,
               "cap_drop": ["ALL"], "security_opt": ["no-new-privileges:true"],
-              "dns": ["127.0.0.1"], "networks": ["private"]
+              "dns": ["127.0.0.1"], "networks": ["private"],
+              "volumes": ["state:/state", "./credential:/app/credential:ro"]
             }},
-            "networks": {"private": {"internal": True, "enable_ipv6": False}}
+            "networks": {"private": {"internal": True, "enable_ipv6": False}},
+            "volumes": {"state": {"name": "fixture-app-data"}}
           }
           with open(path, "w") as stream:
               json.dump(config, stream)
@@ -288,6 +306,44 @@ pkgs.testers.runNixOSTest {
         server.succeed(f"docker network disconnect bridge {container}")
         server.succeed("caz-local-integrations health")
         server.succeed("systemctl restart local-integrations.service")
+        server.wait_until_succeeds("caz-local-integrations health")
+
+    with subtest("Restore private configuration and a freshly created Compose volume"):
+        project = "/var/lib/homelab/local-integrations"
+        config = "/var/lib/homelab/device-network/network.json"
+        volume = server.succeed("docker volume inspect --format '{{.Mountpoint}}' fixture-app-data").strip()
+        compose = f"docker compose --project-name local-integrations --file {project}/compose.yaml"
+        backup = ("CAZ_CONTAINER_MAINTENANCE_LOCK_HELD=true CAZ_BACKUP_PAUSE_UNITS=local-integrations.service "
+                  "CAZ_BACKUP_DEVICE_NETWORK_COMMAND=caz-device-network "
+                  "CAZ_BACKUP_LOCAL_INTEGRATIONS_COMMAND=caz-local-integrations "
+                  "PATH=${pkgs.zstd}/bin:$PATH bash ${../scripts/pre-deploy-backup.sh}")
+        server.succeed(f"chown 1000:1000 {volume}", f"docker exec {container} sh -c 'echo saved > /state/data'")
+        server.succeed(backup)
+        server.wait_until_succeeds("caz-local-integrations health")
+        archive = server.succeed("ls /var/backup/caz-release-updater/state-*.tar.zst").strip()
+        server.succeed(f"test $(stat -c %a {archive}) = 600", "caz-device-network health")
+        extract = f"PATH=${pkgs.zstd}/bin:$PATH tar --zstd --numeric-owner --acls --xattrs -xf {archive} -C /"
+        server.succeed("systemctl stop local-integrations.service", f"{compose} down --volumes",
+                       f"test ! -d {volume}", f"mv {project} {project}.old", f"mv {config} {config}.old")
+        server.succeed(f"{extract} {config[1:]} {project[1:]}",
+                       f"cmp {config} {config}.old && cmp {project}/credential {project}.old/credential",
+                       f"test $(stat -c %a {project}/compose.yaml) = 600", "caz-device-network validate")
+        # Restore the Docker metadata using Compose, then restore the volume contents.
+        server.succeed(f"docker load --input {project}/images/*.tar", f"{compose} create --pull never --no-build",
+                       f"test ! -e {volume}/data", f"{extract} {volume[1:]}",
+                       f"test $(stat -c %u {volume}/data) = 1000", f"grep -qx clean {volume}/checkpoint",
+                       "systemctl start local-integrations.service")
+        server.wait_until_succeeds("caz-local-integrations health")
+        server.succeed(f"{compose} exec -T test grep -qx saved /state/data")
+
+        # A missing ordinary volume must not publish an apparently complete archive
+        # or bring an intentionally stopped project back online.
+        server.succeed("systemctl stop local-integrations.service", f"{compose} down --volumes")
+        server.fail(backup)
+        server.succeed(f"test \"$(ls /var/backup/caz-release-updater/state-*)\" = {archive}",
+                       "test -z \"$(find /var/backup/caz-release-updater -name '.*' -type f)\"")
+        server.fail("systemctl is-active --quiet local-integrations.service")
+        server.succeed("systemctl start local-integrations.service")
         server.wait_until_succeeds("caz-local-integrations health")
 
     with subtest("Stopping the target restores the dedicated interface safely"):

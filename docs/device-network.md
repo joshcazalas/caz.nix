@@ -126,7 +126,7 @@ Keep SSIDs, client addresses, hardware identifiers, appliance profiles and room
 assignments in those private runtime files. Public Nix should describe reusable
 mechanisms and use synthetic test fixtures. The private JSON remains a
 declarative input without making the household inventory public or copying it
-into the world-readable Nix store. Back it up privately before applying changes.
+into the world-readable Nix store.
 
 `homelab.localIntegrations` optionally manages those applications using the
 existing Docker runtime. Its root-owned `0600`
@@ -238,6 +238,46 @@ capabilities separately: a host-networked application with network administratio
 privileges can change networking regardless of these device-side restrictions.
 Remove privileges only after identifying and replacing the functionality that
 requires them, such as local Bluetooth management.
+
+## Backup and recovery
+
+The pre-deployment state archive includes the configured network JSON and, for
+Wi-Fi, the existing file named by `wifi.passphraseFile`. The device network
+stays up while these inputs are read. Runtime sockets, generated daemon files
+and the namespace are recreated by the service.
+
+The updater stops an active `local-integrations.service` while archiving the
+private project, including its Compose file, credentials, bind-mounted state
+and provisioned image archives. Ordinary named volumes are stored at their
+Docker-reported data paths. File-backed Compose configs, secrets and required
+env files must be available at backup time. Keep any included Compose fragments
+and locally built image archives with the private project. A missing declared
+volume or a volume still in use aborts the backup. The backup and its secondary
+copy contain private credentials and are readable only by root.
+
+To recover on a clean host with Docker running:
+
+1. Keep `local-integrations.service` stopped. Inspect the archive privately with
+   `sudo tar --zstd -tf ARCHIVE`. Restore the network JSON, its passphrase file
+   if present, the private project directory, and any separately archived
+   Compose input files to their configured paths. Create the network config
+   directory with mode `0700`. Select only the required members, for example
+   `sudo tar --zstd --acls --xattrs --numeric-owner -xf ARCHIVE -C / MEMBER...`.
+2. Load the project's pinned images using `sudo docker load --input IMAGE.tar`
+   for each image archive. If an image was provisioned only in the old Docker
+   daemon, supply that same image digest or ID from its original source.
+3. In the restored project directory, run
+   `sudo docker compose --project-name local-integrations --file compose.yaml create --no-build --pull never`.
+   Compose creates containers and volume metadata while the applications are
+   stopped. For each named volume, get its destination with
+   `sudo docker volume inspect --format '{{.Mountpoint}}' VOLUME_NAME`.
+   On a host with the same Docker storage layout, extract that directory's
+   archive member using the command in step 1. If the Docker data root changed,
+   extract to a root-only staging directory and copy the saved directory's
+   contents into the new mountpoint with `sudo cp -a SAVED_DATA/. MOUNTPOINT/`.
+4. Run `sudo caz-device-network validate`, `sudo systemctl daemon-reload`,
+   and `sudo systemctl start device-network.target local-integrations.service`.
+   Verify with `sudo caz-device-network health` and `sudo caz-local-integrations health`.
 
 References: [Linux network namespaces](https://man7.org/linux/man-pages/man7/network_namespaces.7.html),
 [systemd namespace execution](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html),

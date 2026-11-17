@@ -71,6 +71,13 @@ the `var/lib/AdGuardHome` symlink cannot restore AdGuard's data. After first
 activating the corrected generation, run `sudo caz-pre-deployment-backup`
 to create a fresh archive.
 
+When enabled, the device network and local integrations are covered by the same
+state archive. The access point keeps serving clients while the updater reads
+its configured inputs. Local integration containers pause while the updater
+archives their project and named volumes. After deploying the first release
+with this coverage, run `sudo caz-pre-deployment-backup` to take the first
+such snapshot. See [private integration recovery](device-network.md#backup-and-recovery).
+
 After activation it waits up to ten minutes for these checks, then requires
 them to remain healthy for another minute:
 
