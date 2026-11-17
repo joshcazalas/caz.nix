@@ -317,7 +317,7 @@ pkgs.testers.runNixOSTest {
                   "CAZ_BACKUP_DEVICE_NETWORK_COMMAND=caz-device-network "
                   "CAZ_BACKUP_LOCAL_INTEGRATIONS_COMMAND=caz-local-integrations "
                   "PATH=${pkgs.zstd}/bin:$PATH bash ${../scripts/pre-deploy-backup.sh}")
-        server.succeed(f"chown 1000:1000 {volume}", f"docker exec {container} sh -c 'echo saved > /state/data'")
+        server.succeed(f"chown 1000:1000 {volume}", f"{compose} exec -T test sh -c 'echo saved > /state/data'")
         server.succeed(backup)
         server.wait_until_succeeds("caz-local-integrations health")
         archive = server.succeed("ls /var/backup/caz-release-updater/state-*.tar.zst").strip()

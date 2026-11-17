@@ -255,7 +255,7 @@ and locally built image archives with the private project. A missing declared
 volume or a volume still in use aborts the backup. The backup and its secondary
 copy contain private credentials and are readable only by root.
 
-To recover on a clean host with Docker running:
+For recovery, start Docker on a clean host and use the following procedure.
 
 1. Keep `local-integrations.service` stopped. Inspect the archive privately with
    `sudo tar --zstd -tf ARCHIVE`. Restore the network JSON, its passphrase file
