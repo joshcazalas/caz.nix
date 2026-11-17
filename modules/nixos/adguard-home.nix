@@ -6,8 +6,7 @@
   ...
 }:
 let
-  # Managed public names keep their existing LAN answers. Only the server's
-  # short name varies by client, using the registered household VPN peers.
+  # Managed public names keep their existing LAN answers.
   localRewrites = map (domain: {
     inherit domain;
     answer = settings.server.lanAddress;
@@ -18,25 +17,32 @@ let
     map (peer: peer.address) (homeAccess.administrator.peers ++ homeAccess.resident.peers)
   );
   gatewayAddress = lib.head (lib.splitString "/" homeAccess.address);
-  # Match only the bare hostname. Keep these answers mutually exclusive: two
-  # matching dnsrewrite rules would return both addresses, breaking bookmarks.
-  hostnameRule = "|${settings.server.hostName}|$dnsrewrite=NOERROR;A;";
-  hostnameRules = [
-    (
-      hostnameRule
-      + settings.server.lanAddress
-      +
-        lib.optionalString (vpnClients != [ ])
-          ",client=${lib.concatMapStringsSep "|" (ip: "~${ip}") vpnClients}"
-    )
+  hostnames = [
+    settings.server.hostName
   ]
-  ++ lib.optional (vpnClients != [ ]) (
-    hostnameRule + gatewayAddress + ",client=${lib.concatStringsSep "|" vpnClients}"
-  );
+  ++ lib.optional config.homelab.homeAssistant.enable config.homelab.homeAssistant.https.hostName;
+  # Each exact name gets mutually exclusive answers so VPN clients can keep /32 routes.
+  rulesFor =
+    hostname:
+    let
+      prefix = "|${hostname}|$dnsrewrite=NOERROR;A;";
+    in
+    [
+      (
+        prefix
+        + settings.server.lanAddress
+        +
+          lib.optionalString (vpnClients != [ ])
+            ",client=${lib.concatMapStringsSep "|" (ip: "~${ip}") vpnClients}"
+      )
+    ]
+    ++ lib.optional (vpnClients != [ ]) (
+      prefix + gatewayAddress + ",client=${lib.concatStringsSep "|" vpnClients}"
+    );
   hostnamePlan = pkgs.writeText "adguard-hostname-plan.json" (
     builtins.toJSON {
-      hostname = settings.server.hostName;
-      rules = hostnameRules;
+      inherit hostnames;
+      rules = lib.concatMap rulesFor hostnames;
     }
   );
   python = pkgs.python3.withPackages (ps: [

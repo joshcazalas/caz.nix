@@ -12,6 +12,13 @@ let
         modules = [
           ../modules/nixos/adguard-home.nix
           ({ lib, ... }: {
+            options.homelab.homeAssistant = lib.mkOption {
+              type = lib.types.attrs;
+              default = {
+                enable = true;
+                https.hostName = "ha.example.test";
+              };
+            };
             options.homelab.cloudflareDdns.domains = lib.mkOption {
               type = lib.types.listOf lib.types.str;
               default = [ "service.example.test" ];
