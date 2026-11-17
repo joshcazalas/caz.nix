@@ -16,6 +16,7 @@ let
     ;
 
   loopback = "127.0.0.1";
+  textfileDirectory = "/var/lib/prometheus-node-exporter-text-files";
 
   # Auxide already publishes Prometheus exposition format on 9090, so the
   # Prometheus server itself must not take its default port on this host.
@@ -281,6 +282,14 @@ in
   };
 
   config = mkIf cfg.enable {
+    # ExecStartPost on this oneshot runs only after the archive job succeeds.
+    # The exporter can read its completion time without access to game backups.
+    systemd.tmpfiles.rules = lib.optional config.homelab.minecraft.enable "d ${textfileDirectory} 0755 root root -";
+    systemd.services.minecraft-backup.postStart = mkIf config.homelab.minecraft.enable ''
+      umask 022
+      ${pkgs.coreutils}/bin/touch ${textfileDirectory}/minecraft-backup.prom
+    '';
+
     assertions = [
       {
         assertion = cfg.diskCriticalPercent < cfg.diskWarnPercent;
@@ -470,7 +479,8 @@ in
             # slice, scope, and mount units add cardinality without adding
             # anything the filesystem collector does not already report.
             "--collector.systemd.unit-exclude=.+\\.(device|slice|scope|mount|swap)"
-          ];
+          ]
+          ++ lib.optional config.homelab.minecraft.enable "--collector.textfile.directory=${textfileDirectory}";
         };
 
         smartctl = {

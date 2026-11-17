@@ -417,54 +417,8 @@ in
           pkgs.zstd
         ];
         script = ''
-          set -Eeuo pipefail
-
-          if ! docker inspect minecraft >/dev/null 2>&1; then
-            echo "Minecraft container does not exist; skipping backup"
-            exit 0
-          fi
-
-          if test "$(docker inspect --format '{{.State.Running}}' minecraft)" != true; then
-            echo "Minecraft container is not running; skipping backup"
-            exit 0
-          fi
-
-          saving_disabled=false
-          temporary_archive=""
-          cleanup() {
-            if test "$saving_disabled" = true; then
-              docker exec minecraft rcon-cli save-on || true
-            fi
-            if test -n "$temporary_archive"; then
-              rm -f -- "$temporary_archive"
-            fi
-          }
-          trap cleanup EXIT
-
-          docker exec minecraft rcon-cli save-off
-          saving_disabled=true
-          docker exec minecraft rcon-cli save-all flush
-
-          temporary_archive="$(mktemp \
-            --tmpdir=${lib.escapeShellArg cfg.backupDir} \
-            --suffix=.tar.zst \
-            .minecraft-backup.XXXXXX)"
-          archive=${lib.escapeShellArg cfg.backupDir}/minecraft-$(date --utc +%Y%m%dT%H%M%SZ).tar.zst
-          tar --create --zstd --file "$temporary_archive" \
-            --exclude='./cache' \
-            --exclude='./crash-reports' \
-            --exclude='./logs' \
-            --directory ${lib.escapeShellArg cfg.dataDir} .
-
-          docker exec minecraft rcon-cli save-on
-          saving_disabled=false
-          mv -- "$temporary_archive" "$archive"
-          temporary_archive=""
-
-          find ${lib.escapeShellArg cfg.backupDir} \
-            -maxdepth 1 -type f -name 'minecraft-*.tar.zst' \
-            -mtime +${toString (cfg.backupRetentionDays - 1)} -delete
-          echo "Created $archive"
+          exec ${pkgs.bash}/bin/bash ${../../scripts/minecraft-backup.sh} \
+            ${lib.escapeShellArg cfg.dataDir} ${lib.escapeShellArg cfg.backupDir} ${toString cfg.backupRetentionDays}
         '';
         serviceConfig = {
           Type = "oneshot";

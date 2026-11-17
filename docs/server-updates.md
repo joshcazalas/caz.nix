@@ -47,8 +47,11 @@ policy gate.
 ## Local deployment transaction
 
 Before changing the NixOS profile, the updater requires the currently running
-server to be healthy. It creates a normal Minecraft world backup, briefly
-pauses the other mutable applications, and archives their state. Home Assistant
+server to be healthy. It starts the Minecraft backup service and verifies that
+a new, nonempty archive appeared in the configured Minecraft backup directory
+and that its compressed tar listing can be read.
+If that check fails, deployment stops before pausing other applications. On
+success it briefly pauses those applications and archives their state. Home Assistant
 is stopped during this short window so its SQLite database is clean in the
 archive. Three archives are retained under `/var/backup/caz-release-updater`;
 Minecraft retains its separate daily archives under `/var/backup/minecraft`.
