@@ -135,6 +135,7 @@ $wslLauncher = Get-Content -LiteralPath (Join-Path $RepositoryRoot 'bootstrap\wi
 foreach ($required in @(
     'LizardByte.Sunshine',
     'MoonlightGameStreamingProject.Moonlight',
+    'StreetPea.chiaki-ng',
     'WireGuard.WireGuard',
     'origin_web_ui_allowed',
     'global_prep_cmd',

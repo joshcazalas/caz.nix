@@ -26,6 +26,7 @@ $HostDisplaySettings = @{
     dd_refresh_rate_option = 'auto'
     dd_config_revert_on_disconnect = 'enabled'
 }
+$ChiakiExecutable = Join-Path $env:ProgramFiles 'chiaki-ng\chiaki.exe'
 $MoonlightExecutable = Join-Path $env:ProgramFiles 'Moonlight Game Streaming\Moonlight.exe'
 $WireGuardExecutable = Join-Path $env:ProgramFiles 'WireGuard\wireguard.exe'
 $LegacyTunnelService = 'WireGuardTunnel$game-stream'
@@ -517,6 +518,9 @@ function Get-ConfigurationFindings {
         }
     }
     else {
+        if (-not (Test-Path -LiteralPath $ChiakiExecutable -PathType Leaf)) {
+            $findings.Add('chiaki-ng is not installed')
+        }
         if (-not (Test-Path -LiteralPath $MoonlightExecutable -PathType Leaf)) {
             $findings.Add('Moonlight is not installed')
         }
@@ -580,6 +584,10 @@ function Invoke-Main {
                 -WinGet $winGet `
                 -Id WireGuard.WireGuard `
                 -ExpectedExecutable $WireGuardExecutable
+            Install-PackageIfMissing `
+                -WinGet $winGet `
+                -Id StreetPea.chiaki-ng `
+                -ExpectedExecutable $ChiakiExecutable
             Set-ClientBaseline
         }
     }

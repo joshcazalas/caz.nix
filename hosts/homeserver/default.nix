@@ -85,14 +85,13 @@ in
     ++ lib.optionals settings.public.bluemap [ "map.${settings.public.domain}" ];
   };
 
-  # The game-stream VPN is a client-to-site gateway. It forwards only Sunshine
-  # traffic to the host's reserved LAN address and remains isolated from a
-  # future administrative/home VPN.
+  # Both streaming clients share this gateway and use exact destination routes.
   homelab.gameStreamGateway = {
     enable = true;
     listenPort = 51820;
     # The Sunshine host is a separate Windows machine, not the homeserver.
     hostAddress = "192.168.1.127";
+    ps5Address = "192.168.1.128";
     wakeOnLan = {
       enable = true;
       interface = settings.server.lanInterface;

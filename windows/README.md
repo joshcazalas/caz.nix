@@ -93,7 +93,7 @@ focused game-stream roles use the same WSL entry point:
 
 The host installs Sunshine and applies its private-LAN-only policy. Remote
 traffic arrives from the NixOS gateway's LAN address, so the host does not need
-WireGuard. The client installs Moonlight and WireGuard without declaring a
+WireGuard. The client installs Moonlight, chiaki-ng, and WireGuard without declaring a
 client firewall policy. Importing the client tunnel remains an explicit one-time
 operation in the official WireGuard app.
 
@@ -103,7 +103,7 @@ or check this profile. See [`../docs/game-streaming.md`](../docs/game-streaming.
 for the credential-retirement checklist.
 
 Approve the single Windows UAC prompt for a game-stream apply or check. The
-launcher stages only its focused PowerShell file locally for elevation; it does
+launcher stages its game-stream script and shared PowerShell helper locally for elevation; it does
 not copy the repository or calculate source provenance.
 
 The direct Windows PowerShell entry point remains a fallback:
