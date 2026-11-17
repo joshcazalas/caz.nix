@@ -37,6 +37,7 @@ let
   prepare = pkgs.writeShellApplication {
     name = "caz-prepare-home-assistant";
     text = ''
+      export PYTHONPATH=${../../packages/private-file}
       exec ${lib.getExe pkgs.python3} ${../../scripts/prepare-ha-private.py} \
         --private-dir ${lib.escapeShellArg cfg.privateConfigDir} \
         --runtime-dir ${runtime} ${lib.optionalString cfg.serialDevice.enable "--serial"}

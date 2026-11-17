@@ -22,6 +22,7 @@ let
     ];
     text = ''
       umask 077
+      export PYTHONPATH=${../../packages/private-file}
       exec ${lib.getExe pkgs.python3} ${../../packages/device-network/device-network.py} --config ${lib.escapeShellArg cfg.configFile} "$@"
     '';
   };

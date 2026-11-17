@@ -17,6 +17,8 @@ import stat
 import subprocess
 import sys
 
+from private_file import PrivateFileError, read_private
+
 NAMESPACE = "devices"
 RUNTIME = Path("/run/caz-device-network")
 NAME = re.compile(r"[a-z][a-z0-9-]{0,31}\Z")
@@ -144,18 +146,6 @@ def validate(config):
                 normalized = [device_address(source, address) for source in sources]
                 require(len(set(normalized)) == len(normalized), "Duplicate source address")
     return config
-
-
-def read_private(path):
-    # Avoid following a final symlink; runtime configuration is a root-owned file,
-    # not an imported Nix path or a user-writable pointer.
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-    with os.fdopen(fd) as stream:
-        info = os.fstat(stream.fileno())
-        require(stat.S_ISREG(info.st_mode) and info.st_uid == 0 and stat.S_IMODE(info.st_mode) == 0o600,
-                "Private configuration files must be regular root-owned mode 0600 files")
-        require(info.st_size <= 65536, "Configuration file is too large")
-        return stream.read()
 
 
 def load(path):
@@ -468,7 +458,7 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except ConfigurationError as error:
+    except (ConfigurationError, PrivateFileError) as error:
         print(f"Device network: {error}", file=sys.stderr)
         sys.exit(1)
     except (ValueError, KeyError, TypeError, OSError, subprocess.CalledProcessError):
