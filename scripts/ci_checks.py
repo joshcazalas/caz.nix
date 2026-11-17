@@ -69,7 +69,7 @@ RULES = [
     (("tests/ha-bluetooth.nix", "tests/ha_bluetooth_probe.py"), ("ha-bluetooth",)),
     (("tests/device-network.nix",), ("device-network",)),
     (("tests/test_device_network.py", "tests/test_local_integrations.py"), ("device-network-config",)),
-    (("tests/adguard-home.nix", "tests/adguard_home.py", "tests/test_ha_private.py",
+    (("tests/pre-deploy-backup.sh", "tests/adguard-home.nix", "tests/adguard_home.py", "tests/test_ha_private.py",
       "tests/ha_integrations.py", "tests/container_pins.py",
       "tests/test_schlage_local.py", "tests/test_secondary_backup.py", "tests/test_deployment_storage.py",
       "tests/test_release_downloads.py", "tests/test_release_notifications.py", "tests/test_server_health.py",

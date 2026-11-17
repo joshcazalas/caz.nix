@@ -3,6 +3,7 @@
 set -Eeuo pipefail
 
 backup_directory="${CAZ_BACKUP_DIRECTORY:-/var/backup/caz-release-updater}"
+state_root="${CAZ_BACKUP_STATE_ROOT:-/}"
 retention_count="${CAZ_BACKUP_RETENTION_COUNT:-3}"
 
 if (( EUID != 0 )); then
@@ -67,9 +68,23 @@ chmod 0700 "$backup_directory"
 
 declare -a state_paths=()
 for path in ${CAZ_BACKUP_STATE_PATHS:-}; do
-  if [[ -e "/$path" ]]; then
-    state_paths+=("$path")
+  if [[ "$path" == var/lib/AdGuardHome ]]; then
+    # DynamicUser exposes the state through a symlink. Archive its actual
+    # directory while leaving links inside application data untouched.
+    path="$(realpath -e --relative-to="$state_root" -- "$state_root/$path")"
+    case "$path" in
+      var/lib/AdGuardHome|var/lib/private/AdGuardHome) ;;
+      *) echo "Unexpected AdGuard Home state directory; refusing backup." >&2; exit 1 ;;
+    esac
+    config_file="$state_root/$path/AdGuardHome.yaml"
+    if [[ ! -f "$config_file" || -L "$config_file" || ! -s "$config_file" ]]; then
+      echo "AdGuard Home's configuration is missing, empty, or not a regular file; refusing backup." >&2
+      exit 1
+    fi
+  elif [[ ! -e "$state_root/$path" ]]; then
+    continue
   fi
+  state_paths+=("$path")
 done
 
 if (( ${#state_paths[@]} == 0 )); then
@@ -92,7 +107,7 @@ tar \
   --exclude='var/lib/jellyfin/log' \
   --exclude='var/lib/samba/private/msg.sock' \
   --exclude='var/lib/samba/winbindd_privileged/pipe' \
-  --directory / \
+  --directory "$state_root" \
   "${state_paths[@]}"
 chmod 0600 "$temporary_archive"
 mv -- "$temporary_archive" "$archive"

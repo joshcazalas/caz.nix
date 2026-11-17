@@ -248,8 +248,10 @@
               nativeBuildInputs = [
                 pkgs.python3
                 pkgs.bash
+                pkgs.fakeroot
                 pkgs.rsync
                 pkgs.util-linux
+                pkgs.zstd
               ];
             }
             ''
@@ -261,6 +263,7 @@
               cp ${./tests/test_secondary_backup.py} tests/test_secondary_backup.py
               python -m unittest discover -s tests -p 'test_deployment_storage.py' -v
               python -m unittest discover -s tests -p 'test_secondary_backup.py' -v
+              fakeroot bash ${./tests/pre-deploy-backup.sh} ${./scripts/pre-deploy-backup.sh}
               touch "$out"
             '';
         deployment-storage-integration = import ./tests/deployment-storage.nix { inherit pkgs; };
