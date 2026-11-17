@@ -6,24 +6,48 @@ version and linux/amd64 digest in `modules/nixos/home-assistant.nix`; updates
 therefore arrive as reviewed releases instead of changing themselves at
 runtime.
 
-The container uses host networking because device discovery depends on LAN
-broadcast and multicast traffic. It does not publish a Docker port: the NixOS
-firewall accepts TCP 8123 only from private IPv4 sources. Do not forward 8123
-on the router.
+## Connecting from home and away
 
-## First start
+Open **`https://ha.joshcaz.com:8443`** in a browser or the Home Assistant
+Companion app. On home Wi-Fi, AdGuard resolves the name to the server's LAN
+address. Away from home, connect to `wg-home`. The tunnel's AdGuard resolver
+returns the gateway address for that same name. Both paths support the
+dashboard and the administrator's **Lock codes** panel.
 
-The first activation downloads the pinned image and may take several minutes.
-Once the release health gate succeeds, open this from a LAN device:
+Nginx terminates TLS on private TCP 8443 and passes HTTP and WebSocket traffic
+to HA on loopback. The host firewall blocks direct network access to HA's
+HTTP port 8123. The container uses host networking for LAN discovery. Keep
+8123 and 8443 off the router's port-forward list. The certificate uses a
+Cloudflare DNS-01 challenge, so the HA name needs no public A or AAAA record.
 
-```text
-http://homeserver:8123
-```
+## First start or upgrade from HTTP
 
-Create the owner account, confirm the home location, time zone, and unit
-system, and review every automatically discovered integration before accepting
-it. The owner password belongs in a password manager; it is mutable application
-state and must not be added to this repository or sops secrets.
+1. Before deploying, check that the existing Cloudflare token
+   has **Zone / Zone / Read** as well as **Zone / DNS / Edit** on the
+   managed zones. The certificate service reads the SOPS-managed token on
+   the server. [Cloudflare certificate permissions](https://go-acme.github.io/lego/dns/cloudflare/)
+2. From an administrator workstation on the LAN, run
+   `ssh -N -L 18123:127.0.0.1:8123 homeserver` and visit
+   `http://127.0.0.1:18123`. On a fresh installation, wait for the pinned HA
+   container to start, create the owner account, save the password in a
+   password manager, and confirm the home location, time zone and units.
+   Review discovered integrations before accepting them.
+3. Under **Settings > System > Network > HTTP server**, enable **Trust
+   X-Forwarded-For** and add **`127.0.0.1`** to **Trusted proxies**. Save,
+   reconnect through the SSH forward after HA restarts, and confirm the
+   settings within five minutes. On existing installations, complete this
+   before deploying. [Home Assistant HTTP settings](https://www.home-assistant.io/integrations/http/)
+4. After activation, open `https://ha.joshcaz.com:8443` on home Wi-Fi with
+   WireGuard off. Set the local network URL in HA's network settings and any
+   server URLs saved in the Companion app to that address. Update dashboard
+   bookmarks and any clients that call the old HTTP endpoint. Test the same
+   URL on mobile data with `wg-home` connected.
+
+The release health check requests the frontend over verified HTTPS through
+the proxy. If it fails during rollout, inspect `nginx.service` and
+`acme-ha.joshcaz.com.service`. A valid certificate followed by HTTP 400 can
+indicate that HA still needs the loopback trusted-proxy setting. The LAN
+SSH forward above also works for recovery.
 
 Home Assistant stores its configuration, UI-managed integrations,
 automations, credentials, history database, and local backups under:
@@ -191,16 +215,6 @@ not in the host's Nix configuration. Startup validates the mapping and creates
 `/run/caz-home-assistant/serial`; the container sees `/dev/ttyZigbee` with
 read/write access. No device-creation permission or directory-wide grant is used.
 Local Bluetooth has a separate opt-in with broader permissions, described below.
-
-For temporary remote administration, forward the private listener over SSH:
-
-```bash
-ssh -L 8123:127.0.0.1:8123 joshcaz@ssh.joshcaz.com
-```
-
-Then browse `http://127.0.0.1:8123`. A future always-on mobile setup should use
-a reviewed VPN or Home Assistant Cloud design rather than a raw router port
-forward.
 
 ## Bluetooth setup
 

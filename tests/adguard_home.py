@@ -95,15 +95,16 @@ def exercise(directory, config, upstream_port, expected, username, password):
             for transport in ("udp", "tcp"):
                 # Alternate clients repeatedly to catch cross-client cache leaks.
                 for source, address in list(expected.items()) * 2:
-                    for name in ("server", "SERVER."):
+                    for name in ("server", "SERVER.", "ha.example.test", "HA.EXAMPLE.TEST."):
                         result = lookup(dns_port, name, source, transport)
                         assert result == [address], (source, name, result, address)
-                    assert lookup(dns_port, "server", source, transport, "AAAA") == []
+                        assert lookup(dns_port, name, source, transport, "AAAA") == []
                     for name, answer in (
                         ("service.example.test", "192.0.2.10"),
                         ("custom.example.test", "192.0.2.30"),
                         ("unmapped.example.test", "192.0.2.20"),
                         ("server.example.test", "192.0.2.20"),
+                        ("sub.ha.example.test", "192.0.2.20"),
                         ("sub.server", "192.0.2.20"),
                         ("otherserver", "192.0.2.20"),
                         ("localhost", "192.0.2.20"),
@@ -153,7 +154,8 @@ def main():
             users = config["users"]
             config["user_rules"].insert(0, CUSTOM_RULE)
             # Exercise migration from the previous global hostname rewrite.
-            config["filtering"]["rewrites"].append({"domain": "SERVER.", "answer": "192.0.2.10", "enabled": True})
+            for domain in ("SERVER.", "HA.EXAMPLE.TEST."):
+                config["filtering"]["rewrites"].append({"domain": domain, "answer": "192.0.2.10", "enabled": True})
             config["filtering"]["protection_disabled_until"] = TIMESTAMP
             config["querylog"] = {"enabled": False}
             path.write_text(json.dumps(config))
@@ -173,7 +175,7 @@ def main():
                 # safe_load may parse timestamps; inspect the serialized representation too.
                 if iteration == 0:
                     assert "2020-01-01T00:00:00" in path.read_text()
-                assert not any(item["domain"].lower().rstrip(".") == "server"
+                assert not any(item["domain"].lower().rstrip(".") in {"server", "ha.example.test"}
                                for item in config["filtering"]["rewrites"])
                 # Keep the test's JSON serializer independent of YAML datetime objects.
                 config["filtering"]["protection_disabled_until"] = TIMESTAMP

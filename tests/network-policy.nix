@@ -35,6 +35,13 @@ let
     time.sleep(3600)
   '';
 
+  haHost = "ha.example.test";
+  haCert = pkgs.runCommand "test-ha-certificate" { nativeBuildInputs = [ pkgs.openssl ]; } ''
+    mkdir "$out"
+    openssl req -x509 -newkey rsa:2048 -nodes -not_before 20200101000000Z -not_after 21200101000000Z -subj /CN=${haHost} \
+      -addext subjectAltName=DNS:${haHost} -keyout "$out/key.pem" -out "$out/cert.pem"
+  '';
+
   settings.server.lanAddress = serverAddress;
   settings.public = {
     ssh = true;
@@ -100,6 +107,7 @@ pkgs.testers.runNixOSTest {
   nodes = {
     server = {
       imports = [
+        ../modules/nixos/home-assistant-https.nix
         ../modules/nixos/network-policy.nix
         commonNode
       ];
@@ -110,6 +118,29 @@ pkgs.testers.runNixOSTest {
       systemd.services.network-addresses-eth1 = {
         before = [ "network-online.target" ];
         wantedBy = [ "network-online.target" ];
+      };
+      homelab.homeAssistant = {
+        enable = true;
+        https.hostName = haHost;
+      };
+      services.nginx.virtualHosts = {
+        ${haHost} = {
+          useACMEHost = pkgs.lib.mkForce null;
+          sslCertificate = "${haCert}/cert.pem";
+          sslCertificateKey = "${haCert}/key.pem";
+        };
+        # Simulate HA listening on all interfaces, including before an operator
+        # has restricted HA's own listen address. Echo the headers HA receives.
+        "ha-backend" = {
+          listen = [
+            {
+              addr = "0.0.0.0";
+              port = 8123;
+            }
+          ];
+          locations."/".return =
+            ''200 "$http_host $http_x_forwarded_for $http_x_forwarded_proto $http_x_forwarded_host [$http_upgrade,$http_connection]"'';
+        };
       };
       networking.firewall.allowedTCPPorts = [ 22 ];
       services.openssh.enable = true;
@@ -177,6 +208,28 @@ pkgs.testers.runNixOSTest {
     server.wait_for_open_port(8088)
     assert "caz-website-updater.timer" not in server.succeed("systemctl list-timers --all")
     server.fail("test -e /var/lib/caz-website-release")
+
+    with subtest("Private HA HTTPS reaches the backend and preserves WebSocket upgrades"):
+        server.wait_for_unit("nginx.service")
+        url = "https://${haHost}:8443/"
+        proxy = "curl --fail --silent --show-error --resolve ${haHost}:8443:${serverAddress}"
+        headers = trusted.succeed(
+            f"{proxy} --http1.1 --cacert ${haCert}/cert.pem -H 'Upgrade: websocket' -H 'Connection: Upgrade' "
+            f"-H 'X-Forwarded-For: 192.0.2.1' -H 'X-Forwarded-Host: bogus.test' {url}"
+        )
+        assert headers.strip() == "${haHost}:8443 ${trustedAddress} https  [websocket,upgrade]", headers
+        trusted.fail(f"{proxy} {url}")  # The test certificate is outside the system trust store.
+        server.succeed(f"curl -fsS --cacert ${haCert}/cert.pem {url}")  # Release gate path.
+        server.succeed("curl -fsS http://127.0.0.1:8123/")
+        trusted.fail("nc -z -w 2 ${serverAddress} 8123")
+        trusted.fail("curl -fsS --max-time 3 http://${serverAddress}:8443/")
+        restricted.fail("nc -z -w 2 ${serverAddress} 8443")
+        # Verify the WAN-source path itself works before asserting that HA is private.
+        trusted.succeed("ip address add 192.0.2.44/32 dev eth1")
+        server.succeed("ip route add 192.0.2.44/32 dev eth1")
+        trusted.succeed("nc -z -s 192.0.2.44 -w 3 ${serverAddress} 22")
+        for port in (8123, 8443):
+            trusted.fail(f"nc -z -s 192.0.2.44 -w 3 ${serverAddress} {port}")
 
     with subtest("Public Caddy sites coexist with other loopback HTTPS listeners"):
         trusted.wait_for_unit("caddy.service")
@@ -261,11 +314,11 @@ pkgs.testers.runNixOSTest {
     )
     server.succeed(
       "iptables -w -C nixos-fw -s ${restrictedAddress}/32 -p tcp "
-      "-m multiport --dports 22,53,139,445,3000,5357,8096,8088 -j nixos-fw-log-refuse"
+      "-m multiport --dports 22,53,139,445,3000,5357,8096,8443,8088 -j nixos-fw-log-refuse"
     )
     server.succeed(
       "iptables -w -C nixos-fw ! -i 'wg+' -s 192.168.0.0/16 -p tcp "
-      "-m multiport --dports 22,53,139,445,3000,5357,8096,8088 -j nixos-fw-accept"
+      "-m multiport --dports 22,53,139,445,3000,5357,8096,8443,8088 -j nixos-fw-accept"
     )
 
     trusted.wait_until_succeeds("nc -z -w 2 ${serverAddress} 22")

@@ -40,7 +40,7 @@ homelab.homeAccessGateway = {
     gatewayTCPPorts = [
       22
       53
-      8123
+      8443
     ];
     gatewayUDPPorts = [ 53 ];
   };
@@ -54,7 +54,7 @@ homelab.homeAccessGateway = {
     ];
     gatewayTCPPorts = [
       53
-      8123
+      8443
     ];
     gatewayUDPPorts = [ 53 ];
   };
@@ -111,12 +111,11 @@ boundary, but narrow client routes prevent accidental traffic capture and make
 the intended scope visible on the device.
 
 Mobile clients should activate the tunnel on demand away from the trusted LAN.
-With the tunnel's `DNS = 10.77.1.1` setting, AdGuard answers the server's short
-hostname with the gateway address for registered household VPN peers. LAN and
-game-stream clients retain the LAN answer. The same
-`http://homeserver:8123/home/overview` bookmark therefore works on either path;
-no browser redirect or wider tunnel route is required. Managed public-name
-rewrites and existing custom AdGuard rules retain their behavior.
+With the tunnel's `DNS = 10.77.1.1` setting, AdGuard answers both
+`homeserver` and `ha.joshcaz.com` with the gateway address for registered
+household VPN peers. On home Wi-Fi, both names resolve to the LAN address.
+The same `https://ha.joshcaz.com:8443/home/overview` bookmark works on
+either path with the existing narrow tunnel routes.
 
 Windows clients must already use that tunnel DNS setting; a server change cannot
 configure DNS on the laptop. After switching networks, reconnect the tunnel and
@@ -125,9 +124,9 @@ active, `Resolve-DnsName homeserver -Server 10.77.1.1` should return `10.77.1.1`
 If that succeeds but the browser still cannot resolve the name, check whether
 Chrome's custom Secure DNS provider is bypassing the tunnel resolver.
 
-When the tunnel is active, `http://10.77.1.1:8123` also reaches Home Assistant and
-`ssh homeserver-vpn` reaches the administrative endpoint. The managed WSL SSH
-profile keeps the LAN alias separate from the remote WireGuard aliases. Consult
+Use the HA hostname so the browser can verify its certificate.
+With the tunnel active, `ssh homeserver-vpn` reaches the administrative
+endpoint. The managed WSL SSH profile keeps the LAN alias separate from the remote WireGuard aliases. Consult
 the client platform's private enrollment notes rather than publishing device
 inventory in this repository.
 
@@ -175,7 +174,8 @@ managed; this includes the website apex even while public serving is disabled.
 
 Create a Cloudflare API token with exactly:
 
-- permission `Zone` / `DNS` / `Edit`;
+- permissions `Zone` / `DNS` / `Edit` for record updates and `Zone` / `Zone` /
+  `Read` so the private Home Assistant certificate issuer can locate its zone;
 - zone resources `Include` / `Specific zone` for both `joshcaz.com` and
   `joshcazalas.com`;
 - no account permissions, global API key, or source-IP restriction.
@@ -335,7 +335,6 @@ ssh \
   -L 3000:127.0.0.1:3000 \
   -L 3001:127.0.0.1:3001 \
   -L 8096:127.0.0.1:8096 \
-  -L 8123:127.0.0.1:8123 \
   -L 9093:127.0.0.1:9093 \
   -L 9095:127.0.0.1:9095 \
   homeserver-vpn
@@ -343,8 +342,7 @@ ssh \
 
 While that session is open, the remote laptop can browse AdGuard at
 `http://127.0.0.1:3000`, Grafana at `http://127.0.0.1:3001`, Jellyfin's local
-endpoint at `http://127.0.0.1:8096`, Home Assistant at
-`http://127.0.0.1:8123`, Alertmanager at `http://127.0.0.1:9093`, and
+endpoint at `http://127.0.0.1:8096`, Alertmanager at `http://127.0.0.1:9093`, and
 Prometheus at `http://127.0.0.1:9095`. Do not forward Samba, AdGuard DNS, Home
 Assistant, or arbitrary administration ports through the router.
 

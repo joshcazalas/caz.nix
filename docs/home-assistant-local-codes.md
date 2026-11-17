@@ -11,6 +11,10 @@ reveal, adding and removing codes, and reading or changing the lock's native
 auto-lock timeout. Opening the panel does not change codes or settings. Device
 selection, labels, credentials and timeout choices remain runtime state.
 
+Open the panel through `https://ha.joshcaz.com:8443` on home Wi-Fi or over
+`wg-home` when away. PINs and the HA login session travel over TLS.
+[Home Assistant connection and setup](home-assistant.md#connecting-from-home-and-away)
+
 ## Behavior and limits
 
 - PINs are masked until explicitly revealed, then hidden after 20 seconds,

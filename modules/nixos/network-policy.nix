@@ -30,7 +30,7 @@ let
     5357 # Web Services Discovery
     8096 # Jellyfin HTTP
   ]
-  ++ optionals config.homelab.homeAssistant.enable [ 8123 ]
+  ++ optionals config.homelab.homeAssistant.enable [ config.homelab.homeAssistant.https.port ]
   ++ optionals config.homelab.immich.enable [ 2283 ]
   ++ optionals config.homelab.website.enable [ config.homelab.website.previewPort ];
 

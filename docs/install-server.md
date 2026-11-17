@@ -168,8 +168,9 @@ Then:
    client/router DNS, restoring AdGuard, and a single-client drill. If the
    server is down, clients otherwise lose DNS. A future secondary local resolver
    should carry the same declarative rewrites.
-5. Open Home Assistant on `http://homeserver:8123`, create its owner account,
-   and verify the location, time zone, and units. See `docs/home-assistant.md`.
+5. Create the Home Assistant owner account through the local SSH forward and
+   configure the loopback trusted proxy. Then open `https://ha.joshcaz.com:8443`
+   from the LAN. [Home Assistant first start](home-assistant.md#first-start-or-upgrade-from-http)
 6. Provision the monitoring secrets and the external dead man's switch before
    the first release that enables monitoring. See `docs/monitoring.md`; the
    build fails closed until those keys exist. Grafana is then reached over SSH
