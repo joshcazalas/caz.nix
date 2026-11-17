@@ -196,8 +196,10 @@ The live world and local backups intentionally use the healthy NVMe:
 
 Every night the backup service disables world saving, flushes current state,
 creates a compressed archive (excluding disposable logs, caches, and crash
-reports), re-enables saving even if the archive fails, and retains seven daily
-archives. Run and inspect it manually before inviting players:
+reports), re-enables saving even if the archive fails, and retains seven days of
+archives. If Docker cannot inspect the container or the game is stopped, the
+job fails. A successful run publishes a nonempty archive with a unique name
+after world saving has resumed. Run and inspect it manually before inviting players:
 
 ```bash
 sudo systemctl start minecraft-backup.service

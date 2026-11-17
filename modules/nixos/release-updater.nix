@@ -229,6 +229,7 @@ let
     ];
     text = ''
       export CAZ_BACKUP_DIRECTORY=/var/backup/caz-release-updater
+      export CAZ_MINECRAFT_BACKUP_DIR=${lib.escapeShellArg config.homelab.minecraft.backupDir}
       export CAZ_BACKUP_RETENTION_COUNT=${toString cfg.stateBackupRetention}
       export CAZ_BACKUP_FACTORIO=${lib.boolToString factorioEnabled}
       export CAZ_BACKUP_FACTORIO_COMMAND=/run/current-system/sw/bin/factorio-access

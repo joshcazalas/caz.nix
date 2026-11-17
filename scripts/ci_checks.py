@@ -57,7 +57,7 @@ RULES = [
     (("scripts/stage-server-release.sh", "scripts/check-deployment-storage.py"),
      ("homeserver", "deployment-storage-integration")),
     (("scripts/check-server-health.sh", "scripts/pre-deploy-backup.sh", "scripts/copy-secondary-backups.sh",
-      "scripts/release-notifications.py", "scripts/factorio-*.py", "scripts/migrate-ha-private.py",
+      "scripts/minecraft-backup.sh", "scripts/release-notifications.py", "scripts/factorio-*.py", "scripts/migrate-ha-private.py",
       "scripts/prepare-adguard-home.py"),
      ("homeserver",)),
     (("scripts/prepare-esphome-proxy.py",), ("homeserver", "esphome")),

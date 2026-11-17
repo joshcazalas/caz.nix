@@ -20,6 +20,8 @@ let
     time() - node_systemd_timer_last_trigger_seconds{name="${timer}"} > ${toString seconds}
   '';
 
+  minecraftBackupSuccess = ''node_textfile_mtime_seconds{job="node",file=~".*/minecraft-backup[.]prom"}'';
+
   alertGroups = {
     groups = [
       {
@@ -96,23 +98,6 @@ let
       {
         name = "scheduled-work";
         rules = [
-          {
-            alert = "MinecraftBackupStale";
-            expr = timerStale "minecraft-backup.timer" 172800;
-            for = "1h";
-            labels = {
-              severity = "critical";
-              component = "backup";
-            };
-            annotations = {
-              summary = "No Minecraft backup in over 48 hours";
-              description = ''
-                The daily backup timer has not fired. A backup that silently
-                stops running looks identical to a healthy system until a
-                restore is needed.
-              '';
-            };
-          }
           {
             alert = "ReleaseUpdaterStale";
             expr = timerStale "caz-release-updater.timer" 172800;
@@ -375,6 +360,39 @@ let
             annotations = {
               summary = "The kernel OOM killer terminated a process";
               description = "Something exceeded available memory in the last hour.";
+            };
+          }
+        ];
+      }
+    ]
+    ++ optionals config.homelab.minecraft.enable [
+      {
+        name = "minecraft-backups";
+        rules = [
+          {
+            alert = "MinecraftBackupStale";
+            expr = "time() - ${minecraftBackupSuccess} > 172800";
+            for = "1h";
+            labels = {
+              severity = "critical";
+              component = "backup";
+            };
+            annotations = {
+              summary = "No successful Minecraft backup in over 48 hours";
+              description = "Check minecraft-backup.service and the most recent completed archive.";
+            };
+          }
+          {
+            alert = "MinecraftBackupSuccessMissing";
+            expr = "up{job=\"node\"} == 1 unless on(job, instance) ${minecraftBackupSuccess}";
+            for = "48h";
+            labels = {
+              severity = "critical";
+              component = "backup";
+            };
+            annotations = {
+              summary = "Minecraft has reported no successful backup for 48 hours";
+              description = "Check minecraft-backup.service and the node exporter textfile collector.";
             };
           }
         ];

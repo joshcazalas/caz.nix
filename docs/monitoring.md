@@ -17,13 +17,19 @@ and checked by `promtool` while the system builds.
 | Concern | Signal |
 | --- | --- |
 | Service failure | `node_systemd_unit_state{state="failed"}` |
-| Backup failure | the same rule, plus a staleness check on `minecraft-backup.timer` |
+| Backup failure | Failed backup unit, last successful Minecraft archive older than 48 hours, or no success reported for 48 hours |
 | Deployment failure | the same rule, plus staleness on `caz-release-updater.timer` |
 | Disk space | free percentage, plus a 24-hour `predict_linear` forecast |
 | Disk health | `smartctl` health, self-test errors, reallocated sectors, NVMe spare and endurance |
 | Temperature | `node_hwmon_temp_celsius` and per-drive SMART temperature |
 | Memory | available memory and OOM kills |
 | Total host loss | the external dead man's switch below |
+
+After a successful Minecraft backup, systemd updates the persistent
+`minecraft-backup.prom` marker. The node exporter reports its modification
+time via the textfile collector. Scheduled and manual backups both count.
+Existing installations start reporting with their first successful backup
+after activation.
 
 Timer-triggered release updates also submit individual deployment events through
 the same email and Discord settings; manual runs stay quiet. A dedicated route

@@ -23,8 +23,35 @@ if [[ "${CAZ_CONTAINER_MAINTENANCE_LOCK_HELD:-false}" != true ]]; then
   flock --exclusive 7
 fi
 
+create_minecraft_backup() {
+  local directory="${CAZ_MINECRAFT_BACKUP_DIR:-/var/backup/minecraft}"
+  local archive attempt
+  local -A previous=()
+  for archive in "$directory"/minecraft-*.tar.zst; do
+    previous["$archive"]=1
+  done
+
+  # A timer job can already have published its archive when systemctl joins
+  # it. In that case the unit is idle after start returns, so request a new run.
+  for attempt in 1 2; do
+    systemctl start minecraft-backup.service
+    for archive in "$directory"/minecraft-*.tar.zst; do
+      if [[ -z "${previous[$archive]:-}" && -f "$archive" && ! -L "$archive" && -s "$archive" ]]; then
+        tar --list --zstd --file "$archive" >/dev/null
+        echo "Verified new Minecraft archive: $archive"
+        return 0
+      fi
+    done
+    if [[ "$attempt" == 1 ]]; then
+      echo "No new Minecraft archive after the unit completed; requesting a fresh run." >&2
+    fi
+  done
+  echo "Minecraft backup produced no new nonempty archive in $directory; stopping deployment." >&2
+  return 1
+}
+
 echo "==> Creating an application-consistent Minecraft backup"
-systemctl start minecraft-backup.service
+create_minecraft_backup
 
 if [[ "${CAZ_BACKUP_FACTORIO:-false}" == true ]]; then
   echo "==> Creating an application-consistent Factorio backup"
