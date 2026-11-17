@@ -33,12 +33,13 @@ selection, labels, credentials and timeout choices remain runtime state.
 
 ## Compatibility and data handling
 
-The BLE adapter is version-gated to aiohomekit 4.0.0, as used by HA 2026.8.3.
+The BLE adapter supports aiohomekit 4.0.0 and 4.0.1.
 It resolves the existing HomeKit connection for each operation and shares its
 operation lock and encrypted session. The public aiohomekit write API discards
 control-point responses, so the adapter uses private request methods with
-Return Response enabled. Review and rerun compatibility tests when upgrading
-HA or aiohomekit; unsupported dependency versions block access-code commands.
+Return Response enabled. If a paired Bluetooth lock is discovered with an
+unreviewed aiohomekit version, the Lock codes panel reports the version and
+blocks commands until the adapter is reviewed.
 
 Code-list responses may contain only opaque identifiers. The component reads
 those identifiers in batches of at most 20, checks returned identifier sets,
@@ -74,12 +75,12 @@ python3 -m unittest discover -s tests -p test_schlage_local.py -v
 node --check home-assistant/custom_components/schlage_local/frontend/panel.js
 ```
 
-Compatibility tests use Python 3.14 with `homeassistant==2026.8.3`,
-`aiohomekit==4.0.0`, `python-otbr-api==2.10.0`, `pyroute2==0.9.6` and
-`home-assistant-frontend==20260729.7`:
+CI also runs the compatibility suite in the deployment image pinned by
+`containers/home-assistant/Dockerfile`. It uses the installed HA and aiohomekit
+packages, a simulated lock, and an offline container. To run it locally with Docker:
 
 ```bash
-python tests/schlage_ha_compat.py -v
+./scripts/test-schlage-ha-compat.sh
 ```
 
 `node tests/schlage_panel.mjs` requires Playwright and Chromium. It checks
@@ -96,5 +97,5 @@ Do not reset or re-pair a lock to troubleshoot a rejected code-list response.
 Protocol references:
 
 - [HomeKit Access Code research](https://github.com/rednblkx/homekit-lock-access-code)
-- [aiohomekit 4.0.0 BLE adapter](https://github.com/Jc2k/aiohomekit/blob/4.0.0/aiohomekit/controller/ble/pairing.py)
+- [aiohomekit 4.0.1 BLE adapter](https://github.com/Jc2k/aiohomekit/blob/4.0.1/aiohomekit/controller/ble/pairing.py)
 - [Apple HAP characteristic definitions](https://github.com/apple/HomeKitADK/blob/master/HAP/HAPCharacteristicTypes.h)

@@ -1,7 +1,4 @@
-"""Compatibility checks against HA 2026.8.3 and aiohomekit 4.0.0.
-
-Run with the pinned HA dependencies installed; never contacts a real lock.
-"""
+"""Exercise the deployed HA and aiohomekit APIs with a simulated BLE device."""
 
 import asyncio
 from pathlib import Path
@@ -13,8 +10,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "home-assistant"))
 
+from aiohomekit.characteristic_cache import CharacteristicCacheMemory
 from aiohomekit.controller.ble.pairing import BlePairing
-from aiohomekit.model import Accessories, Accessory
 from aiohomekit.pdu import OpCode
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import Unauthorized
@@ -26,28 +23,32 @@ from custom_components.schlage_local.transport import Transport
 
 class TransportTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        self.pairing = MagicMock(spec=BlePairing)
-        self.pairing._operation_lock = asyncio.Lock()
-        self.pairing._shutdown = False
+        self.pairing = BlePairing(
+            SimpleNamespace(_char_cache=CharacteristicCacheMemory()),
+            {"AccessoryPairingID": "test", "AccessoryAddress": "00:00:00:00:00:00"},
+        )
         self.pairing._restore_pending = True
-        self.pairing._populate_accessories_and_characteristics = AsyncMock()
-        self.pairing._async_restore_subscriptions = AsyncMock()
-        self.pairing.accessories = Accessories()
-        self.pairing.accessories.add_accessory(Accessory.create_from_dict({
-            "aid": 1, "services": [{"iid": 16384, "type": p.SERVICE, "characteristics": [
+        self.enterContext(patch.object(self.pairing, "_populate_accessories_and_characteristics", autospec=True))
+        self.enterContext(patch.object(self.pairing, "_async_restore_subscriptions", autospec=True))
+        self.pairing.restore_accessories_state([{
+            "aid": 1, "services": [{"iid": 1, "type": "3E", "characteristics": [
+                {"iid": 2, "type": "21", "format": "string", "perms": ["pr"], "value": "BE499-test"},
+            ]}, {"iid": 16384, "type": p.SERVICE, "characteristics": [
                 {"iid": 16387, "type": p.SUPPORTED, "format": "data", "perms": ["pr"]},
                 {"iid": 16388, "type": p.CONTROL, "format": "data", "perms": ["pr", "pw"]},
-            ]}]}))
-        self.transport = Transport(SimpleNamespace(pairing=self.pairing))
+            ]}]}], 1, None)
+        self.connection = SimpleNamespace(pairing=self.pairing, config_entry=SimpleNamespace(entry_id="test", title="Test"))
+        self.transport = Transport(self.connection)
 
     async def test_response_requested_and_decoded_under_existing_operation_lock(self):
-        async def exchange(opcode, char, payload):
+        async def exchange(opcode, char, payload, iid):
             self.assertTrue(self.pairing._operation_lock.locked())
+            self.assertTrue(self.pairing._ble_request_lock.locked())
             self.assertEqual(opcode, OpCode.CHAR_WRITE)
             self.assertEqual(char.iid, 16388)
             self.assertEqual(p.singletons(p.decode(payload)), {9: b"\x01", 1: b"\x01\x01\x01"})
             return p.encode([(1, b"\x01\x01\x01")])
-        self.pairing._async_request = AsyncMock(side_effect=exchange)
+        self.enterContext(patch.object(self.pairing, "_async_request_under_lock", autospec=True, side_effect=exchange))
         self.assertEqual(await self.transport.command(p.request(p.Operation.LIST)), b"\x01\x01\x01")
         self.pairing._async_restore_subscriptions.assert_awaited_once()
         self.assertFalse(self.pairing._operation_lock.locked())
@@ -67,21 +68,27 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(args[0], OpCode.CHAR_READ)
         self.assertEqual(args[1].iid, 16387)
 
-    async def test_unknown_dependency_version_blocks_commands(self):
-        with patch("custom_components.schlage_local.transport.version", return_value="5.0.0"):
-            with self.assertRaisesRegex(p.ProtocolError, "needs review"):
-                Transport(SimpleNamespace(pairing=self.pairing))
+    async def test_discovery_reports_unreviewed_version_for_ble_locks(self):
+        other = SimpleNamespace(pairing=SimpleNamespace(accessories=self.pairing.accessories),
+                                config_entry=SimpleNamespace(entry_id="non-ble", title="Other"))
+        manager = integration.Manager(lambda: [other, self.connection], None)
+        self.assertEqual(manager.discover(), [{"id": "test", "name": "Test", "model": "BE499-test"}])
+        with patch("custom_components.schlage_local.transport.version", return_value="4.0.2"):
+            with self.assertRaisesRegex(p.ProtocolError, r"compatibility update for aiohomekit 4\.0\.2"):
+                manager.discover()
+            with self.assertRaises(p.ProtocolError):
+                await manager.execute("list", "test")
+        self.pairing._populate_accessories_and_characteristics.assert_not_awaited()
 
 
 class AutoLockTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         await TransportTests.asyncSetUp(self)
-        self.pairing.accessories = Accessories()
-        self.pairing.accessories.add_accessory(Accessory.create_from_dict({
+        self.pairing.restore_accessories_state([{
             "aid": 1, "services": [{"iid": 10, "type": "44", "characteristics": [
                 {"iid": 11, "type": "1A", "format": "uint32", "unit": "seconds",
                  "minValue": 0, "maxValue": 300, "perms": ["pr", "pw"]},
-            ]}]}))
+            ]}]}], 1, None)
         self.value = 0
         self.writes = 0
         self.ignore = False

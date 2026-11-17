@@ -18,6 +18,10 @@ class ProtocolError(Exception):
     """A safe-to-display protocol error, never containing a PIN/payload."""
 
 
+class UnsupportedPairing(ProtocolError):
+    """The device uses a transport that discovery should skip."""
+
+
 class CommandRejected(ProtocolError):
     """The device explicitly rejected a command, rather than losing its reply."""
 
