@@ -93,7 +93,7 @@ focused game-stream roles use the same WSL entry point:
 
 The host installs Sunshine and applies its private-LAN-only policy. Remote
 traffic arrives from the NixOS gateway's LAN address, so the host does not need
-WireGuard. The client installs Moonlight and WireGuard without declaring a
+WireGuard. The client installs Moonlight, chiaki-ng, and WireGuard without declaring a
 client firewall policy. Importing the client tunnel remains an explicit one-time
 operation in the official WireGuard app.
 

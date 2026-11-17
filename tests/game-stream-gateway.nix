@@ -41,6 +41,7 @@ let
   gatewayLanAddress = "192.0.2.1";
   hostLanAddress = "192.0.2.2";
   hostMacAddress = "02:00:00:00:00:02";
+  ps5Address = "192.0.2.4";
   otherLanAddress = "192.0.2.3";
   gatewayTunnelAddress = "198.51.100.1";
   clientTunnelAddress = "198.51.100.2";
@@ -72,7 +73,7 @@ let
       [Peer]
       PublicKey = ${gatewayPublicKey}
       Endpoint = ${gatewayExternalAddress}:${toString listenerPort}
-      AllowedIPs = ${hostLanAddress}/32
+      AllowedIPs = ${hostLanAddress}/32, ${ps5Address}/32
       PersistentKeepalive = 25
     '';
 
@@ -123,9 +124,10 @@ let
   # Keep one socket and echo each datagram, including the empty one, to its sender.
   udpEcho = pkgs.writeText "game-stream-udp-echo.py" ''
     import socket
+    import sys
 
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as listener:
-        listener.bind(("${hostLanAddress}", 47998))
+        listener.bind((sys.argv[1], int(sys.argv[2])))
         while True:
             payload, peer = listener.recvfrom(65535)
             listener.sendto(payload, peer)
@@ -153,6 +155,7 @@ pkgs.testers.runNixOSTest {
       homelab.gameStreamGateway = {
         enable = true;
         hostAddress = hostLanAddress;
+        inherit ps5Address;
         listenPort = listenerPort;
         _testConfigFile = toString gatewayFixture;
         wakeOnLan = {
@@ -179,16 +182,32 @@ pkgs.testers.runNixOSTest {
           prefixLength = 24;
         }
         {
+          address = ps5Address;
+          prefixLength = 24;
+        }
+        {
           address = otherLanAddress;
           prefixLength = 24;
         }
       ];
       networking.firewall.allowedTCPPorts = [
+        9295
         47989
         9999
       ];
-      networking.firewall.allowedUDPPorts = [ 47998 ];
+      networking.firewall.allowedUDPPorts = [
+        47998
+        9295
+        9296
+        9297
+        9302
+      ];
       systemd.services = {
+        ps5-listener = tcpListener {
+          address = "0.0.0.0";
+          name = "Remote Play TCP";
+          port = 9295;
+        };
         host-stream-listener = tcpListener {
           address = hostLanAddress;
           after = [ "network-addresses-eth1.service" ];
@@ -207,13 +226,27 @@ pkgs.testers.runNixOSTest {
           name = "blocked alternate LAN destination";
           port = 47989;
         };
+        ps5-blocked-listener = tcpListener {
+          address = ps5Address;
+          after = [ "network-addresses-eth1.service" ];
+          name = "blocked Sunshine port on console";
+          port = 47989;
+        };
+        ps5-stream-udp = {
+          wantedBy = [ "multi-user.target" ];
+          after = [ "network-addresses-eth1.service" ];
+          serviceConfig = {
+            ExecStart = "${pkgs.python3}/bin/python ${udpEcho} ${ps5Address} 9296";
+            Restart = "on-failure";
+          };
+        };
         host-stream-udp = {
           description = "Throwaway allowed Sunshine UDP echo listener";
           wantedBy = [ "multi-user.target" ];
           requires = [ "network-addresses-eth1.service" ];
           after = [ "network-addresses-eth1.service" ];
           serviceConfig = {
-            ExecStart = "${pkgs.python3}/bin/python ${udpEcho}";
+            ExecStart = "${pkgs.python3}/bin/python ${udpEcho} ${hostLanAddress} 47998";
             Restart = "on-failure";
           };
         };
@@ -283,6 +316,20 @@ pkgs.testers.runNixOSTest {
     client2.wait_until_succeeds(
       "curl --fail --silent --max-time 5 http://${hostLanAddress}:47989/ >/dev/null"
     )
+
+    with subtest("Remote Play over the existing tunnel"):
+        host.wait_for_unit("ps5-listener.service")
+        host.wait_for_unit("ps5-stream-udp.service")
+        host.wait_for_unit("ps5-blocked-listener.service")
+        for peer in (client, client2):
+            peer.wait_until_succeeds("curl -fsS --max-time 5 http://${ps5Address}:9295/ >/dev/null")
+            peer.succeed("test \"$(printf ping | socat -T 5 - UDP4:${ps5Address}:9296)\" = ping")
+        gateway.succeed(
+            "iptables -w -C FORWARD -i wg-game -d ${ps5Address}/32 "
+            "-p udp -m multiport --dports 9295:9297,9302 -m conntrack --ctstate NEW,ESTABLISHED -j ACCEPT"
+        )
+        client.fail("curl -fsS --connect-timeout 2 http://${ps5Address}:47989/")
+        client.fail("curl -fsS --connect-timeout 2 http://${hostLanAddress}:9295/")
 
     # Model a sleeping NIC that no longer answers ARP. The same 102-byte
     # payload/streaming port used by Moonlight must still reach that NIC.

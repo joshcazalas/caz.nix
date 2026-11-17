@@ -7,6 +7,8 @@
 let
   cfg = config.homelab.gameStreamGateway;
   interfaceName = "wg-game";
+  ipv4Octet = "(0|[1-9][0-9]?|1[0-9]{2}|2[0-4][0-9]|25[0-5])";
+  ipv4Address = lib.types.strMatching "(${ipv4Octet}\\.){3}${ipv4Octet}";
   secretName = "game-stream-gateway/config";
   productionConfiguration = cfg._testConfigFile == null;
   configurationFile =
@@ -25,11 +27,17 @@ in
     };
 
     hostAddress = lib.mkOption {
-      type = lib.types.strMatching "([0-9]{1,3}\\.){3}[0-9]{1,3}";
+      type = ipv4Address;
       description = ''
         The Sunshine host's reserved LAN IPv4 address. Authenticated game-stream
-        clients can reach only this address and only Sunshine's streaming ports.
+        clients can reach Sunshine's streaming ports on this address.
       '';
+    };
+
+    ps5Address = lib.mkOption {
+      type = lib.types.nullOr ipv4Address;
+      default = null;
+      description = "Reserved LAN IPv4 address for direct PS5 Remote Play over the game-stream VPN.";
     };
 
     wakeOnLan = {
@@ -54,6 +62,10 @@ in
 
   config = lib.mkIf cfg.enable {
     assertions = [
+      {
+        assertion = cfg.ps5Address != cfg.hostAddress;
+        message = "The PS5 and Sunshine host require distinct LAN addresses.";
+      }
       {
         assertion = !lib.elem interfaceName config.networking.firewall.trustedInterfaces;
         message = "The game-stream WireGuard interface must remain untrusted.";
@@ -120,8 +132,8 @@ in
       allowedUDPPorts = [ cfg.listenPort ];
 
       # These rules precede NixOS's generic NAT forwarding chain. An
-      # authenticated wg-game peer can reach exactly the Sunshine host and
-      # ports; all other forwarding and all gateway-local input are denied.
+      # authenticated wg-game peer can reach the configured streaming targets on their
+      # respective ports; all other forwarding and all gateway-local input are denied.
       # WireGuard itself binds every accepted packet source to a peer's exact
       # AllowedIPs declaration in the encrypted configuration.
       extraCommands = lib.mkBefore ''
@@ -134,6 +146,12 @@ in
         iptables -w -I FORWARD 1 -i ${interfaceName} -d ${cfg.hostAddress}/32 \
           -p tcp -m multiport --dports 47984,47989,48010 \
           -m conntrack --ctstate NEW,ESTABLISHED,RELATED -j ACCEPT
+        ${lib.optionalString (cfg.ps5Address != null) ''
+          iptables -w -I FORWARD 1 -i ${interfaceName} -d ${cfg.ps5Address}/32 \
+            -p tcp --dport 9295 -m conntrack --ctstate NEW,ESTABLISHED -j ACCEPT
+          iptables -w -I FORWARD 1 -i ${interfaceName} -d ${cfg.ps5Address}/32 \
+            -p udp -m multiport --dports 9295:9297,9302 -m conntrack --ctstate NEW,ESTABLISHED -j ACCEPT
+        ''}
       '';
     };
 

@@ -1,30 +1,18 @@
 # Private game streaming
 
-This setup keeps the Windows path small and puts remote-access policy on the
-NixOS gateway:
+Away from home, activate the existing `game-stream` WireGuard tunnel on the
+Windows client. The NixOS gateway forwards each app to its reserved LAN address
+using source NAT. At home, use the same addresses with the tunnel off.
 
-```text
-Remote Moonlight client
-        │
-        │ WireGuard (one encrypted client-to-site tunnel)
-        ▼
-NixOS gateway
-        │
-        │ exact Sunshine ports, source NAT, ordinary home LAN
-        ▼
-Sunshine host at its reserved LAN address
-```
+| Client | Destination | TCP | UDP |
+| --- | --- | --- | --- |
+| Moonlight | Sunshine at `192.168.1.127` | 47984, 47989, 48010 | 47998–48000, 48002, 48010 |
+| chiaki-ng | Wired PS5 at `192.168.1.128` | 9295 | 9295–9297, 9302 |
 
-The Sunshine host does not run WireGuard. While home, connect directly to its
-LAN address with the client tunnel off. While away, enable the client tunnel;
-that same host `/32` is routed through the gateway.
-
-The separate `wg-game` interface is not an administrative VPN. An authenticated
-client can reach only the Sunshine host at `192.168.1.127`, only on TCP `47984`,
-`47989`, and `48010` and UDP `47998-48000`, `48002`, and `48010`. Gateway-local
-traffic, other LAN destinations, other clients, and every other host port are
-denied. The role-filtered `wg-home` module remains a different trust plane and
-does not inherit `wg-game` peers.
+These grants apply to authenticated peers arriving on `wg-game`. The gateway
+drops other forwarding and gateway-local traffic from those peers. The router
+forwards UDP 51820 to WireGuard. Keep the PS5 ports out of the router’s WAN
+port forwards and UPnP mappings. [chiaki-ng PS5 port list](https://chiaki-ng.github.io/chiaki-ng/setup/remoteconnection/)
 
 ## What owns each part
 
@@ -32,9 +20,9 @@ does not inherit `wg-game` peers.
 | --- | --- |
 | NixOS | WireGuard listener, encrypted client peers, DDNS, forwarding, NAT, isolation, and the Ethernet neighbor entry for waking |
 | Windows host | Sunshine package, service, virtual-display selection and modes, localhost-only Web UI, UPnP off, and private-LAN firewall |
-| Windows client | Moonlight and WireGuard packages plus one WireGuard-owned tunnel |
+| Windows client | Moonlight, chiaki-ng, and WireGuard packages plus one WireGuard-owned tunnel |
 | WSL | Thin launcher for native Windows PowerShell and WinGet |
-| Operator | Router forward, Ethernet DHCP reservation, peer admission, signed display-driver installation, hardware wake settings, Sunshine credentials, and Moonlight pairing |
+| Operator | Router forward, Ethernet DHCP reservation, peer admission, signed display-driver installation, hardware wake settings, Sunshine credentials, Moonlight pairing, and PS5 registration |
 
 The repository never needs Windows Git, a Windows checkout, or a custom DSC
 resource. The WSL checkout may use anonymous HTTPS and therefore does not need a
@@ -152,7 +140,7 @@ On every Windows client, run:
 ./bootstrap/windows.sh game-stream-client --check
 ```
 
-That installs Moonlight and WireGuard and clears rules left by the retired
+That installs Moonlight, chiaki-ng, and WireGuard and clears rules left by the retired
 custom implementation. It deliberately does not maintain a client firewall
 policy, generate a key, import a tunnel, or decide which peer the gateway
 should authorize.
@@ -160,6 +148,34 @@ should authorize.
 Both commands stage only one PowerShell file under `%LOCALAPPDATA%` for the UAC
 boundary and remove it afterward. `--check` validates stable package and policy
 state. Tunnel presence and handshake state are printed as observations.
+
+## Set up PS5 streaming
+
+1. Check the router's DHCP leases, reservations, and any manually assigned
+   addresses before assigning `192.168.1.128`. Reserve it for the PS5's **wired
+   LAN MAC**, connect Ethernet, select the wired connection on the PS5, and
+   confirm the address under **Settings → Network → Connection Status → View
+   Connection Status**. If the address is taken, choose a free one and update
+   `homelab.gameStreamGateway.ps5Address` and the client route together.
+2. Deploy the homeserver change through the normal release process. On the
+   Windows laptop, run the client baseline above. In the WireGuard editor,
+   update **AllowedIPs** under the existing tunnel's **[Peer]** section to
+   `192.168.1.127/32, 192.168.1.128/32`. Existing peers reuse their keys.
+3. On the PS5, enable **Settings → System → Remote Play → Enable Remote Play**.
+   Under **System → Power Saving → Features Available in Rest Mode**, enable
+   **Stay Connected to the Internet** and **Enable Turning On PS5 from Network**.
+4. With the laptop on the home LAN and the tunnel off, register the console
+   in chiaki-ng under **Settings → Consoles → Register New**. Enter
+   `192.168.1.128`, choose PS5, supply your PSN Account-ID and the temporary
+   code from **Remote Play → Link Device**. For the direct connection, use the
+   **+** button in the main window, enter that same LAN IP, and select the
+   registered PS5. Skip remote connection via PSN. Verify video, audio, and
+   controller input locally. [chiaki-ng registration guide](https://chiaki-ng.github.io/chiaki-ng/setup/configuration/)
+5. Put the laptop on a phone hotspot. With the tunnel off, the direct PS5
+   entry should fail. Activate `game-stream`, confirm a recent handshake, then
+   stream from the same entry. Put the PS5 in rest mode and test waking it from
+   chiaki-ng before relying on it while away. The Windows gaming host can stay
+   asleep throughout.
 
 ## Wake from sleep
 
@@ -327,7 +343,7 @@ configuration drift.
    WireGuard app. Change only its peer route:
 
    ```ini
-   AllowedIPs = 192.168.1.127/32
+   AllowedIPs = 192.168.1.127/32, 192.168.1.128/32
    ```
 
    Keep its interface address, private key, gateway public key, endpoint, and
@@ -389,7 +405,7 @@ instead of a custom enrollment protocol.
 
    [Peer]
    PublicKey = GATEWAY_PUBLIC_KEY
-   AllowedIPs = 192.168.1.127/32
+   AllowedIPs = 192.168.1.127/32, 192.168.1.128/32
    Endpoint = game-vpn.joshcaz.com:51820
    PersistentKeepalive = 25
    ```
