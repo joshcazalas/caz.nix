@@ -34,6 +34,11 @@ Caddy's request log is discarded for this host. Static tiles carry no
 credentials, but the log would still record who looks at the map and from
 where.
 
+Minecraft writes to `/var/lib/bluemap/web`. Caddy serves the same tiles from
+`/run/bluemap/web` through a read-only bind mount. The kernel blocks following
+symbolic links anywhere on that mount, including the `web` entry. Regular tile
+updates are visible immediately.
+
 ## Disk
 
 Rendered tiles are the dominant cost. `renderRadius` bounds a square around
@@ -144,11 +149,14 @@ map would render everything rather than failing loudly.
 is missing. Check the whole path rather than the web root alone:
 
 ```console
-sudo namei -l /var/lib/bluemap/web/index.html
-sudo -u caddy stat /var/lib/bluemap/web/index.html
+findmnt --mountpoint /run/bluemap --output TARGET,VFS-OPTIONS
+sudo namei -l /run/bluemap/web/index.html
+sudo -u caddy stat -L /run/bluemap/web/index.html
 ```
 
-Every component must be traversable by `caddy`. This is why the tiles do not
+The mount should show `ro` and `nosymfollow`. If it is absent, check
+`systemctl status run-bluemap.mount`. Every component of the web path must
+be traversable by `caddy`. This is why the tiles do not
 live under `settings.server.dataRoot`; a single `0750` ancestor makes the
 world-readable directories beneath it unreachable.
 

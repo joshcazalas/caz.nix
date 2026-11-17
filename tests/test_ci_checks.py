@@ -65,6 +65,7 @@ class CISelection(unittest.TestCase):
 
     def test_test_only_changes_do_not_build_the_server(self):
         mapping = {
+            "bluemap-public.nix": "bluemap-public",
             "ha_bluetooth_probe.py": "ha-bluetooth",
             "ha-bluetooth.nix": "ha-bluetooth",
             "deployment-storage.nix": "deployment-storage-integration",
@@ -82,6 +83,8 @@ class CISelection(unittest.TestCase):
 
     def test_source_dependencies_select_consuming_tests(self):
         mapping = {
+            "modules/nixos/bluemap.nix": {"bluemap-public"},
+            "modules/nixos/minecraft.nix": {"bluemap-public"},
             "modules/nixos/device-network.nix": {"device-network", "device-network-config"},
             "packages/device-network/local-integrations.py": {"device-network", "device-network-config"},
             "packages/website-updater/src/index.ts": {"network-policy"},
