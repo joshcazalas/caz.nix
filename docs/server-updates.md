@@ -99,6 +99,31 @@ Deployment state is stored under `/var/lib/caz-release-updater`. The root-owned
 state and systemd journal form the local audit record. Public releases remain
 build records and do not reveal which release is actually running.
 
+### Recovery after an interrupted deployment
+
+Before changing the system profile, the updater writes `pending-release.json`
+and retains the last healthy running generation through a persistent Nix GC
+root. Once the candidate passes the health gate, the updater renames the pending
+record to `accepted-release.json`. That rename commits the deployment.
+
+If the supervisor dies or the server reboots before acceptance, the next timer
+or manual deployment checks the pending record before contacting GitHub. Under
+the maintenance lock it checks activation access and storage, restores the
+previous generation for both the running system and next boot, and verifies its
+health. It quarantines the interrupted release and ends that invocation with a
+failure status. A later invocation can deploy a newer release or deliberately
+retry with `--force`. The first release containing this change is supervised by
+the previously installed updater. Transactions started by the updated command
+have the new recovery record.
+
+Use `sudo caz-deploy-server-release --status` to see the candidate and rollback
+paths. If restoring the prior generation fails, the updater keeps the record
+and GC root so that a subsequent run can retry. If an administrator selected
+an unrelated running or boot generation, recovery stops before changing it.
+Inspect the journal and the recorded paths before choosing which generation to
+keep. A healthy release started manually outside a pending deployment can still
+be verified and adopted. `--status` and `--check-only` leave recovery state alone.
+
 ### Activation is intentionally host-privileged
 
 `switch-to-configuration` runs the selected generation's activation script in
