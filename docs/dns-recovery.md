@@ -67,7 +67,11 @@ systemctl status adguardhome.service --no-pager
 sudo journalctl -u adguardhome.service -n 100 --no-pager
 ```
 
-The administration UI is also reachable by IP at `http://192.168.1.124:3000`.
+For the administration UI when DNS is down, run
+`ssh -N -o HostName=192.168.1.124 -L 3300:127.0.0.1:3000 homeserver`
+from the administrator's workstation and sign in at `http://127.0.0.1:3300`.
+New installations generate a password during startup. See the
+[first local setup instructions](install-server.md#first-local-setup).
 If a deployment or pre-deployment backup is running, let it finish before
 intervening: the consistent backup briefly stops AdGuard. Otherwise, for a
 stopped or stuck service, restart it once and repeat the DNS queries:

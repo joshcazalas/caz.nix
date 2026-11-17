@@ -1,12 +1,14 @@
-"""Reconcile only the owned hostname rule block in AdGuard's private config."""
+"""Prepare AdGuard's mutable users and managed hostname rules before startup."""
 
 from copy import deepcopy
 import json
 import os
 from pathlib import Path
+import secrets
 import sys
 import tempfile
 
+import bcrypt
 import yaml
 
 
@@ -51,22 +53,37 @@ class ConfigLoader(yaml.SafeLoader):
     }
 
 
-def main():
-    path, plan_path = map(Path, sys.argv[1:])
-    config = yaml.load(path.read_text(), Loader=ConfigLoader)
-    plan = json.loads(plan_path.read_text())
-    updated = reconcile(config, plan)
+def write_private(path, content):
     temporary = None
     try:
         with tempfile.NamedTemporaryFile(mode="w", dir=path.parent, delete=False) as stream:
             temporary = Path(stream.name)
-            yaml.safe_dump(updated, stream, sort_keys=False)
+            stream.write(content)
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temporary, path)
+        directory = os.open(path.parent, os.O_DIRECTORY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
+
+
+def main():
+    path, plan_path = map(Path, sys.argv[1:])
+    config = yaml.load(path.read_text(), Loader=ConfigLoader)
+    updated = reconcile(config, json.loads(plan_path.read_text()))
+    if not updated.get("users"):
+        password = secrets.token_urlsafe(32)
+        password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+        updated["users"] = [{"name": "admin", "password": password_hash}]
+        # Publish the credential before its hash. An interrupted preparation
+        # can retry while systemd still holds the daemon at ExecStartPre.
+        write_private(path.with_name("initial-admin-password"), password + "\n")
+    write_private(path, yaml.safe_dump(updated, sort_keys=False))
 
 
 if __name__ == "__main__":

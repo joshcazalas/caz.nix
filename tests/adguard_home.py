@@ -1,5 +1,7 @@
-"""Run the real service preparation and DNS server with synthetic peer addresses."""
+"""Exercise AdGuard account preparation, web authentication, and DNS policy."""
 
+import base64
+from http.client import HTTPConnection
 import json
 import os
 from pathlib import Path
@@ -43,7 +45,23 @@ def prepare(script, directory):
     return yaml.safe_load(path.read_text())
 
 
-def exercise(directory, config, upstream_port, expected):
+def check_admin_login(port, username, password):
+    connection = HTTPConnection("127.0.0.1", port, timeout=5)
+    try:
+        connection.request("GET", "/control/status")
+        denied = connection.getresponse()
+        denied.read()
+        assert denied.status in (401, 403), denied.status
+        credentials = base64.b64encode(f"{username}:{password}".encode()).decode()
+        connection.request("GET", "/control/status", headers={"Authorization": f"Basic {credentials}"})
+        granted = connection.getresponse()
+        assert granted.status == 200, granted.status
+        assert "version" in json.loads(granted.read())
+    finally:
+        connection.close()
+
+
+def exercise(directory, config, upstream_port, expected, username, password):
     dns_port, http_port = free_port(), free_port()
     config["http"] = {"address": f"127.0.0.1:{http_port}"}
     config["dns"].update({
@@ -73,6 +91,7 @@ def exercise(directory, config, upstream_port, expected):
                     if process.poll() is not None or time.monotonic() >= deadline:
                         raise RuntimeError("AdGuard did not become ready")
                     time.sleep(0.1)
+            check_admin_login(http_port, username, password)
             for transport in ("udp", "tcp"):
                 # Alternate clients repeatedly to catch cross-client cache leaks.
                 for source, address in list(expected.items()) * 2:
@@ -124,15 +143,29 @@ def main():
         thread.start()
         try:
             config = prepare(preparations["enabled"], directory)
+            path = directory / "AdGuardHome.yaml"
+            password_path = directory / "initial-admin-password"
+            assert password_path.stat().st_mode & 0o777 == 0o600
+            password = password_path.read_text().strip()
+            assert [user["name"] for user in config["users"]] == ["admin"]
+            assert password and password not in path.read_text()
+            password_path.unlink()
+            users = config["users"]
             config["user_rules"].insert(0, CUSTOM_RULE)
             # Exercise migration from the previous global hostname rewrite.
             config["filtering"]["rewrites"].append({"domain": "SERVER.", "answer": "192.0.2.10", "enabled": True})
             config["filtering"]["protection_disabled_until"] = TIMESTAMP
             config["querylog"] = {"enabled": False}
-            path = directory / "AdGuardHome.yaml"
             path.write_text(json.dumps(config))
             for iteration, variant in enumerate(("enabled", "enabled", "changed", "disabled", "empty", "enabled")):
+                if iteration == 1:
+                    # Subsequent boots must also preserve operator-managed accounts.
+                    users = [{"name": "existing-owner", "password": users[0]["password"]}]
+                    config["users"] = users
+                    path.write_text(yaml.safe_dump(config))
                 config = prepare(preparations[variant], directory)
+                assert config["users"] == users
+                assert not password_path.exists()
                 rules = config["user_rules"]
                 assert rules.count(CUSTOM_RULE) == 1
                 assert rules.count("! BEGIN caz managed server hostname") == 1
@@ -149,8 +182,16 @@ def main():
                     expected.update({"127.0.0.2": "198.51.100.1", "127.0.0.3": "198.51.100.1"})
                 elif variant == "changed":
                     expected.update({"127.0.0.4": "198.51.100.2", "127.0.0.3": "198.51.100.2"})
-                exercise(directory, config, upstream.getsockname()[1], expected)
+                exercise(directory, config, upstream.getsockname()[1], expected, users[0]["name"], password)
                 print(f"{variant}: LAN/VPN DNS, OS-host exclusion, custom rules, and upstream passed.")
+            # An existing installation can explicitly store an empty user list.
+            config["users"] = []
+            path.write_text(yaml.safe_dump(config))
+            updated = prepare(preparations["enabled"], directory)
+            new_password = password_path.read_text().strip()
+            assert new_password and new_password != password
+            assert [user["name"] for user in updated["users"]] == ["admin"]
+            assert new_password not in path.read_text()
         finally:
             stopped.set()
             thread.join(timeout=2)

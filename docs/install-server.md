@@ -138,8 +138,22 @@ Then:
    accounts.
 3. In Jellyfin networking settings, add `127.0.0.1` as a known proxy before
    enabling Caddy.
-4. Open AdGuard Home on `http://homeserver:3000`, finish setup, then configure
-   the router's DHCP/LAN DNS server as `192.168.1.124`. Leave secondary DNS
+4. AdGuard Home creates an `admin` login on its first start with an empty user
+   list. It preserves existing accounts on upgrades. To retrieve a new login's
+   password, run the following on the server from a private terminal and save
+   the result in your password manager.
+
+   ```bash
+   sudo cat /var/lib/AdGuardHome/initial-admin-password
+   ```
+
+   From the administrator's workstation, run
+   `ssh -N -L 3300:127.0.0.1:3000 homeserver` and sign in at
+   `http://127.0.0.1:3300`. Once the saved password works, remove the initial
+   copy with `sudo rm /var/lib/AdGuardHome/initial-admin-password` on the
+   server. AdGuard keeps the bcrypt hash in its private configuration.
+
+   Configure the router's DHCP/LAN DNS server as `192.168.1.124`. Leave secondary DNS
    empty: a public secondary such as `1.1.1.1` or `9.9.9.9` can be selected at
    any time and would bypass the private `joshcaz.com` answers. After renewing
    a client's DHCP lease, verify both paths:

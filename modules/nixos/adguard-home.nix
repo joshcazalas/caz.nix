@@ -39,7 +39,10 @@ let
       rules = hostnameRules;
     }
   );
-  python = pkgs.python3.withPackages (ps: [ ps.pyyaml ]);
+  python = pkgs.python3.withPackages (ps: [
+    ps.bcrypt
+    ps.pyyaml
+  ]);
 in
 {
   services.adguardhome = {
@@ -74,7 +77,7 @@ in
   # Run after NixOS merges its settings into the mutable file. Managing
   # settings.user_rules directly would erase custom rules saved through the UI.
   systemd.services.adguardhome.preStart = lib.mkAfter ''
-    ${python}/bin/python ${../../scripts/adguard-hostname-rules.py} \
+    ${python}/bin/python ${../../scripts/prepare-adguard-home.py} \
       "$STATE_DIRECTORY/AdGuardHome.yaml" ${hostnamePlan}
   '';
 

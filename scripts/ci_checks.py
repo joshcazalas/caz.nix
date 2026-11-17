@@ -57,7 +57,7 @@ RULES = [
      ("homeserver", "deployment-storage-integration")),
     (("scripts/check-server-health.sh", "scripts/pre-deploy-backup.sh", "scripts/copy-secondary-backups.sh",
       "scripts/release-notifications.py", "scripts/factorio-*.py", "scripts/migrate-ha-private.py",
-      "scripts/adguard-hostname-rules.py"),
+      "scripts/prepare-adguard-home.py"),
      ("homeserver",)),
     (("scripts/prepare-esphome-proxy.py",), ("homeserver", "esphome")),
     (("esphome/*", "tests/esphome_config.py"), ("esphome",)),
