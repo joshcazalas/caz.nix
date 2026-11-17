@@ -59,6 +59,15 @@ Backup and deployment hold the same maintenance lock as aggressive Docker
 image pruning, so a stopped container's pinned image cannot disappear before
 the service restarts.
 
+For AdGuard Home, the archive stores the configuration and data under
+`var/lib/private/AdGuardHome/` on the systemd DynamicUser layout, or
+`var/lib/AdGuardHome/` on a direct-directory layout. To check a backup, list
+its members with `sudo tar --zstd -tf ARCHIVE` and look for
+`AdGuardHome.yaml` inside that directory. Older archives that contain only
+the `var/lib/AdGuardHome` symlink cannot restore AdGuard's data. After first
+activating the corrected generation, run `sudo caz-pre-deployment-backup`
+to create a fresh archive.
+
 After activation it waits up to ten minutes for these checks, then requires
 them to remain healthy for another minute:
 
