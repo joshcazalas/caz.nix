@@ -40,7 +40,6 @@ in
     ../../modules/nixos/factorio.nix
     ../../modules/nixos/monitoring.nix
     ../../modules/nixos/monitoring-rules.nix
-    ../../modules/nixos/home-assistant-https.nix
     ../../modules/nixos/home-assistant.nix
     ../../modules/nixos/optional-services.nix
     ../../modules/nixos/release-updater.nix
@@ -86,16 +85,6 @@ in
     ++ lib.optionals settings.public.bluemap [ "map.${settings.public.domain}" ];
   };
 
-  # DNS-01 issues the private HA name without a public address or a router forward.
-  security.acme.acceptTerms = true;
-  security.acme.certs.${config.homelab.homeAssistant.https.hostName} =
-    lib.mkIf config.homelab.homeAssistant.enable
-      {
-        dnsProvider = "cloudflare";
-        group = config.services.nginx.group;
-        credentialFiles.CF_DNS_API_TOKEN_FILE = config.sops.secrets."cloudflare/api-token".path;
-      };
-
   # Both streaming clients share this gateway and use exact destination routes.
   homelab.gameStreamGateway = {
     enable = true;
@@ -125,7 +114,7 @@ in
       gatewayTCPPorts = [
         22
         53
-        config.homelab.homeAssistant.https.port
+        8123
       ];
       gatewayUDPPorts = [ 53 ];
     };
@@ -139,7 +128,7 @@ in
       ];
       gatewayTCPPorts = [
         53
-        config.homelab.homeAssistant.https.port
+        8123
       ];
       gatewayUDPPorts = [ 53 ];
     };
@@ -171,7 +160,7 @@ in
   };
 
   # Home Assistant runs as the upstream-supported Container installation. Its
-  # UI uses private HTTPS over the LAN or household VPN. Discovery stays local. Release-managed
+  # UI and discovery traffic are reachable only from the LAN. Release-managed
   # YAML provides reviewed automations while pairing credentials and other
   # mutable application state remain outside the Nix store.
   homelab.homeAssistant = {

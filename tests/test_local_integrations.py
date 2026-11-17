@@ -1,7 +1,10 @@
 import copy
 import importlib.util
+import json
 from pathlib import Path
+import tempfile
 import unittest
+from unittest.mock import Mock, patch
 
 spec = importlib.util.spec_from_file_location(
     "local_integrations", Path(__file__).parents[1] / "packages/device-network/local-integrations.py"
@@ -45,6 +48,38 @@ class IntegrationPolicyTests(unittest.TestCase):
             config["networks"]["private"][key] = value
             with self.assertRaises(ValueError):
                 integrations.validate(config)
+
+    def test_backup_follows_only_required_private_file_inputs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp) / "project"
+            directory.mkdir()
+            key = Path(tmp) / "versioned key"
+            key.touch()
+            current = Path(tmp) / "current"
+            current.symlink_to(key.name)
+            (directory / "key").symlink_to(current)
+            external_env = Path(tmp) / "runtime.env"
+            external_env.touch()
+            config = {"secrets": {"private": {"file": str(directory / "key")}},
+                      "services": {"app": {"env_file": [{"path": str(external_env)},
+                                                       {"path": str(directory / "optional"), "required": False}]}}}
+            with patch.object(integrations.subprocess, "run", return_value=Mock(stdout="")):
+                self.assertEqual(set(integrations.backup_paths(config, directory)),
+                                 {directory, current, key, external_env})
+                external_env.unlink()
+                with self.assertRaises(integrations.BackupError):
+                    integrations.backup_paths(config, directory)
+
+    def test_backup_refuses_running_killed_or_unrecoverable_containers(self):
+        config = {"services": {"app": {}}, "volumes": {"data": {"name": "private-data"}}}
+        for state, code, oom, mounts in [
+            ("running", 0, False, []), ("exited", 137, False, []), ("exited", 1, True, []),
+            ("exited", 0, False, [{"Type": "volume", "Name": "anonymous"}]),
+        ]:
+            replies = [Mock(stdout="id"), Mock(stdout=json.dumps([state, code, oom, mounts]))]
+            with self.subTest(state=state, code=code, oom=oom), self.assertRaises(integrations.BackupError), \
+                    patch.object(integrations.subprocess, "run", side_effect=replies):
+                integrations.backup_paths(config, Path("/unused"))
 
     def test_rejects_host_sockets_and_external_volumes(self):
         config = fixture()

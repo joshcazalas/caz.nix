@@ -9,20 +9,19 @@ import re
 import stat
 import sys
 
+from private_file import read_private
+
 
 def private_json(path, owner=0):
     """Read JSON (also valid YAML) without accepting links or loose permissions."""
-    parent = path.parent.lstat()
-    if not stat.S_ISDIR(parent.st_mode) or parent.st_uid != owner or stat.S_IMODE(parent.st_mode) != 0o700:
-        raise ValueError("Private configuration directory must be owner-only (0700).")
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
-    with os.fdopen(fd) as stream:
-        info = os.fstat(stream.fileno())
-        if not stat.S_ISREG(info.st_mode) or info.st_uid != owner or stat.S_IMODE(info.st_mode) != 0o600:
-            raise ValueError("Private configuration files must be owner-only (0600).")
-        if info.st_size > 65536:
-            raise ValueError("Private configuration is unexpectedly large.")
-        return json.load(stream)
+    parent_fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        parent = os.fstat(parent_fd)
+        if parent.st_uid != owner or stat.S_IMODE(parent.st_mode) != 0o700:
+            raise ValueError("Private configuration directory must be owner-only (0700).")
+        return json.loads(read_private(path.name, owner, dir_fd=parent_fd))
+    finally:
+        os.close(parent_fd)
 
 
 def validate_inputs(data):

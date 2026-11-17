@@ -52,6 +52,45 @@ let
       assets = [ ];
     }
   );
+  testSystem =
+    name:
+    pkgs.runCommand "recovery-test-${name}"
+      {
+        switch = pkgs.writeShellScript "test-system-switch" ''
+          set -eu
+          system="$(dirname "$(dirname "$0")")"
+          if [[ "$1" == switch ]]; then
+            ln -sfnT "$system" /run/current-system
+            if [[ "$system" == "$candidate" && "''${interrupt:-}" == after-switch ]] ||
+               [[ "$system" == "$previous" && "''${interrupt:-}" == rollback-switch ]]; then
+              kill -KILL "$PPID"
+            fi
+          fi
+        '';
+        health = pkgs.writeShellScript "test-active-health" ''
+          set -eu
+          system="$(readlink -e /run/current-system)"
+          echo "health $system $*" >> "$fixture/calls"
+          if [[ "$system" == "$candidate" ]]; then
+            [[ "''${fail_candidate:-}" != true ]]
+          else
+            [[ "''${fail_previous:-}" != true ]]
+          fi
+        '';
+      }
+      ''
+        mkdir -p "$out/bin" "$out/sw/bin"
+        cp "$switch" "$out/bin/switch-to-configuration"
+        cp "$health" "$out/sw/bin/caz-server-health"
+      '';
+  recoveryPath = pkgs.lib.makeBinPath [
+    pkgs.bash
+    pkgs.coreutils
+    pkgs.gawk
+    pkgs.gnugrep
+    pkgs.jq
+    pkgs.util-linux
+  ];
   mockCommands = pkgs.runCommand "storage-preflight-mock-commands" { } ''
     mkdir -p "$out/bin"
     cat > "$out/bin/curl" <<'SH'
@@ -109,6 +148,10 @@ pkgs.testers.runNixOSTest {
   testScript = ''
     start_all()
     server.wait_for_unit("multi-user.target")
+    with subtest("Interrupted deployment and rollback recover offline"):
+        server.succeed("PATH=${recoveryPath} unshare --mount --propagation private bash "
+                       "${./release-recovery.sh} ${../scripts/stage-server-release.sh} "
+                       "${testSystem "previous"} ${testSystem "candidate"}")
     server.succeed("mkfs.ext4 -F -L PREFLIGHT_DATA /dev/vdb")
     # Use a partitioned EFI disk like the server. Whole-disk mkfs.fat can
     # create a fake MBR entry, making udev's label point at vdc1 while a mount

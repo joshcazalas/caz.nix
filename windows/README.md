@@ -103,7 +103,7 @@ or check this profile. See [`../docs/game-streaming.md`](../docs/game-streaming.
 for the credential-retirement checklist.
 
 Approve the single Windows UAC prompt for a game-stream apply or check. The
-launcher stages only its focused PowerShell file locally for elevation; it does
+launcher stages its game-stream script and shared PowerShell helper locally for elevation; it does
 not copy the repository or calculate source provenance.
 
 The direct Windows PowerShell entry point remains a fallback:

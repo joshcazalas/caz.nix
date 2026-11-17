@@ -14,6 +14,9 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+$commonScript = Join-Path $PSScriptRoot 'windows-common.ps1'
+. $commonScript
+
 $SunshineExecutable = Join-Path $env:ProgramFiles 'Sunshine\sunshine.exe'
 $SunshineConfiguration = Join-Path $env:ProgramFiles 'Sunshine\config\sunshine.conf'
 $SunshineLog = Join-Path $env:ProgramFiles 'Sunshine\config\sunshine.log'
@@ -38,40 +41,6 @@ $RetiredFirewallRules = @(
 )
 $LegacySessionPolicyRoot = Join-Path $env:ProgramFiles 'caz.nix\game-stream-host'
 $LegacySessionPolicyTaskName = 'caz.nix game-stream session arbiter'
-
-function Test-IsAdministrator {
-    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
-    $principal = [Security.Principal.WindowsPrincipal]::new($identity)
-    return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-}
-
-function Test-CurrentUserCanSelfElevate {
-    $whoAmI = Join-Path $env:SystemRoot 'System32\whoami.exe'
-    $groups = @(& $whoAmI /groups /fo csv /nh 2>$null)
-    if ($LASTEXITCODE -ne 0) {
-        throw 'Could not inspect the current Windows security groups.'
-    }
-    return @($groups | Where-Object { $_ -match 'S-1-5-32-544' }).Count -gt 0
-}
-
-function Get-WinGetCommand {
-    $command = Get-Command winget.exe -CommandType Application -ErrorAction SilentlyContinue |
-        Select-Object -First 1
-    if ($null -ne $command -and (Test-Path -LiteralPath $command.Source)) {
-        return $command.Source
-    }
-
-    $appInstaller = Get-AppxPackage -Name Microsoft.DesktopAppInstaller -ErrorAction SilentlyContinue |
-        Sort-Object Version -Descending |
-        Select-Object -First 1
-    if ($null -ne $appInstaller) {
-        $candidate = Join-Path $appInstaller.InstallLocation 'winget.exe'
-        if (Test-Path -LiteralPath $candidate -PathType Leaf) {
-            return $candidate
-        }
-    }
-    return $null
-}
 
 function Install-PackageIfMissing {
     param(
@@ -664,13 +633,13 @@ if (-not (Test-IsAdministrator)) {
         throw 'Run from a Windows account that is itself a local administrator.'
     }
 
-    $stagingRoot = Join-Path $env:LOCALAPPDATA 'caz.nix\game-stream-bootstrap'
+    $stagingRoot = Join-Path $env:LOCALAPPDATA "caz.nix\game-stream-bootstrap-$([guid]::NewGuid())"
     $stagedScript = Join-Path $stagingRoot 'windows-game-stream.ps1'
     $resultFile = Join-Path $stagingRoot 'result.json'
     $null = New-Item -ItemType Directory -Path $stagingRoot -Force
     try {
-        Copy-Item -LiteralPath $PSCommandPath -Destination $stagedScript -Force
-        Remove-Item -LiteralPath $resultFile -Force -ErrorAction SilentlyContinue
+        Copy-Item -LiteralPath $PSCommandPath -Destination $stagedScript
+        Copy-Item -LiteralPath $commonScript -Destination $stagingRoot
 
         $arguments = @(
             '-NoLogo',

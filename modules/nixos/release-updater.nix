@@ -35,6 +35,8 @@ let
   minecraftEnabled = config.homelab.minecraft.enable;
   factorioEnabled = config.services.factorio.enable;
   homeAssistantEnabled = config.homelab.homeAssistant.enable;
+  deviceNetworkEnabled = config.homelab.deviceNetwork.enable or false;
+  localIntegrationsEnabled = config.homelab.localIntegrations.enable or false;
   homeAssistantUnit = "docker-homeassistant.service";
   homeAssistantStatePath = lib.removePrefix "/" config.homelab.homeAssistant.dataDir;
   containerMaintenanceLock = "/run/caz-container-maintenance/lock";
@@ -69,11 +71,11 @@ let
     ++ optionals config.services.auxide.enable [ "auxide.service" ]
     ++ optionals providerEnabled [ providerUnit ]
     ++ optionals homeAssistantEnabled [ homeAssistantUnit ]
-    ++ optionals (config.homelab.deviceNetwork.enable or false) [
+    ++ optionals deviceNetworkEnabled [
       "device-network.service"
       "device-network-dns.service"
     ]
-    ++ optionals (config.homelab.localIntegrations.enable or false) [ "local-integrations.service" ]
+    ++ optionals localIntegrationsEnabled [ "local-integrations.service" ]
     ++ optionals config.homelab.immich.enable [ "immich-server.service" ]
     ++ optionals minecraftEnabled [ "docker-minecraft.service" ]
     ++ optionals factorioEnabled [ "factorio.service" ]
@@ -95,9 +97,7 @@ let
     ++ optionals config.services.grafana.enable [
       "grafana=200=http://127.0.0.1:${toString config.services.grafana.settings.server.http_port}/api/health"
     ]
-    ++ optionals homeAssistantEnabled [
-      "home-assistant=200,302=https://${config.homelab.homeAssistant.https.hostName}:${toString config.homelab.homeAssistant.https.port}/"
-    ]
+    ++ optionals homeAssistantEnabled [ "home-assistant=200,302=http://127.0.0.1:8123/" ]
     ++ optionals config.homelab.immich.enable [ "immich=200=http://127.0.0.1:2283/api/server/ping" ]
     ++ optionals config.services.auxide.enable [ "auxide=200=http://127.0.0.1:9090/health/ready" ]
     # The unit check above proves systemd still has it; this proves the token
@@ -125,10 +125,10 @@ let
       export CAZ_HEALTH_CHECK_MINECRAFT=${lib.boolToString minecraftEnabled}
       export CAZ_HEALTH_CHECK_FACTORIO=${lib.boolToString factorioEnabled}
       export CAZ_HEALTH_FACTORIO_COMMAND=/run/current-system/sw/bin/factorio-access
-      ${lib.optionalString (config.homelab.deviceNetwork.enable or false) ''
+      ${lib.optionalString deviceNetworkEnabled ''
         export CAZ_HEALTH_DEVICE_NETWORK_COMMAND=${lib.getExe config.homelab.deviceNetwork.package}
       ''}
-      ${lib.optionalString (config.homelab.localIntegrations.enable or false) ''
+      ${lib.optionalString localIntegrationsEnabled ''
         export CAZ_HEALTH_LOCAL_INTEGRATIONS_COMMAND=${lib.getExe config.homelab.localIntegrations.package}
       ''}
 
@@ -145,7 +145,8 @@ let
     ++ optionals config.services.jellyfin.enable [ "jellyfin.service" ]
     ++ optionals config.services.adguardhome.enable [ "adguardhome.service" ]
     ++ optionals config.services.grafana.enable [ "grafana.service" ]
-    ++ optionals homeAssistantEnabled [ homeAssistantUnit ];
+    ++ optionals homeAssistantEnabled [ homeAssistantUnit ]
+    ++ optionals localIntegrationsEnabled [ "local-integrations.service" ];
   backupStatePaths =
     optionals config.services.samba.enable [ "var/lib/samba" ]
     ++ optionals config.services.jellyfin.enable [ "var/lib/jellyfin" ]
@@ -176,6 +177,8 @@ let
       "${settings.server.dataRoot}/shares"
     ]
     ++ map (path: "/${path}") backupStatePaths
+    ++ optionals deviceNetworkEnabled [ (builtins.dirOf config.homelab.deviceNetwork.configFile) ]
+    ++ optionals localIntegrationsEnabled [ config.homelab.localIntegrations.dataDir ]
     ++ optionals minecraftEnabled [
       config.homelab.minecraft.dataDir
       config.homelab.minecraft.backupDir
@@ -231,10 +234,17 @@ let
     ];
     text = ''
       export CAZ_BACKUP_DIRECTORY=/var/backup/caz-release-updater
+      export CAZ_MINECRAFT_BACKUP_DIR=${lib.escapeShellArg config.homelab.minecraft.backupDir}
       export CAZ_BACKUP_RETENTION_COUNT=${toString cfg.stateBackupRetention}
       export CAZ_BACKUP_FACTORIO=${lib.boolToString factorioEnabled}
       export CAZ_BACKUP_FACTORIO_COMMAND=/run/current-system/sw/bin/factorio-access
       export CAZ_BACKUP_PAUSE_UNITS=${lib.escapeShellArg (concatStringsSep " " pauseUnits)}
+      ${lib.optionalString deviceNetworkEnabled ''
+        export CAZ_BACKUP_DEVICE_NETWORK_COMMAND=${lib.getExe config.homelab.deviceNetwork.package}
+      ''}
+      ${lib.optionalString localIntegrationsEnabled ''
+        export CAZ_BACKUP_LOCAL_INTEGRATIONS_COMMAND=${lib.getExe config.homelab.localIntegrations.package}
+      ''}
       export CAZ_BACKUP_STATE_PATHS=${lib.escapeShellArg (concatStringsSep " " backupStatePaths)}
       export CAZ_CONTAINER_MAINTENANCE_LOCK=${lib.escapeShellArg containerMaintenanceLock}
 
@@ -352,7 +362,7 @@ in
         message = "The initial release updater safety policy requires the Minecraft backup service.";
       }
       {
-        assertion = backupStatePaths != [ ];
+        assertion = backupStatePaths != [ ] || deviceNetworkEnabled || localIntegrationsEnabled;
         message = "Automatic deployment requires at least one application state path to protect.";
       }
       {

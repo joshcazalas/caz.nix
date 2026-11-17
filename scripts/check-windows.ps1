@@ -218,6 +218,7 @@ foreach ($retiredPath in @(
     }
 }
 
+& (Join-Path $PSScriptRoot 'test-windows-bootstrap.ps1')
 & (Join-Path $PSScriptRoot 'test-game-stream-display.ps1')
 
 Write-Host "Validated $($powerShellFiles.Count) PowerShell files, $($jsonFiles.Count) JSON files, $($capabilityFiles.Count) capabilities, and $($profiles.Count) profiles."

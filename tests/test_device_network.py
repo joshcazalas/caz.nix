@@ -5,12 +5,15 @@ import importlib.util
 from pathlib import Path
 import socket
 import stat
+import sys
 import subprocess
 import tempfile
 import threading
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "packages/device-network"))
 
 spec = importlib.util.spec_from_file_location(
     "device_network", Path(__file__).parents[1] / "packages/device-network/device-network.py"

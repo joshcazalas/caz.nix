@@ -4,11 +4,16 @@ import json
 import os
 from pathlib import Path
 import stat
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
+
+from private_file import MAX_BYTES
+
 
 def module(name, filename):
     spec = importlib.util.spec_from_file_location(name, ROOT / 'scripts' / filename)
@@ -79,6 +84,55 @@ class Validation(unittest.TestCase):
             with self.assertRaises(OSError): prepare.private_json(link, os.geteuid())
             parent.chmod(0o755)
             with self.assertRaises(ValueError): prepare.private_json(file, os.geteuid())
+
+    def test_fifo_is_rejected_without_waiting_for_a_writer(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fifo = Path(directory) / "input"
+            os.mkfifo(fifo, 0o600)
+            real_open = os.open
+
+            def checked_open(path, flags, *args, **kwargs):
+                if not flags & os.O_DIRECTORY:
+                    # Fail before entering a blocking open if this regresses.
+                    self.assertTrue(flags & os.O_NONBLOCK)
+                return real_open(path, flags, *args, **kwargs)
+
+            for reader in (prepare.private_json, proxy.read_private):
+                with self.subTest(reader=reader), patch.object(os, "open", checked_open):
+                    with self.assertRaises(ValueError):
+                        reader(fifo, os.geteuid())
+
+    def test_private_reader_owner_and_byte_limit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            folder.chmod(0o755)  # Only the HA JSON caller requires a mode 0700 parent.
+            path = folder / "input"
+            path.write_bytes(b"x" * (MAX_BYTES - 2) + b"\r\n")
+            path.chmod(0o600)
+            self.assertEqual(proxy.read_private(path, os.geteuid()), "x" * (MAX_BYTES - 2) + "\n")
+            with self.assertRaises(ValueError):
+                proxy.read_private(path, os.geteuid() + 1)
+            with self.assertRaises(ValueError):
+                prepare.private_json(path, os.geteuid())
+
+            # Size in bytes still applies if fstat underreports the available data.
+            before_growth = path.stat()
+            path.write_bytes(b"x" * MAX_BYTES + b"x")
+            with self.assertRaises(ValueError):
+                proxy.read_private(path, os.geteuid())
+            with patch.object(os, "fstat", return_value=before_growth), self.assertRaises(ValueError):
+                proxy.read_private(path, os.geteuid())
+
+    def test_ha_rejects_a_symlinked_parent(self):
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory)
+            path = parent / "input"
+            path.write_text("{}")
+            path.chmod(0o600)
+            link = parent / "link"
+            link.symlink_to(parent)
+            with self.assertRaises(OSError):
+                prepare.private_json(link / path.name, os.geteuid())
 
     def test_hardware_requires_one_stable_character_device(self):
         source = '/dev/serial/by-id/usb-Example_Coordinator'

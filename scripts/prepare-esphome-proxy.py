@@ -16,15 +16,7 @@ import subprocess
 import sys
 import tempfile
 
-
-def read_private(path, owner=0):
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
-    with os.fdopen(fd) as stream:
-        info = os.fstat(stream.fileno())
-        if (not stat.S_ISREG(info.st_mode) or info.st_uid != owner
-                or stat.S_IMODE(info.st_mode) != 0o600 or info.st_size > 65536):
-            raise ValueError('Expected an owner-only regular file.')
-        return stream.read()
+from private_file import read_private
 
 
 def proposal(network, occupied, used_ports):

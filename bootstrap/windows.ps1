@@ -11,6 +11,8 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+. (Join-Path $PSScriptRoot 'windows-common.ps1')
+
 $MinimumWinGetVersion = [version]'1.11.430'
 $RepositoryRoot = Split-Path -Parent $PSScriptRoot
 $SourceWindowsRoot = Join-Path $RepositoryRoot 'windows'
@@ -19,36 +21,6 @@ $SourceProfilesRoot = Join-Path $SourceWindowsRoot 'profiles'
 $StagingRoot = Join-Path $env:LOCALAPPDATA "caz.nix\windows\$Profile"
 $StagedCapabilitiesRoot = Join-Path $StagingRoot 'capabilities'
 $StagedScriptsRoot = Join-Path $StagedCapabilitiesRoot 'scripts'
-
-function Test-CurrentUserCanSelfElevate {
-    $whoAmI = Join-Path $env:SystemRoot 'System32\whoami.exe'
-    $groups = @(& $whoAmI /groups /fo csv /nh 2>$null)
-    if ($LASTEXITCODE -ne 0) {
-        throw 'Could not inspect the current Windows security groups with whoami.exe.'
-    }
-
-    return @($groups | Where-Object { $_ -match 'S-1-5-32-544' }).Count -gt 0
-}
-
-function Get-WinGetCommand {
-    $command = Get-Command 'winget.exe' -CommandType Application -ErrorAction SilentlyContinue |
-        Select-Object -First 1
-    if ($null -ne $command -and (Test-Path -LiteralPath $command.Source)) {
-        return $command.Source
-    }
-
-    $appInstaller = Get-AppxPackage -Name Microsoft.DesktopAppInstaller -ErrorAction SilentlyContinue |
-        Sort-Object Version -Descending |
-        Select-Object -First 1
-    if ($null -ne $appInstaller) {
-        $candidate = Join-Path $appInstaller.InstallLocation 'winget.exe'
-        if (Test-Path -LiteralPath $candidate) {
-            return $candidate
-        }
-    }
-
-    return $null
-}
 
 function Test-VCRedistInstalled {
     $paths = @(

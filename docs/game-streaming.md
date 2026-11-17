@@ -145,8 +145,8 @@ custom implementation. It deliberately does not maintain a client firewall
 policy, generate a key, import a tunnel, or decide which peer the gateway
 should authorize.
 
-Both commands stage only one PowerShell file under `%LOCALAPPDATA%` for the UAC
-boundary and remove it afterward. `--check` validates stable package and policy
+Both commands stage the game-stream script and its shared PowerShell helper
+under `%LOCALAPPDATA%` for elevation and remove them afterward. `--check` validates stable package and policy
 state. Tunnel presence and handshake state are printed as observations.
 
 ## Set up PS5 streaming

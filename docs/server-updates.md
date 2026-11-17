@@ -47,8 +47,11 @@ policy gate.
 ## Local deployment transaction
 
 Before changing the NixOS profile, the updater requires the currently running
-server to be healthy. It creates a normal Minecraft world backup, briefly
-pauses the other mutable applications, and archives their state. Home Assistant
+server to be healthy. It starts the Minecraft backup service and verifies that
+a new, nonempty archive appeared in the configured Minecraft backup directory
+and that its compressed tar listing can be read.
+If that check fails, deployment stops before pausing other applications. On
+success it briefly pauses those applications and archives their state. Home Assistant
 is stopped during this short window so its SQLite database is clean in the
 archive. Three archives are retained under `/var/backup/caz-release-updater`;
 Minecraft retains its separate daily archives under `/var/backup/minecraft`.
@@ -67,6 +70,13 @@ its members with `sudo tar --zstd -tf ARCHIVE` and look for
 the `var/lib/AdGuardHome` symlink cannot restore AdGuard's data. After first
 activating the corrected generation, run `sudo caz-pre-deployment-backup`
 to create a fresh archive.
+
+When enabled, the device network and local integrations are covered by the same
+state archive. The access point keeps serving clients while the updater reads
+its configured inputs. Local integration containers pause while the updater
+archives their project and named volumes. After deploying the first release
+with this coverage, run `sudo caz-pre-deployment-backup` to take the first
+such snapshot. See [private integration recovery](device-network.md#backup-and-recovery).
 
 After activation it waits up to ten minutes for these checks, then requires
 them to remain healthy for another minute:
@@ -88,6 +98,31 @@ release can deploy normally; retrying the same release requires an explicit
 Deployment state is stored under `/var/lib/caz-release-updater`. The root-owned
 state and systemd journal form the local audit record. Public releases remain
 build records and do not reveal which release is actually running.
+
+### Recovery after an interrupted deployment
+
+Before changing the system profile, the updater writes `pending-release.json`
+and retains the last healthy running generation through a persistent Nix GC
+root. Once the candidate passes the health gate, the updater renames the pending
+record to `accepted-release.json`. That rename commits the deployment.
+
+If the supervisor dies or the server reboots before acceptance, the next timer
+or manual deployment checks the pending record before contacting GitHub. Under
+the maintenance lock it checks activation access and storage, restores the
+previous generation for both the running system and next boot, and verifies its
+health. It quarantines the interrupted release and ends that invocation with a
+failure status. A later invocation can deploy a newer release or deliberately
+retry with `--force`. The first release containing this change is supervised by
+the previously installed updater. Transactions started by the updated command
+have the new recovery record.
+
+Use `sudo caz-deploy-server-release --status` to see the candidate and rollback
+paths. If restoring the prior generation fails, the updater keeps the record
+and GC root so that a subsequent run can retry. If an administrator selected
+an unrelated running or boot generation, recovery stops before changing it.
+Inspect the journal and the recorded paths before choosing which generation to
+keep. A healthy release started manually outside a pending deployment can still
+be verified and adopted. `--status` and `--check-only` leave recovery state alone.
 
 ### Activation is intentionally host-privileged
 

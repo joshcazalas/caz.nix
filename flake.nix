@@ -206,9 +206,10 @@
             '';
         ha-private = pkgs.runCommand "check-ha-private" { nativeBuildInputs = [ pkgs.python3 ]; } ''
           mkdir scripts tests
+          cp ${./packages/private-file/private_file.py} scripts/private_file.py
           cp ${./scripts/prepare-ha-private.py} scripts/prepare-ha-private.py
-              cp ${./scripts/migrate-ha-private.py} scripts/migrate-ha-private.py
-              cp ${./scripts/prepare-esphome-proxy.py} scripts/prepare-esphome-proxy.py
+          cp ${./scripts/migrate-ha-private.py} scripts/migrate-ha-private.py
+          cp ${./scripts/prepare-esphome-proxy.py} scripts/prepare-esphome-proxy.py
           cp ${./tests/test_ha_private.py} tests/test_ha_private.py
           python -m unittest discover -s tests -p test_ha_private.py -v
           touch "$out"
@@ -263,7 +264,7 @@
               cp ${./tests/test_secondary_backup.py} tests/test_secondary_backup.py
               python -m unittest discover -s tests -p 'test_deployment_storage.py' -v
               python -m unittest discover -s tests -p 'test_secondary_backup.py' -v
-              fakeroot bash ${./tests/pre-deploy-backup.sh} ${./scripts/pre-deploy-backup.sh}
+              PYTHONPATH=${./packages/private-file} fakeroot bash ${./tests/pre-deploy-backup.sh} ${./scripts/pre-deploy-backup.sh} ${./scripts/minecraft-backup.sh} ${./packages/device-network/device-network.py}
               touch "$out"
             '';
         deployment-storage-integration = import ./tests/deployment-storage.nix { inherit pkgs; };
@@ -349,6 +350,7 @@
             }
             ''
               mkdir -p packages/device-network tests
+              cp ${./packages/private-file/private_file.py} packages/device-network/private_file.py
               cp ${./packages/device-network/device-network.py} packages/device-network/device-network.py
               cp ${./tests/test_device_network.py} tests/test_device_network.py
               cp ${./packages/device-network/local-integrations.py} packages/device-network/local-integrations.py
