@@ -51,13 +51,13 @@ Test-NetConnection 192.168.1.124 -Port 22
 | Direct AdGuard queries work; Windows's normal lookup fails | Check the adapter's DNS settings and clear its cache. Inspect VPN, other active adapters, or browser secure DNS if results differ between applications. |
 | Both DNS paths fail | Check access to the router by its management IP, Wi-Fi/Ethernet connectivity, and the router's WAN status. Public DNS may also be blocked; failure alone does not prove an ISP outage. |
 
-A failed SSH test alone does not prove the server is off: LAN restrictions or
-SSH itself may explain it. From the administrator's WSL shell, this command
-keeps the managed `homeserver` SSH identity and overrides only its destination,
-so it does not need hostname resolution:
+A failed SSH test can also indicate a LAN restriction or a problem with SSH
+itself. From the administrator's WSL shell, `ssh homeserver` uses the reserved
+LAN address even during a DNS outage. On an older WSL profile that still
+resolves the short name, connect using the saved host key for `homeserver`.
 
 ```bash
-ssh -o HostName=192.168.1.124 homeserver
+ssh -o HostName=192.168.1.124 -o HostKeyAlias=homeserver homeserver
 ```
 
 Once connected, inspect the service and its recent errors:
@@ -68,7 +68,7 @@ sudo journalctl -u adguardhome.service -n 100 --no-pager
 ```
 
 For the administration UI when DNS is down, run
-`ssh -N -o HostName=192.168.1.124 -L 3300:127.0.0.1:3000 homeserver`
+`ssh -N -o HostName=192.168.1.124 -o HostKeyAlias=homeserver -L 3300:127.0.0.1:3000 homeserver`
 from the administrator's workstation and sign in at `http://127.0.0.1:3300`.
 New installations generate a password during startup. See the
 [first local setup instructions](install-server.md#first-local-setup).

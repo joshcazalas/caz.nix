@@ -398,9 +398,8 @@
           activation=${wslHome.activationPackage}/activate
           ssh_config=${wslHome.config.home.file.".ssh/config".source}
 
-          test ${
-            pkgs.lib.escapeShellArg (pkgs.lib.boolToString (!(wslSshSettings.homeserver.data ? HostName)))
-          } = true
+          test ${pkgs.lib.escapeShellArg wslSshSettings.homeserver.data.HostName} = ${pkgs.lib.escapeShellArg settings.server.lanAddress}
+          test ${pkgs.lib.escapeShellArg wslSshSettings.homeserver.data.HostKeyAlias} = homeserver
           test ${pkgs.lib.escapeShellArg wslSshSettings.homeserver.data.IdentityFile} = '~/.ssh/id_ed25519'
           test ${pkgs.lib.escapeShellArg wslSshSettings.homeserver.data.IdentityAgent} = none
           test ${pkgs.lib.escapeShellArg wslSshSettings."homeserver-vpn".data.HostName} = 10.77.1.1

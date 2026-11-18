@@ -304,11 +304,22 @@ backup of the private key away from the server; never commit or copy the private
 key into this repository. `ssh-agent` can cache the unlocked key for the current
 login session without removing its at-rest encryption.
 
-The managed WSL SSH profile uses the LAN resolver for `ssh homeserver`.
+The managed WSL SSH profile connects `ssh homeserver` directly to the reserved
+LAN address and checks the host key saved under `homeserver`. This keeps LAN
+administration available while AdGuard is stopped for a deployment backup.
 Both `ssh homeserver-vpn` and `ssh homeserver-remote` use `10.77.1.1` while
 public SSH is disabled. Server aliases require the key's passphrase for each
 new connection rather than using the agent. Only the current administrator
 laptop's SSH public key is declared in `settings.nix`.
+
+If a login fails after a deployment command, keep the terminal open and run
+`hostname`. A result of `homeserver` means you already have a server shell.
+Running `ssh homeserver` there starts a second connection from the server,
+which has no access to the laptop's key. Open a fresh WSL tab, confirm
+`hostname` prints `cazpc`, then run `ssh homeserver` for a new LAN login.
+If that fails too, use `ssh -v homeserver` in WSL and compare its destination
+and offered key with `sudo journalctl -u sshd --since '5 minutes ago'` in the
+open server shell.
 
 After deploying:
 

@@ -96,10 +96,12 @@ in
         IdentitiesOnly = true;
       };
 
-      # Leave HostName unset so the LAN resolver receives `homeserver` exactly
-      # as it did before this file was managed. The public DNS name is not
-      # resolvable from the home network.
-      "homeserver" = serverSettings;
+      # LAN administration must work while the server's own DNS is down.
+      # Continue verifying the host key already saved under the alias.
+      "homeserver" = serverSettings // {
+        HostName = settings.server.lanAddress;
+        HostKeyAlias = "homeserver";
+      };
 
       # The household WireGuard interface gives the server a stable address
       # that is routable only while the narrow home-access tunnel is active.
