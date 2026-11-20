@@ -22,11 +22,11 @@
       flake = false;
     };
     scene-presets-src = {
-      url = "github:Hypfer/hass-scene_presets/2.4.0";
+      url = "github:Hypfer/hass-scene_presets/2.5.0";
       flake = false;
     };
     home-connect-direct-src = {
-      url = "github:Asmir1975/homeconnect_direct/1.13.2b1";
+      url = "github:Asmir1975/homeconnect_direct/1.13.1";
       flake = false;
     };
   };

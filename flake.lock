@@ -57,16 +57,16 @@
     "home-connect-direct-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1794649668,
-        "narHash": "sha256-hHODrgZB+TrIdLTAy0nZgrGsCe3nUvD2JGAt8xp1FqM=",
+        "lastModified": 1793973051,
+        "narHash": "sha256-PtZZBBIgsxi8IHhQCA/A74CUEKJWxxI8ytPx8yif1Ow=",
         "owner": "Asmir1975",
         "repo": "homeconnect_direct",
-        "rev": "0b3af65e4d4a410cb1e0282f170c95737a3072ea",
+        "rev": "0629a038c8ee15836216b62eb43d13436786a933",
         "type": "github"
       },
       "original": {
         "owner": "Asmir1975",
-        "ref": "1.13.2b1",
+        "ref": "1.13.1",
         "repo": "homeconnect_direct",
         "type": "github"
       }
@@ -170,16 +170,16 @@
     "scene-presets-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1786312889,
-        "narHash": "sha256-pHY68H0nr7eO3tGtVLtzj6cOZO3+VxC00VZmhZy+2Pk=",
+        "lastModified": 1794859752,
+        "narHash": "sha256-UvrtcZc4afG9kSTsoBX9s5UsIewrkHvLDgKo/DrcamE=",
         "owner": "Hypfer",
         "repo": "hass-scene_presets",
-        "rev": "b53280c76f6a94ea68f313c53865c3922d40b2d7",
+        "rev": "969548fe412f25b8dd5e8ee8b04f4452e7a5257a",
         "type": "github"
       },
       "original": {
         "owner": "Hypfer",
-        "ref": "2.4.0",
+        "ref": "2.5.0",
         "repo": "hass-scene_presets",
         "type": "github"
       }
