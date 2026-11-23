@@ -12,7 +12,7 @@ let
     ++ lib.optional (
       config.homelab.bluemap.enable && settings.public.bluemap
     ) "map.${settings.public.domain}";
-  credential = "public-web-tunnel";
+  secretName = "cloudflare/tunnel-token";
 in
 lib.mkIf (hostnames != [ ]) {
   assertions = [
@@ -43,17 +43,51 @@ lib.mkIf (hostnames != [ ]) {
     });
   };
 
-  # The dashboard owns the two hostname routes. The operator provisions the
-  # connector token as a host-encrypted systemd credential before deployment.
+  sops.secrets.${secretName} = {
+    sopsFile = ../../secrets/homeserver.yaml;
+    key = "cloudflare/tunnelToken";
+    restartUnits = [ "public-web-tunnel.service" ];
+  };
+
+  # The dashboard owns the two hostname routes.
   systemd.services.public-web-tunnel = {
     description = "Cloudflare Tunnel for public websites";
     wantedBy = [ "multi-user.target" ];
-    wants = [ "network-online.target" ];
-    after = [ "network-online.target" ];
+    wants = [
+      "network-online.target"
+      "adguardhome.service"
+    ];
+    after = [
+      "network-online.target"
+      "adguardhome.service"
+    ];
+
+    # During a live switch AdGuard can be starting while network-online is
+    # already active. Probe the same discovery chain cloudflared needs.
+    path = [
+      pkgs.bind.dnsutils
+      pkgs.gawk
+      pkgs.gnugrep
+    ];
+    preStart = ''
+      for attempt in {1..20}; do
+        if edge=$(dig +time=1 +tries=1 +short SRV _v2-origintunneld._tcp.argotunnel.com. |
+            awk 'NF == 4 && $3 == 7844 { print $4; exit }') &&
+          [[ -n "$edge" ]] &&
+          dig +time=1 +tries=1 +short A "$edge" | grep -Eq '^[0-9]+([.][0-9]+){3}$'; then
+          exit 0
+        fi
+        sleep 1
+      done
+      echo "Cloudflare edge discovery DNS is unavailable" >&2
+      exit 1
+    '';
     serviceConfig = {
       DynamicUser = true;
-      LoadCredentialEncrypted = credential;
-      ExecStart = "${lib.getExe pkgs.cloudflared} tunnel --no-autoupdate run --token-file %d/${credential}";
+      Type = "notify";
+      TimeoutStartSec = "120s";
+      LoadCredential = "tunnel-token:${config.sops.secrets.${secretName}.path}";
+      ExecStart = "${lib.getExe pkgs.cloudflared} tunnel --no-autoupdate run --token-file %d/tunnel-token";
       Restart = "on-failure";
       RestartSec = "5s";
       NoNewPrivileges = true;
