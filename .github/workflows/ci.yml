@@ -63,7 +63,7 @@ jobs:
       # fit the server closure on a runner that cannot hold it; this job only
       # realises the small development shell.
       - name: Install Nix
-        uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # v31.11.5
+        uses: cachix/install-nix-action@bb0495a1086c46893eee56f32fd192dfe4a15bb9 # v32.0.0
 
       - name: Check formatting, source, and workflows
         run: nix develop --command ./scripts/check.sh
@@ -97,7 +97,7 @@ jobs:
           hatchet-protocol: holster
 
       - name: Install Nix
-        uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # v31.11.5
+        uses: cachix/install-nix-action@bb0495a1086c46893eee56f32fd192dfe4a15bb9 # v32.0.0
         with:
           extra_nix_config: |
             build-dir = /nix/build
@@ -129,7 +129,7 @@ jobs:
           hatchet-protocol: holster
 
       - name: Install Nix
-        uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # v31.11.5
+        uses: cachix/install-nix-action@bb0495a1086c46893eee56f32fd192dfe4a15bb9 # v32.0.0
         with:
           extra_nix_config: |
             build-dir = /nix/build
@@ -164,7 +164,7 @@ jobs:
           hatchet-protocol: holster
 
       - name: Install Nix
-        uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # v31.11.5
+        uses: cachix/install-nix-action@bb0495a1086c46893eee56f32fd192dfe4a15bb9 # v32.0.0
         with:
           extra_nix_config: |
             build-dir = /nix/build
