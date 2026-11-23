@@ -88,6 +88,18 @@ class ValidationTests(unittest.TestCase):
         del config["wifi"]
         self.assertIs(network.validate(config), config)
 
+    def test_vlan_configuration(self):
+        config = fixture()
+        config["vlan"] = {"parent": "eth-test", "id": 123}
+        with self.assertRaises(ValueError):
+            network.validate(config)
+        del config["wifi"]
+        self.assertIs(network.validate(config), config)
+        for field, value in (("parent", "lo"), ("parent", config["interface"]),
+                             ("id", 0), ("id", 4095), ("id", True)):
+            with self.subTest(field=field, value=value), self.assertRaises(ValueError):
+                network.validate({**config, "vlan": {**config["vlan"], field: value}})
+
     def test_rejects_external_destinations_and_dns_escape(self):
         for key, target in (("events", "8.8.8.8"), ("events", "example.com"),
                             ("events", "::1"), ("events", "169.254.169.254"),

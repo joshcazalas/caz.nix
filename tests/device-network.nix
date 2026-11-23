@@ -407,6 +407,25 @@ pkgs.testers.runNixOSTest {
         server.fail("caz-device-network health")
         server.succeed(f"chmod 0600 {config_file}")
 
+    with subtest("Tagged child survives restarts without moving or reconfiguring its parent"):
+        server.succeed("systemctl stop device-network.target device-network.service")
+        server.succeed(f"cp {config_file} /run/pre-vlan.json")
+        server.succeed(f"""python -c 'import json; p="{config_file}"; c=json.load(open(p)); c.update(interface="device-tag", vlan=dict(parent="eth2", id=123)); json.dump(c,open(p,"w"))'""")
+        server.succeed("ip addr add 192.0.2.1/24 dev eth2", "ip link set eth2 up")
+        device.succeed("ip link add link eth1 name tag-test type vlan id 123",
+                       "ip addr add 192.168.70.22/32 dev tag-test", "ip link set tag-test up",
+                       "ip route add 192.168.70.1/32 dev tag-test src 192.168.70.22")
+        for action in ["start device-network.target", "restart device-network.service"]:
+            server.succeed(f"systemctl {action}")
+            server.wait_until_succeeds("caz-device-network health")
+            server.succeed("ip -4 addr show eth2 | grep -F 192.0.2.1/24")
+            server.fail("ip link show device-tag")
+            device.succeed("dig +time=2 +tries=1 +short @192.168.70.1 service.test | grep -Fx 192.168.70.1")
+        server.succeed("systemctl stop device-network.target device-network.service")
+        device.succeed("ip link del tag-test")
+        server.succeed("ip addr del 192.0.2.1/24 dev eth2", "ip link set eth2 down",
+                       f"cp /run/pre-vlan.json {config_file}")
+
     with subtest("Reboot recreates the network and grants from private configuration"):
         server.shutdown()
         server.start()
