@@ -4,15 +4,10 @@
 3D web tiles. The plugin runs inside the existing Minecraft container, writes
 static files, and Caddy serves them over HTTPS at `map.<domain>`.
 
-## Before the first release that enables this
+## Public HTTPS
 
-Two manual steps, same shape as the Minecraft exposure checklist. Do them
-**before merging**, or Caddy will fail certificate issuance until they exist.
-
-1. **Forward TCP 80 and 443** on the router to the homeserver's reserved LAN
-   address. Certificate issuance needs both reachable from the Internet.
-2. The `map.<domain>` A record is created automatically by Cloudflare DDNS on
-   the next deployment. Leave it **DNS-only**, not proxied.
+The [shared web tunnel](website.md#public-https) routes the public map
+hostname to Caddy. Local clients access the same static files through split DNS.
 
 The container downloads the newest compatible stable Paper plugin from
 Modrinth at startup. It needs network access to resolve and download releases;

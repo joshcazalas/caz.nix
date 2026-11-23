@@ -27,8 +27,8 @@
     ssh = false;
     jellyfin = false;
     # A read-only static tile server. Much smaller attack surface than
-    # Jellyfin, but still a deliberate Internet exposure: it needs the router
-    # forward and DNS record from docs/bluemap.md before it can work.
+    # Jellyfin, but still a deliberate Internet exposure: its public hostname
+    # uses the Cloudflare Tunnel documented in docs/bluemap.md.
     bluemap = true;
   };
 }
