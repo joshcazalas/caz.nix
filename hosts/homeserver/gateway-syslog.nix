@@ -22,6 +22,8 @@ let
     ${ipset} destroy ${senderSet}-next
   '';
 
+  flowDirectory = "/var/lib/gateway-flows";
+
   receiverConfig = pkgs.writeText "gateway-syslog.conf" ''
     module(load="imudp")
     module(load="omstdout")
@@ -34,8 +36,36 @@ in
   networking.firewall.extraCommands = ''
     ${ipset} create ${senderSet} hash:ip family inet -exist
     iptables -w -A nixos-fw -i ${lib.escapeShellArg lanInterface} -d ${lanAddress}/32 \
-      -p udp --dport 514 -m set --match-set ${senderSet} src -j nixos-fw-accept
+      -p udp -m multiport --dports 514,4739 -m set --match-set ${senderSet} src -j nixos-fw-accept
   '';
+
+  environment.systemPackages = [ pkgs.nfdump ];
+
+  systemd.services.gateway-flows = {
+    description = "Collect IPFIX records from the LAN gateway";
+    wantedBy = [ "multi-user.target" ];
+    # The syslog receiver populates the shared gateway-only firewall set.
+    wants = [ "gateway-syslog.service" ];
+    after = [
+      "gateway-syslog.service"
+      "network-online.target"
+    ];
+    environment.TZ = "UTC";
+    serviceConfig = {
+      DynamicUser = true;
+      StateDirectory = "gateway-flows";
+      StateDirectoryMode = "0700";
+      UMask = "0077";
+      ExecStartPre = "${pkgs.nfdump}/bin/nfexpire -u ${flowDirectory} -s 512m -t 14d -w 95";
+      ExecStart = "${pkgs.nfdump}/bin/nfcapd -4 -b ${lanAddress} -p 4739 -w ${flowDirectory} -t 300 -e -z=lz4";
+      NoNewPrivileges = true;
+      ProtectHome = true;
+      ProtectSystem = "strict";
+      PrivateTmp = true;
+      Restart = "on-failure";
+      RestartSec = "5s";
+    };
+  };
 
   environment.etc."systemd/journald@gateway.conf".text = ''
     [Journal]
