@@ -129,15 +129,14 @@ in
     };
   };
 
-  # The gaming host is an intentionally low-trust target. Among private
-  # homeserver services, it may use only DNS; it does not inherit SSH, storage,
-  # Home Assistant, or administrative access merely because it sits on the
-  # LAN. Deliberately public services remain reachable as they are from any
-  # Internet client.
+  # The gaming host uses DNS and Jellyfin on the private LAN.
   homelab.networkPolicy.restrictedLANClients = [
     {
       address = config.homelab.gameStreamGateway.hostAddress;
-      allowedTCPPorts = [ 53 ];
+      allowedTCPPorts = [
+        53
+        8096
+      ];
       allowedUDPPorts = [ 53 ];
     }
   ];
