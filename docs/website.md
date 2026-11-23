@@ -18,8 +18,8 @@ sites. Public mode also binds HTTP redirects to those addresses.
 ## Public HTTPS
 
 Cloudflare Tunnel routes the public portfolio and BlueMap hostnames to Caddy
-over HTTPS on loopback. The connector loads its token from the host-encrypted
-systemd credential `public-web-tunnel`. AdGuard resolves both names directly
+over HTTPS on loopback. The connector loads the `cloudflare/tunnelToken` SOPS secret through a
+private systemd credential. AdGuard resolves both names directly
 to Caddy on the LAN. NixOS ACME renews their certificates using Cloudflare
 DNS-01 with the existing DNS API credential.
 
