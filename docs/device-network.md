@@ -7,7 +7,7 @@ and provision its private runtime configuration before deploying that release.
 
 ## Network boundary
 
-A dedicated Wi-Fi radio (or dedicated wired interface) belongs to the `devices`
+A dedicated Wi-Fi radio, wired interface, or 802.1Q VLAN interface belongs to the `devices`
 network namespace. That namespace contains only the dedicated interface and
 loopback. It has no uplink, veth connection, default route, NAT, or IPv6. IPv4
 forwarding is disabled and the namespace firewall defaults to dropping input and
@@ -86,6 +86,12 @@ no grants or aliases are needed.
   }
 }
 ```
+
+For a tagged Ethernet network, omit `wifi`, use `interface` for the child
+interface name and supply `"vlan": {"parent": "eth-example", "id": 123}`.
+The service creates that child inside the namespace and deletes it on stop.
+The parent retains its host addresses and routes. Provision the VLAN on the
+physical switch path and keep this namespace as its only DHCP server.
 
 Use an unused RFC 1918 subnet, and a radio that no other network manager owns.
 Never use the server's LAN uplink. Startup refuses an interface that is up,

@@ -70,10 +70,17 @@ def listener_address(config, grant):
 
 
 def validate(config):
-    keys(config, ("interface", "address", "dhcp"), ("wifi", "dns", "tcp"))
+    keys(config, ("interface", "address", "dhcp"), ("wifi", "dns", "tcp", "vlan"))
     require(isinstance(config["interface"], str) and INTERFACE.fullmatch(config["interface"]),
             "Invalid dedicated interface")
     require(config["interface"] != "lo", "Loopback cannot be a dedicated interface")
+    if "vlan" in config:
+        vlan = config["vlan"]
+        keys(vlan, ("parent", "id"))
+        require("wifi" not in config, "Select either a tagged interface or a dedicated radio")
+        require(isinstance(vlan["parent"], str) and INTERFACE.fullmatch(vlan["parent"])
+                and vlan["parent"] not in ("lo", config["interface"]), "Invalid VLAN parent")
+        require(type(vlan["id"]) is int and 1 <= vlan["id"] <= 4094, "Invalid VLAN ID")
     address = ipaddress.IPv4Interface(config["address"])
     private_address(str(address.ip))
     require(16 <= address.network.prefixlen <= 29, "Use an IPv4 subnet between /16 and /29")
@@ -230,15 +237,18 @@ def up(config):
     # starts. Wait for this device's udev initialization before inspecting it.
     # Do not bind the service to its host .device unit: moving the interface
     # into our namespace intentionally removes it from the host network view.
+    vlan = config.get("vlan")
+    device = vlan["parent"] if vlan else iface
     try:
-        run("udevadm", "wait", "--timeout=30", f"/sys/class/net/{iface}")
+        run("udevadm", "wait", "--timeout=30", f"/sys/class/net/{device}")
     except subprocess.CalledProcessError as error:
         raise ConfigurationError("Dedicated interface did not initialize within 30 seconds") from error
-    link = json.loads(run("ip", "-j", "address", "show", "dev", iface, capture=True).stdout)[0]
-    require("UP" not in link["flags"] and not link["addr_info"],
-            "Dedicated interface must be down and unconfigured; refusing to take an active interface")
-    require(not run("ip", "-4", "route", "show", "dev", iface, capture=True).stdout.strip(),
-            "Dedicated interface has routes")
+    if not vlan:
+        link = json.loads(run("ip", "-j", "address", "show", "dev", iface, capture=True).stdout)[0]
+        require("UP" not in link["flags"] and not link["addr_info"],
+                "Dedicated interface must be down and unconfigured; refusing to take an active interface")
+        require(not run("ip", "-4", "route", "show", "dev", iface, capture=True).stdout.strip(),
+                "Dedicated interface has routes")
     if config.get("wifi"):
         phy = (Path("/sys/class/net") / iface / "phy80211").resolve(strict=True).name
         siblings = [p.name for p in Path("/sys/class/net").iterdir()
@@ -247,7 +257,12 @@ def up(config):
     run("ip", "netns", "add", NAMESPACE)
     # Ownership marker prevents ExecStopPost from deleting a namespace we did not create.
     write(RUNTIME / "owned", "1")
-    if config.get("wifi"):
+    if vlan:
+        # Create the child directly in the isolated namespace. Only the parent
+        # lives on the host, including during a partial start or restart.
+        run("ip", "link", "add", "link", device, "name", iface, "netns", NAMESPACE,
+            "type", "vlan", "id", str(vlan["id"]))
+    elif config.get("wifi"):
         run("iw", "phy", phy, "set", "netns", "name", NAMESPACE)
     else:
         run("ip", "link", "set", iface, "netns", NAMESPACE)
@@ -280,7 +295,9 @@ def down():
         if any(link["ifname"] == iface for link in links):
             run("ip", "-n", NAMESPACE, "link", "set", iface, "down")
             run("ip", "-n", NAMESPACE, "address", "flush", "dev", iface)
-            if config.get("wifi"):
+            if config.get("vlan"):
+                run("ip", "-n", NAMESPACE, "link", "delete", iface)
+            elif config.get("wifi"):
                 ns("iw", "dev", iface, "set", "type", "managed")
                 # Moving by interface wiphy avoids relying on unstable phy indexes.
                 info = ns("iw", "dev", iface, "info", capture=True).stdout
