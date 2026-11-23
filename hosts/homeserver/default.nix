@@ -17,6 +17,7 @@ let
 in
 {
   imports = [
+    ./gateway-syslog.nix
     ./hardware.nix
     ./public-web.nix
     ../../modules/nixos/base.nix
