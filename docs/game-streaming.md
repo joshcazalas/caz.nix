@@ -32,9 +32,8 @@ untested display is an observation rather than configuration drift.
 ## Retire administration credentials from the host
 
 The Sunshine host is intentionally a low-trust entertainment endpoint. Among
-private homeserver services, its reserved LAN address is restricted at the
-firewall to TCP/UDP DNS 53; it no longer inherits SSH, Samba, Home Assistant, or
-other private services from being on the home LAN. Deliberately public services
+private homeserver services, its reserved LAN address can reach DNS on TCP/UDP
+53 and Jellyfin on TCP 8096. Deliberately public services
 remain reachable just as they are from an Internet client. That source-address
 rule is useful containment, not a substitute for removing credentials: a valid
 GitHub write credential could still publish a release, and some routers may
