@@ -169,16 +169,11 @@ minutes and reconciles only the explicitly configured DNS records. IPv6
 updates are disabled alongside host IPv6, records are never deleted when the
 service stops, and the updater has no inbound listener.
 
-`homelab.cloudflareDdns.allowedZones` permits records at the apex or under
-`joshcaz.com` and `joshcazalas.com`. Only the names listed in `domains` are
-managed; this includes the website apex even while public serving is disabled.
-
-Create a Cloudflare API token with exactly:
-
-- permission `Zone` / `DNS` / `Edit`;
-- zone resources `Include` / `Specific zone` for both `joshcaz.com` and
-  `joshcazalas.com`;
-- no account permissions, global API key, or source-IP restriction.
+`homelab.cloudflareDdns.domains` lists the records that follow the WAN address
+under the configured DDNS zone. The portfolio and BlueMap use the
+[web tunnel](website.md#public-https). Their certificates
+also use this token for DNS-01. Give it **Zone / DNS / Edit** and **Zone / Zone /
+Read** scoped to the two published zones.
 
 A source-IP restriction defeats recovery after the public address changes.
 Cloudflare displays the token once; put it directly in the sops editor and
@@ -206,8 +201,7 @@ renders a mode-0400 environment file owned by the unprivileged DDNS service,
 and never places plaintext in the Nix store.
 
 Keep game, VPN, SSH, and media records in **DNS-only** (gray-cloud) mode.
-The website apex can use Cloudflare's proxy. The updater preserves an existing
-record's proxy setting, while `proxied = false` is the fallback for records it
+The updater preserves an existing record's proxy setting, while `proxied = false` is the fallback for records it
 creates. Managed names must use A records, not CNAME aliases.
 
 Operate and verify it with:
@@ -219,12 +213,8 @@ dig @1.1.1.1 +short mc.joshcaz.com A
 curl -4fsS https://api.ipify.org; echo
 ```
 
-The two addresses should match for the DNS-only Minecraft record. For a proxied
-website record, public DNS returns Cloudflare addresses; check its origin IPv4
-in the Cloudflare dashboard against the home's public address instead.
-Cloudflare may also return its own IPv6 addresses for a proxied record without
-enabling IPv6 on the homeserver. Revoking the scoped token stops future DNS
-updates but grants no shell, Cloudflare account, or non-DNS access.
+The two addresses should match for the DNS-only Minecraft record. Revoking the
+scoped token stops future DNS updates and certificate renewals.
 
 ## Public media path
 

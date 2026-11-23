@@ -18,6 +18,7 @@ in
 {
   imports = [
     ./hardware.nix
+    ./public-web.nix
     ../../modules/nixos/base.nix
     ../../modules/nixos/storage.nix
     ../../modules/nixos/secondary-backup.nix
@@ -62,14 +63,8 @@ in
   # only at activation time and never enters the Nix store.
   homelab.cloudflareDdns = {
     enable = true;
-    allowedZones = [
-      settings.public.domain
-      config.homelab.website.public.domain
-    ];
     domains = [
       "mc.${settings.public.domain}"
-      # Prepare website DNS independently of enabling public serving.
-      config.homelab.website.public.domain
     ]
     ++ lib.optionals (config.services.factorio.enable && config.services.factorio.openFirewall) [
       "factorio.${settings.public.domain}"
@@ -81,8 +76,7 @@ in
       "home-vpn.${settings.public.domain}"
     ]
     ++ lib.optionals settings.public.ssh [ "ssh.${settings.public.domain}" ]
-    ++ lib.optionals settings.public.jellyfin [ "jellyfin.${settings.public.domain}" ]
-    ++ lib.optionals settings.public.bluemap [ "map.${settings.public.domain}" ];
+    ++ lib.optionals settings.public.jellyfin [ "jellyfin.${settings.public.domain}" ];
   };
 
   # Both streaming clients share this gateway and use exact destination routes.

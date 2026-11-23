@@ -13,29 +13,15 @@ WireGuard and container interfaces from that listener.
 
 While the website module is enabled, Caddy's site listeners default to
 `127.0.0.1` and `settings.server.lanAddress`, including other modules' HTTPS
-sites. Public mode also binds HTTP redirects to those addresses. Router port
-forwards continue to reach the LAN address; other loopback addresses remain
-available for local services that need the same ports.
+sites. Public mode also binds HTTP redirects to those addresses.
 
-## Prepare DNS
+## Public HTTPS
 
-The homeserver's Cloudflare DDNS configuration manages the `joshcazalas.com`
-apex alongside the existing `joshcaz.com` hostnames. The token needs
-`Zone` / `DNS` / `Edit` for both zones; see [Dynamic DNS](remote-access.md#dynamic-dns).
-Create an A record named `@` in the `joshcazalas.com` zone pointing to the home's
-public IPv4 address. The updater preserves that record's existing proxy setting
-and keeps its origin address current.
-
-After deploying the configuration, check `cloudflare-ddns.service` and its
-journal to confirm the apex is managed. DNS updates continue if public website
-serving is later disabled.
-
-For public serving, forward TCP ports 80 and 443 to the homeserver. Caddy handles
-certificates and HTTP-to-HTTPS redirects; see its
-[HTTPS requirements](https://caddyserver.com/docs/automatic-https#overview).
-If the record is proxied, use Cloudflare's
-[Full (strict) SSL/TLS mode](https://developers.cloudflare.com/ssl/origin-configuration/ssl-modes/full-strict/)
-once Caddy has obtained the origin certificate.
+Cloudflare Tunnel routes the public portfolio and BlueMap hostnames to Caddy
+over HTTPS on loopback. The connector loads its token from the host-encrypted
+systemd credential `public-web-tunnel`. AdGuard resolves both names directly
+to Caddy on the LAN. NixOS ACME renews their certificates using Cloudflare
+DNS-01 with the existing DNS API credential.
 
 ## Verify the public deployment
 
@@ -62,14 +48,11 @@ local HTTP listener. Compare the reported commit with the website release.
 
 From a device outside the home network, open `https://joshcazalas.com`, press
 Play, and visit each project outpost. Check the same release identity at
-`https://joshcazalas.com/release.json`. If HTTPS is unavailable, inspect
-`journalctl -u caddy.service` and confirm the router forwards both ports to the
-homeserver.
+`https://joshcazalas.com/release.json`. The connector and Caddy log service
+errors to the system journal.
 
-To return to LAN-only serving after verification, set
-`homelab.website.public.enable = false` in a follow-up PR and deploy it. Keep
-release mode and automatic updates enabled; the LAN listener will continue to
-serve verified releases, and DDNS will keep the apex current.
+In release mode, the LAN preview listener continues to serve signed releases
+even when `homelab.website.public.enable` is disabled.
 
 ## Import a private preview
 
